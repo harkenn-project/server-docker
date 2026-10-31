@@ -16,11 +16,10 @@ The device side of the contract is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
 set KOTODAMA_PUBLIC_URL=http://localhost:8000
-set KOTODAMA_ADMIN_PASSWORD=change-me
 .venv\Scripts\uvicorn --factory app.main:create_app --port 8000
 ```
 
-Then open http://localhost:8000/admin. Data goes to `./data` unless `KOTODAMA_DATA_DIR` is set.
+Then open http://localhost:8000/admin. The first visit asks you to choose an admin password. Data goes to `./data` unless `KOTODAMA_DATA_DIR` is set.
 
 To try it without hardware, run a fake speaker. It prints the adoption code to enter on the admin page:
 
@@ -34,8 +33,8 @@ Run the tests with `.venv\Scripts\pytest -q`.
 
 | Variable | Default | |
 |---|---|---|
-| `KOTODAMA_ADMIN_PASSWORD` | random, printed in the log | Admin UI password |
-| `KOTODAMA_SESSION_SECRET` | random per start | Signs admin session cookies |
+| `KOTODAMA_ADMIN_PASSWORD` | unset | Normally leave this unset. The first visit to `/admin` asks you to choose a password, which is stored hashed in the database, and **Password** in the admin UI changes it. Set this variable only to get back in after losing that password: it is used only while no UI password exists, so delete `admin_password_hash` from the `settings` table first. |
+| `KOTODAMA_SESSION_SECRET` | generated and stored in the database | Signs admin session cookies |
 | `KOTODAMA_PUBLIC_URL` | `https://kotodama.mylife.ninja` | Base URL put into the asset links sent to speakers |
 | `KOTODAMA_DATA_DIR` | `./data` (`/data` in the image) | SQLite database, characters, recordings |
 | `KOTODAMA_SECURE_COOKIES` | `true` for an https public URL | |
@@ -46,8 +45,8 @@ Run the tests with `.venv\Scripts\pytest -q`.
 ## Deploy
 
 On pushes to the default branch, CI builds `registry.gitlab.com/ninjalife/kotodama:latest`. The Kubernetes manifest
-is `playbooks/manifests/kotodama-speaker.yml` in `kubernetes-deployments`. Its header lists the two secrets you have to
-create by hand.
+is `playbooks/manifests/kotodama-speaker.yml` in `kubernetes-deployments`. Its header explains the registry pull
+secret.
 
 Run it as **one replica**. Speaker connections are held in memory, and SQLite has a single writer.
 

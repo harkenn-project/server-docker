@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from .assets import STATES
+from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
 from .device_api import hash_token
 from .models import ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn
@@ -70,20 +71,45 @@ def _page(request: Request, name: str, **context: Any) -> Response:
 
 
 def _login_redirect(request: Request) -> RedirectResponse:
+    if not password_configured(get_ctx(request)):
+        return RedirectResponse("/admin/setup", status_code=303)
     return RedirectResponse(f"/admin/login?next={request.url.path}", status_code=303)
 
 
-# pages
+# pages: authentication
+
+@pages.get("/setup")
+async def setup_page(request: Request) -> Response:
+    if password_configured(get_ctx(request)):
+        return RedirectResponse("/admin/login", status_code=303)
+    return _page(request, "setup.html", error=None)
+
+
+@pages.post("/setup")
+async def setup(request: Request, password: str = Form(...), confirm: str = Form(...)) -> Response:
+    c = get_ctx(request)
+    if password_configured(c):
+        return RedirectResponse("/admin/login", status_code=303)
+    error = validate_new_password(password, confirm)
+    if error:
+        resp = _page(request, "setup.html", error=error)
+        resp.status_code = 400
+        return resp
+    await run_in_threadpool(set_password, c, password)
+    request.session["admin"] = True
+    return RedirectResponse("/admin", status_code=303)
+
 
 @pages.get("/login")
 async def login_page(request: Request, next: str = "/admin") -> Response:
+    if not password_configured(get_ctx(request)):
+        return RedirectResponse("/admin/setup", status_code=303)
     return _page(request, "login.html", next=next, error=None)
 
 
 @pages.post("/login")
 async def login(request: Request, password: str = Form(...), next: str = Form("/admin")) -> Response:
-    expected = get_ctx(request).settings.admin_password
-    if hmac.compare_digest(password.encode(), expected.encode()):
+    if await run_in_threadpool(check_password, get_ctx(request), password):
         request.session["admin"] = True
         target = next if next.startswith("/admin") and not next.startswith("//") else "/admin"
         return RedirectResponse(target, status_code=303)
@@ -91,6 +117,35 @@ async def login(request: Request, password: str = Form(...), next: str = Form("/
     resp = _page(request, "login.html", next=next, error="Wrong password")
     resp.status_code = 401
     return resp
+
+
+@pages.get("/password")
+async def password_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "password.html", error=None, saved=False)
+
+
+@pages.post("/password")
+async def change_password(request: Request, current: str = Form(...), password: str = Form(...),
+                          confirm: str = Form(...)) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    if not await run_in_threadpool(check_password, c, current):
+        await asyncio.sleep(1)
+        error = "Current password is wrong"
+    else:
+        error = validate_new_password(password, confirm)
+    if error:
+        resp = _page(request, "password.html", error=error, saved=False)
+        resp.status_code = 400
+        return resp
+    await run_in_threadpool(set_password, c, password)
+    return _page(request, "password.html", error=None, saved=True)
+
+
+# pages
 
 
 @pages.post("/logout")

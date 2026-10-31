@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -31,9 +32,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     characters = CharacterStore(settings.characters_dir, settings.cache_dir)
     ensure_default_character(characters)
 
+    db = Database(settings.db_path)
+    session_secret = settings.session_secret or db.get_setting("session_secret")
+    if not session_secret:
+        session_secret = secrets.token_urlsafe(48)
+        db.set_setting("session_secret", session_secret)
+
     app = FastAPI(title="Kotodama", version=__version__, docs_url="/api/docs", redoc_url=None)
-    app.state.ctx = Context(settings=settings, db=Database(settings.db_path), hub=Hub(), characters=characters)
-    app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, session_cookie="kotodama_session",
+    app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters)
+    app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="kotodama_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
     app.include_router(device_router)

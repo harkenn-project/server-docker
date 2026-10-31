@@ -1,21 +1,17 @@
 """Runtime settings, read from KOTODAMA_* environment variables."""
 from __future__ import annotations
 
-import logging
 import os
-import secrets
 from dataclasses import dataclass
 from pathlib import Path
-
-log = logging.getLogger("kotodama")
 
 
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path
-    admin_password: str
-    session_secret: str
     public_url: str
+    admin_password: str = ""  # bootstrap/recovery only; see auth.py
+    session_secret: str = ""  # generated and stored in the database when empty
     secure_cookies: bool = True
     adoption_ttl_s: int = 600
     max_pending_adoptions: int = 20
@@ -42,14 +38,10 @@ class Settings:
 
 def load_settings() -> Settings:
     env = os.environ.get
+    # Both optional: the admin password is normally set in the web UI, and the session secret is generated and
+    # stored in the database on first start.
     admin_password = env("KOTODAMA_ADMIN_PASSWORD", "")
-    if not admin_password:
-        admin_password = secrets.token_urlsafe(12)
-        log.warning("KOTODAMA_ADMIN_PASSWORD is not set; generated admin password for this run: %s", admin_password)
     session_secret = env("KOTODAMA_SESSION_SECRET", "")
-    if not session_secret:
-        session_secret = secrets.token_urlsafe(32)
-        log.warning("KOTODAMA_SESSION_SECRET is not set; admin sessions will not survive a restart")
     public_url = env("KOTODAMA_PUBLIC_URL", "https://kotodama.mylife.ninja").rstrip("/")
     return Settings(
         data_dir=Path(env("KOTODAMA_DATA_DIR", "./data")).resolve(),

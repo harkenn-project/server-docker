@@ -249,6 +249,56 @@ def test_recordings(client):
     assert r.status_code == 415
 
 
+@pytest.fixture
+def fresh_client(tmp_path):
+    settings = Settings(data_dir=tmp_path, public_url="http://testserver", secure_cookies=False)
+    with TestClient(create_app(settings)) as c:
+        yield c
+
+
+def test_first_run_setup_then_login(fresh_client):
+    c = fresh_client
+    assert c.get("/admin", follow_redirects=False).headers["location"] == "/admin/setup"
+    assert c.get("/admin/login", follow_redirects=False).headers["location"] == "/admin/setup"
+    r = c.post("/admin/setup", data={"password": "short", "confirm": "short"}, follow_redirects=False)
+    assert r.status_code == 400
+    r = c.post("/admin/setup", data={"password": "correct horse", "confirm": "correct horse"}, follow_redirects=False)
+    assert r.status_code == 303 and c.get("/admin/api/overview").status_code == 200
+
+    c.post("/admin/logout")
+    # setup is closed once a password exists
+    r = c.post("/admin/setup", data={"password": "attacker pw!", "confirm": "attacker pw!"}, follow_redirects=False)
+    assert r.headers["location"] == "/admin/login"
+    assert c.post("/admin/login", data={"password": "attacker pw!"}, follow_redirects=False).status_code == 401
+    assert c.post("/admin/login", data={"password": "correct horse"}, follow_redirects=False).status_code == 303
+
+
+def test_change_password(client):
+    login(client)
+    r = client.post("/admin/password", data={"current": "nope", "password": "new password 1",
+                                             "confirm": "new password 1"})
+    assert r.status_code == 400
+    r = client.post("/admin/password", data={"current": "pw", "password": "new password 1",
+                                             "confirm": "new password 1"})
+    assert r.status_code == 200 and "Password changed" in r.text
+    client.post("/admin/logout")
+    # the UI password now replaces the bootstrap one from the environment
+    assert client.post("/admin/login", data={"password": "pw"}, follow_redirects=False).status_code == 401
+    assert client.post("/admin/login", data={"password": "new password 1"},
+                       follow_redirects=False).status_code == 303
+
+
+def test_session_secret_persists(tmp_path):
+    settings = Settings(data_dir=tmp_path, public_url="http://testserver", secure_cookies=False,
+                        admin_password="pw")
+    with TestClient(create_app(settings)) as c:
+        login(c)
+        cookie = c.cookies.get("kotodama_session")
+    with TestClient(create_app(settings)) as c:
+        c.cookies.set("kotodama_session", cookie)
+        assert c.get("/admin/api/overview").status_code == 200
+
+
 def test_forget_revokes_token(client):
     token = adopt(client)
     assert client.delete(f"/admin/api/devices/{MAC}", headers=ADMIN).status_code == 204
