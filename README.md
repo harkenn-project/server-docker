@@ -44,9 +44,10 @@ Run the tests with `.venv\Scripts\pytest -q`.
 
 ## Deploy
 
-On pushes to the default branch, CI builds `registry.gitlab.com/ninjalife/kotodama:latest`. The Kubernetes manifest
-is `playbooks/manifests/kotodama-speaker.yml` in `kubernetes-deployments`. Its header explains the registry pull
-secret.
+Jenkins job **Build kotodama image** (definition in [jenkins/build-image.xml](jenkins/build-image.xml)) polls this
+repo every 5 minutes, runs the tests, and pushes `registry.gitlab.com/ninjalife/kotodama:latest` and `:<sha>`. The Kubernetes manifest
+is `playbooks/manifests/kotodama-speaker.yml` in `kubernetes-deployments`. The project is public, so the cluster pulls
+the image without credentials.
 
 Run it as **one replica**. Speaker connections are held in memory, and SQLite has a single writer.
 
