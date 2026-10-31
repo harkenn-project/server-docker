@@ -1,68 +1,93 @@
-# Kotodama 言霊
+# Harkenn
 
-Server for the Hermes smart speakers. It covers:
+*Harken: to listen.* Harkenn is a private voice assistant for your home. Small speakers listen and answer; this
+server does the thinking, on your own hardware. Nothing goes to the cloud unless you point it at a cloud assistant.
 
-- **Adoption.** A new speaker shows a 3-digit code on its screen. You type the code into the admin page to pair it.
-- **Configuration.** Per speaker: character, screen layout, colour scheme, brightness, volume, wake word, Wi-Fi
-  networks, time zone, and the Hermes URL. Changes reach the speaker straight away over its WebSocket.
-- **Animations.** Characters are stored here and resized to the exact pixel size each layout needs.
-- **Live status, logs and recordings** from every speaker.
+- **Talk to it.** Tap a speaker (wake words are coming) and ask. Speech recognition (Whisper) and speech (Piper)
+  run inside the server; answers come from any OpenAI-compatible assistant you choose (Ollama, llama.cpp, LM Studio,
+  a cloud API), or from a few built-in replies when there isn't one.
+- **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted. Four come
+  built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
+- **Setup without fuss.** Speakers find the server on the network, show a 3-digit code, and you enter it in the admin
+  page to adopt them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
+- **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it.
 
-The device side of the contract is in [docs/PROTOCOL.md](docs/PROTOCOL.md).
+The speaker firmware is in [harkenn-speakerfirmware](https://gitlab.com/harkenn/harkenn-speakerfirmware). The
+contract between them is [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
-## Run locally
+## Run it
+
+```
+docker compose up -d
+```
+
+with [docker-compose.yml](docker-compose.yml), then open `http://<this machine>:8000/admin` and choose an admin
+password. The first answer takes a while: the voice models download into the data volume the first time.
+
+The server announces itself on the network as `harkenn.local`, so speakers on the same network find it on their own.
+If they can't (another VLAN, or a Kubernetes cluster), add a DNS record **`harkenn`** pointing at the server in your
+router, or type the address into the speaker's Wi-Fi setup page under *Advanced*.
+
+## Develop
 
 ```
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
-set KOTODAMA_PUBLIC_URL=http://localhost:8000
+set HARKENN_PUBLIC_URL=http://localhost:8000
 .venv\Scripts\uvicorn --factory app.main:create_app --port 8000
+.venv\Scripts\pytest -q
 ```
 
-Then open http://localhost:8000/admin. The first visit asks you to choose an admin password. Data goes to `./data` unless `KOTODAMA_DATA_DIR` is set.
-
-To try it without hardware, run a fake speaker. It prints the adoption code to enter on the admin page:
-
-```
-.venv\Scripts\python tools\simulate_device.py --url http://localhost:8000
-```
-
-Run the tests with `.venv\Scripts\pytest -q`.
+To try it without hardware, `tools\simulate_device.py --url http://localhost:8000` runs a fake speaker that prints
+its adoption code.
 
 ## Settings
 
+Environment variables. The `KOTODAMA_` prefix (the project's old name) is still accepted.
+
 | Variable | Default | |
 |---|---|---|
-| `KOTODAMA_ADMIN_PASSWORD` | unset | Normally leave this unset. The first visit to `/admin` asks you to choose a password, which is stored hashed in the database, and **Password** in the admin UI changes it. Set this variable only to get back in after losing that password: it is used only while no UI password exists, so delete `admin_password_hash` from the `settings` table first. |
-| `KOTODAMA_SESSION_SECRET` | generated and stored in the database | Signs admin session cookies |
-| `KOTODAMA_PUBLIC_URL` | `https://kotodama.mylife.ninja` | Base URL put into the asset links sent to speakers |
-| `KOTODAMA_DATA_DIR` | `./data` (`/data` in the image) | SQLite database, characters, recordings |
-| `KOTODAMA_SECURE_COOKIES` | `true` for an https public URL | |
-| `KOTODAMA_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
-| `KOTODAMA_LOG_RETENTION` | `5000` | Log lines kept per speaker |
-| `KOTODAMA_MAX_RECORDING_BYTES` | 10 MB | |
+| `HARKENN_PUBLIC_URL` | `http://harkenn.local:8000` | How speakers reach this server; used in the links sent to them |
+| `HARKENN_DATA_DIR` | `./data` (`/data` in the image) | Database, characters, recordings, voice models, firmware |
+| `HARKENN_ADMIN_PASSWORD` | unset | Recovery only. The admin password is set in the web UI; this applies only while none is stored, so delete `admin_password_hash` from the `settings` table first |
+| `HARKENN_SESSION_SECRET` | generated and stored | Signs admin session cookies |
+| `HARKENN_SECURE_COOKIES` | `true` for an https public URL | |
+| `HARKENN_MDNS` | `true` | Announce `_harkenn._tcp` / `harkenn.local` on the network |
+| `HARKENN_VOICE_WARMUP` | `true` | Load the voice models at startup |
+| `HARKENN_WHISPER_THREADS` | up to 8 | CPU threads for speech recognition |
+| `HARKENN_UPDATE_REPO` | `harkenn/harkenn-speakerfirmware` | GitLab project whose `releases` branch holds firmware releases; empty turns update checks off |
+| `HARKENN_UPDATE_BRANCH` | `releases` | |
+| `HARKENN_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
+| `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
 
-## Deploy
+Voice settings (speech recognition model, voice, assistant) are on the admin UI's **Voice** page.
 
-Jenkins job **Build kotodama image** (definition in [jenkins/build-image.xml](jenkins/build-image.xml)) polls this
-repo every 5 minutes, runs the tests, and pushes `registry.gitlab.com/ninjalife/kotodama:latest` and `:<sha>`. The Kubernetes manifest
-is `playbooks/manifests/kotodama-speaker.yml` in `kubernetes-deployments`. The project is public, so the cluster pulls
-the image without credentials.
+Run **one replica**: speaker connections are held in memory, and SQLite has a single writer.
 
-Run it as **one replica**. Speaker connections are held in memory, and SQLite has a single writer.
+## Build
+
+Jenkins job **Build harkenn server image** ([jenkins/build-image.xml](jenkins/build-image.xml)) polls this repo, runs
+the tests, and pushes `registry.gitlab.com/harkenn/harkenn-dockerserver:latest` and `:<sha>`.
 
 ## Layout
 
 ```
 app/
   main.py        app factory
-  device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, recordings, assets
+  device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
+  voice/         speech recognition, replies and speech (Whisper, Piper, Wyoming, OpenAI-compatible APIs)
+  updates.py     firmware releases from Git; firmware.py checks and stores images
+  discovery.py   mDNS announcement
+  assets.py      character store; kani.py the speakers' animation format; starter.py draws the built-in characters
   models.py      config schema and request bodies (pydantic)
   themes.py      colour schemes and screen layouts
-  assets.py      character store: GIF normalization and per-size variants
-  starter.py     draws the built-in "default" character
   hub.py         live WebSocket connections and the admin event stream (SSE)
   db.py          SQLite
 tools/simulate_device.py   fake speaker for testing
 ```
+
+## Name
+
+Harkenn means *the one that listens* (from *harken*). It began as a homelab project called Kotodama (言霊, "word
+spirit"), which lives on as the default character.

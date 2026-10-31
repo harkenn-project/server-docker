@@ -21,7 +21,7 @@ from .context import Context, device_payload, get_ctx
 from .models import AdoptionRequestIn, LogBatch, LogLine, StatusIn
 from .themes import ALL_CHARACTER_SIZES
 
-log = logging.getLogger("kotodama.device")
+log = logging.getLogger("harkenn.device")
 
 router = APIRouter(prefix="/api/v1", tags=["device"])
 assets_router = APIRouter(tags=["assets"])
@@ -59,7 +59,7 @@ def _client_ip(conn: Request | WebSocket) -> str | None:
 
 @router.get("/ping")
 async def ping() -> dict[str, Any]:
-    return {"ok": True, "server": "kotodama", "version": __version__, "time": time.time()}
+    return {"ok": True, "server": "harkenn", "version": __version__, "time": time.time()}
 
 
 def _adoption_out(req: dict[str, Any], now: float) -> dict[str, Any]:

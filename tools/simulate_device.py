@@ -4,7 +4,7 @@ Waits for the server, gets adopted (it prints the 3-digit code), saves the token
 WebSocket. It sends status every 10 s, a few log lines, and answers pings and commands.
 
     python tools/simulate_device.py --url http://localhost:8000
-    python tools/simulate_device.py --url https://kotodama.mylife.ninja --id 02aabbccddee
+    python tools/simulate_device.py --url http://harkenn.local:8000 --id 02aabbccddee
 """
 from __future__ import annotations
 

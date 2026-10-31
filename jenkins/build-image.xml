@@ -1,9 +1,9 @@
 <?xml version="1.1" encoding="UTF-8"?>
-<!-- Jenkins freestyle job "Build kotodama image". Kept here so the job definition is versioned.
+<!-- Jenkins freestyle job "Build harkenn server image". Kept here so the job definition is versioned.
      Needs: docker on the Jenkins node, and credential c516f6bb... ("Gitlab", shared with the deploy job;
      GitLab user + token that can push to this registry). -->
 <project>
-  <description>Runs the tests, builds registry.gitlab.com/ninjalife/kotodama and pushes :latest and :&lt;sha&gt;. Definition lives in the kotodama repo at jenkins/build-image.xml.</description>
+  <description>Runs the tests, builds registry.gitlab.com/harkenn/harkenn-dockerserver and pushes :latest and :&lt;sha&gt;. Definition lives in harkenn-dockerserver at jenkins/build-image.xml.</description>
   <keepDependencies>false</keepDependencies>
   <properties>
     <jenkins.model.BuildDiscarderProperty>
@@ -19,7 +19,7 @@
     <configVersion>2</configVersion>
     <userRemoteConfigs>
       <hudson.plugins.git.UserRemoteConfig>
-        <url>https://gitlab.com/ninjalife/kotodama.git</url>
+        <url>https://gitlab.com/harkenn/harkenn-dockerserver.git</url>
       </hudson.plugins.git.UserRemoteConfig>
     </userRemoteConfigs>
     <branches>
@@ -45,7 +45,7 @@
   <builders>
     <hudson.tasks.Shell>
       <command>set -eu
-IMAGE=registry.gitlab.com/ninjalife/kotodama
+IMAGE=registry.gitlab.com/harkenn/harkenn-dockerserver
 SHA=$(git rev-parse --short HEAD)
 
 echo "--- tests"

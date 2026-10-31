@@ -1,18 +1,20 @@
-# Kotodama on one machine: `docker compose up -d`, then open http://<this machine>:8000/admin and set a password.
+# Harkenn on one machine: `docker compose up -d`, then open http://<this machine>:8000/admin and set a password.
 # Speech recognition (Whisper) and speech (Piper) run inside the container; their models download the first time
-# they're needed and are kept in the kotodama-data volume. Speakers need to reach this server: enter its address in
-# the speaker's Wi-Fi setup page under "Advanced" (server URL), e.g. http://192.168.1.20:8000.
+# they're needed and are kept in the harkenn-data volume.
+#
+# Speakers find the server by themselves: it announces itself on the network as harkenn.local (mDNS), which is why it
+# shares the host's network. If speakers are on another network (VLAN), add a DNS record "harkenn" pointing at this
+# machine in your router, or enter the address in the speaker's Wi-Fi setup page under "Advanced".
 services:
-  kotodama:
-    image: registry.gitlab.com/ninjalife/kotodama:latest
+  harkenn:
+    image: registry.gitlab.com/harkenn/harkenn-dockerserver:latest
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    network_mode: host  # port 8000, plus mDNS
     environment:
-      KOTODAMA_PUBLIC_URL: "http://192.168.1.20:8000"  # how speakers reach this server: change to this machine
+      HARKENN_PUBLIC_URL: "http://harkenn.local:8000"  # how speakers reach this server
       TZ: "America/Edmonton"
     volumes:
-      - kotodama-data:/data
+      - harkenn-data:/data
 
 volumes:
-  kotodama-data:
+  harkenn-data:

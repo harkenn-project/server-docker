@@ -1,6 +1,6 @@
 """Admin password: set in the web UI and stored hashed in the database.
 
-KOTODAMA_ADMIN_PASSWORD, if set, only applies while no password has been set in the UI. It is a bootstrap and
+HARKENN_ADMIN_PASSWORD, if set, only applies while no password has been set in the UI. It is a bootstrap and
 recovery path, not the normal way to configure the password.
 """
 from __future__ import annotations

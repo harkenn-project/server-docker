@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw
 
 from .assets import MASTER_SIZE, CharacterStore
 
-log = logging.getLogger("kotodama.starter")
+log = logging.getLogger("harkenn.starter")
 
 BUILTIN_VERSION = 3
 SS = 2  # supersampling

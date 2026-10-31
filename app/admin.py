@@ -39,7 +39,7 @@ def require_admin_api(request: Request) -> None:
     if not is_admin(request):
         raise HTTPException(401, "log in first")
     # Browsers can't add custom headers cross-site without a CORS preflight, which we never allow.
-    if request.method not in ("GET", "HEAD") and request.headers.get("x-requested-with") != "kotodama":
+    if request.method not in ("GET", "HEAD") and request.headers.get("x-requested-with") != "harkenn":
         raise HTTPException(403, "missing X-Requested-With header")
 
 

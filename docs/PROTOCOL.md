@@ -1,16 +1,25 @@
-# Kotodama device protocol (v1)
+# Harkenn device protocol (v1)
 
-This is the contract between the speaker firmware and the Kotodama server.
-The firmware has exactly one thing hardcoded: the server URL, which is stored in the onboard settings
-(default `https://kotodama.mylife.ninja`). Everything else comes from the server.
+This is the contract between the speaker firmware and the Harkenn server. The speaker knows nothing else: it finds
+the server, and everything else comes from there. All paths are relative to the server URL. JSON everywhere unless
+noted.
 
-All paths are relative to that URL. JSON everywhere unless noted.
+## 0. Finding the server
+
+The speaker tries these in order and uses the first that answers `/api/v1/ping`:
+
+1. The URL saved on the speaker: entered on its Wi-Fi setup page under *Advanced*, or sent by the server as
+   `server_url` in a config it has applied (so a server that moves takes its speakers along).
+2. mDNS service `_harkenn._tcp`: `http://<address>:<port>`, or the `url` in its TXT record.
+3. `http://harkenn.local:8000` (the server answers to that mDNS host name).
+4. `http://harkenn` and `http://harkenn:8000`: a DNS name you can point at the server when mDNS doesn't reach the
+   speakers.
 
 ## 1. Boot: wait for the server
 
 ```
 GET /api/v1/ping
-200 {"ok": true, "server": "kotodama", "version": "0.1.0", "time": 1793430000.0}
+200 {"ok": true, "server": "harkenn", "version": "0.1.0", "time": 1793430000.0}
 ```
 
 The device retries every few seconds until it gets a 200. It shows its built-in "searching" screen while it waits,
@@ -27,7 +36,7 @@ POST /api/v1/adoption/request
 200 {"request_id": "…", "code": "482", "expires_in": 600, "poll_interval_s": 3}
 ```
 
-The device shows `code` on its screen. An admin opens the Kotodama admin page, finds the waiting speaker and types the
+The device shows `code` on its screen. An admin opens the Harkenn admin page, finds the waiting speaker and types the
 code. The admin page never displays the code, so whoever adopts the speaker must be able to see its screen.
 After 5 wrong codes the request is rejected.
 
@@ -116,7 +125,7 @@ changes.
       {"type": "clock", "x": 40, "y": 168, "w": 160, "h": 40, "font": "lg"}]},
   "character": {"id": "default", "name": "Kotodama", "version": 3, "states": {
       "idle": {"source": "idle", "frames": 30, "duration_ms": 2400,
-               "urls": {"144": "https://kotodama.mylife.ninja/assets/characters/default/idle.gif?size=144&v=3"}},
+               "urls": {"144": "https://harkenn.example/assets/characters/default/idle.gif?size=144&v=3"}},
       "listening": {…}, "thinking": {…}, "speaking": {…}, "sleeping": {…}, "error": {…}}}
 }
 ```
@@ -150,7 +159,7 @@ A tap (later the wake word) starts an utterance. Audio is 16 kHz, 16-bit, mono, 
 sent as binary WebSocket frames.
 
 ```
-speaker                                     Kotodama
+speaker                                     Harkenn
 voice_start {session, rate, local_time}  ->
 binary frames (mic, ~100 ms each)        ->
 voice_end {session}                      ->           speech-to-text (Whisper), reply, text-to-speech (Piper)

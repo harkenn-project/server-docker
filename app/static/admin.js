@@ -22,7 +22,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 async function api(method, url, body) {
-  const opts = { method, headers: { "X-Requested-With": "kotodama" } };
+  const opts = { method, headers: { "X-Requested-With": "harkenn" } };
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";

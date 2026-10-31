@@ -1,7 +1,7 @@
 """Firmware images for over-the-air updates.
 
-Each upload is checked to be an ESP32 app image built from the Kotodama firmware: the firmware embeds a marker
-string, ``KOTODAMA-FW|<version>|<hardware>|`` (see firmware/src/main.cpp), which gives its version and the board it
+Each upload is checked to be an ESP32 app image built from the Harkenn speaker firmware: the firmware embeds a
+marker string, ``HARKENN-FW|<version>|<hardware>|`` (KOTODAMA-FW before the rename; see src/main.cpp in harkenn-speakerfirmware), which gives its version and the board it
 was built for. Files are stored as ``<id>.bin`` with a ``<id>.json`` sidecar.
 """
 from __future__ import annotations
@@ -16,18 +16,18 @@ from typing import Any
 
 ESP_IMAGE_MAGIC = 0xE9
 MAX_FIRMWARE_BYTES = 0x3F0000  # an app partition (firmware/partitions.csv)
-MARKER = re.compile(rb"KOTODAMA-FW\|([0-9A-Za-z.+_-]{1,32})\|([0-9A-Za-z._-]{1,64})\|")
+MARKER = re.compile(rb"(?:HARKENN|KOTODAMA)-FW\|([0-9A-Za-z.+_-]{1,32})\|([0-9A-Za-z._-]{1,64})\|")
 
 
 def inspect(data: bytes) -> dict[str, str]:
-    """The version and hardware of a firmware image; ValueError if it isn't a Kotodama app image."""
+    """The version and hardware of a firmware image; ValueError if it isn't a Harkenn app image."""
     if len(data) < 1024 or data[0] != ESP_IMAGE_MAGIC:
         raise ValueError("not an ESP32 app image (upload firmware.bin, not the merged or bootloader image)")
     if len(data) > MAX_FIRMWARE_BYTES:
         raise ValueError(f"image is larger than an app partition ({MAX_FIRMWARE_BYTES} bytes)")
     m = MARKER.search(data)
     if m is None:
-        raise ValueError("not Kotodama speaker firmware (no version marker)")
+        raise ValueError("not Harkenn speaker firmware (no version marker)")
     return {"version": m.group(1).decode(), "hardware": m.group(2).decode()}
 
 

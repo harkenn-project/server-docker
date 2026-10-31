@@ -1,6 +1,6 @@
 """Speech-to-text and text-to-speech engines.
 
-Built in: faster-whisper and Piper, run inside Kotodama on the CPU. Their models are downloaded into the data
+Built in: faster-whisper and Piper, run inside Harkenn on the CPU. Their models are downloaded into the data
 directory the first time they're used. Either can instead be a Wyoming service (wyoming.py), e.g. existing
 wyoming-faster-whisper / wyoming-piper containers.
 
@@ -19,7 +19,7 @@ import numpy as np
 
 from . import wyoming
 
-log = logging.getLogger("kotodama.voice")
+log = logging.getLogger("harkenn.voice")
 
 RATE = 16000  # the speakers' sample rate, both ways
 
@@ -94,7 +94,7 @@ class SpeechToText:
         if self._model is None or self._name != name:
             from faster_whisper import WhisperModel
             log.info("loading Whisper model %s (downloaded on first use)", name)
-            threads = int(os.environ.get("KOTODAMA_WHISPER_THREADS", "0")) or min(8, os.cpu_count() or 4)
+            threads = int(os.environ.get("HARKENN_WHISPER_THREADS") or os.environ.get("KOTODAMA_WHISPER_THREADS") or "0") or min(8, os.cpu_count() or 4)
             self._model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads,
                                        download_root=str(self.models_dir / "whisper"))
             self._name = name

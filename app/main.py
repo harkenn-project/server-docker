@@ -19,6 +19,7 @@ from .assets import CharacterStore
 from .context import Context
 from .db import Database
 from .device_api import assets_router
+from .discovery import Announcer
 from .device_api import router as device_router
 from .firmware import FirmwareStore
 from .hub import Hub
@@ -47,10 +48,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             threading.Thread(target=app.state.ctx.voice.warm_up, name="voice-warmup", daemon=True).start()
         yield
 
-    app = FastAPI(title="Kotodama", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="Harkenn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
                             firmware=FirmwareStore(settings.firmware_dir))
-    app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="kotodama_session",
+    app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="harkenn_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
     app.include_router(device_router)

@@ -19,7 +19,7 @@ from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
 from .voice.service import VoiceService
 
-log = logging.getLogger("kotodama")
+log = logging.getLogger("harkenn")
 
 PASSWORD_MASK = "********"
 
@@ -83,6 +83,7 @@ def device_payload(ctx: Context, device: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "config",
         "version": device["config_version"],
+        "server_url": ctx.settings.public_url,  # the speaker saves it, so it can find this server again
         "device": {"id": device["id"], "name": device["name"]},
         "config": config.model_dump(),
         "theme": theme,

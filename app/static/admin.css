@@ -24,8 +24,9 @@ main { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; gap: 24p
 .ok { color: var(--ok); }
 
 .topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; border-bottom: 1px solid var(--line); background: #0b0f1b; }
-.brand { color: var(--text); font-weight: 700; font-size: 1.1rem; }
-.kanji { color: var(--primary); }
+.brand { color: var(--text); font-weight: 700; font-size: 1.1rem; display: inline-flex; align-items: center; gap: 8px; }
+.brand .mark { width: 22px; height: 22px; fill: var(--primary); stroke: var(--primary); stroke-width: 2.2; stroke-linecap: round; }
+.brand .mark path { fill: none; }
 .topbar nav { display: flex; gap: 20px; align-items: center; }
 .topbar nav form { margin: 0; }
 

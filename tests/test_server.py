@@ -12,7 +12,7 @@ from app.main import create_app
 from app.settings import Settings
 from app.starter import BUILTIN_VERSION, build
 
-ADMIN = {"X-Requested-With": "kotodama"}
+ADMIN = {"X-Requested-With": "harkenn"}
 MAC = "907069f466b0"
 
 
@@ -63,7 +63,7 @@ def bearer(token):
 
 def test_ping(client):
     body = client.get("/api/v1/ping").json()
-    assert body["ok"] and body["server"] == "kotodama"
+    assert body["ok"] and body["server"] == "harkenn"
 
 
 def test_adoption_flow_hands_out_token_once(client):
@@ -72,7 +72,7 @@ def test_adoption_flow_hands_out_token_once(client):
     assert r.status_code == 200
     config = r.json()
     assert config["device"] == {"id": MAC, "name": "Kitchen"}
-    assert config["version"] == 1
+    assert config["version"] == 1 and config["server_url"] == "http://testserver"
     assert config["layout"]["id"] == "character_clock"
     assert set(config["character"]["states"]) == set(STATES)
     assert client.get(f"/api/v1/device/config", headers={**bearer(token), "If-None-Match": '"1"'}).status_code == 304
@@ -378,9 +378,9 @@ def test_session_secret_persists(tmp_path, prebuilt):
                         admin_password="pw", prebuilt_characters=prebuilt)
     with TestClient(create_app(settings)) as c:
         login(c)
-        cookie = c.cookies.get("kotodama_session")
+        cookie = c.cookies.get("harkenn_session")
     with TestClient(create_app(settings)) as c:
-        c.cookies.set("kotodama_session", cookie)
+        c.cookies.set("harkenn_session", cookie)
         assert c.get("/admin/api/overview").status_code == 200
 
 
@@ -401,8 +401,8 @@ def test_readoption_replaces_token_and_keeps_config(client):
     assert view["device"]["name"] == "Kitchen" and view["config"]["audio"]["volume"] == 12
 
 
-def fake_firmware(version="0.4.0", hardware="test"):
-    return bytes([0xE9]) + bytes(2000) + f"KOTODAMA-FW|{version}|{hardware}|".encode() + bytes(500)
+def fake_firmware(version="0.4.0", hardware="test", marker="HARKENN-FW"):
+    return bytes([0xE9]) + bytes(2000) + f"{marker}|{version}|{hardware}|".encode() + bytes(500)
 
 
 def upload_firmware(c, data):
@@ -446,7 +446,7 @@ def test_firmware_upload_and_update(client):
 def test_firmware_rejects_other_files_and_hardware(client):
     adopt(client)
     assert upload_firmware(client, b"\x00" * 4000).status_code == 422  # not an ESP32 image
-    assert upload_firmware(client, bytes([0xE9]) + bytes(4000)).status_code == 422  # no Kotodama marker
+    assert upload_firmware(client, bytes([0xE9]) + bytes(4000)).status_code == 422  # no Harkenn marker
     fw = upload_firmware(client, fake_firmware(hardware="other-board")).json()
     r = client.post(f"/admin/api/devices/{MAC}/update", json={"firmware": fw["id"]}, headers=ADMIN)
     assert r.status_code == 422 and "other-board" in r.text
@@ -455,7 +455,7 @@ def test_firmware_rejects_other_files_and_hardware(client):
 def git_client(tmp_path, prebuilt):
     settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
                         public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
-                        update_repo="ninjalife/kotodama")
+                        update_repo="harkenn/harkenn-speakerfirmware")
     with TestClient(create_app(settings)) as c:
         yield c
 
@@ -644,3 +644,21 @@ def test_wyoming_address():
     assert parse_address("whisper:10300", 1) == ("whisper", 10300)
     assert parse_address("tcp://piper.local:10200/", 1) == ("piper.local", 10200)
     assert parse_address("piper", 10200) == ("piper", 10200)
+
+def test_firmware_from_before_the_rename_is_accepted(client):
+    login(client)
+    r = upload_firmware(client, fake_firmware(version="0.6.0", marker="KOTODAMA-FW"))
+    assert r.status_code == 201 and r.json()["version"] == "0.6.0"
+
+
+def test_env_falls_back_to_old_names_and_db_moves(tmp_path, monkeypatch):
+    from app.settings import load_settings
+    monkeypatch.setenv("KOTODAMA_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("KOTODAMA_PUBLIC_URL", "https://old.example")
+    monkeypatch.setenv("HARKENN_PUBLIC_URL", "https://new.example")
+    (tmp_path / "kotodama.db").write_bytes(b"x")
+    s = load_settings()
+    assert s.data_dir == tmp_path and s.public_url == "https://new.example"
+    assert s.update_repo == "harkenn/harkenn-speakerfirmware" and s.update_branch == "releases"
+    assert s.db_path == tmp_path / "harkenn.db" and s.db_path.read_bytes() == b"x"
+    assert not (tmp_path / "kotodama.db").exists()

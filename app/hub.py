@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
-log = logging.getLogger("kotodama.hub")
+log = logging.getLogger("harkenn.hub")
 
 
 class Hub:

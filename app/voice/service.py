@@ -1,4 +1,4 @@
-"""The voice pipeline: a speaker streams what it hears, Kotodama turns it into a spoken reply.
+"""The voice pipeline: a speaker streams what it hears, Harkenn turns it into a spoken reply.
 
     speaker: voice_start {session, local_time}, binary PCM frames (16 kHz, 16-bit mono), voice_end
     server:  speech-to-text -> reply (brain.py) -> text-to-speech
@@ -28,7 +28,7 @@ from .engines import RATE, SpeechToText, TextToSpeech
 if TYPE_CHECKING:
     from ..context import Context
 
-log = logging.getLogger("kotodama.voice")
+log = logging.getLogger("harkenn.voice")
 
 SETTINGS_KEY = "voice"
 MAX_UTTERANCE_BYTES = RATE * 2 * 30  # 30 s, the speakers' limit too

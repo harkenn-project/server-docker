@@ -1,13 +1,13 @@
 """Firmware releases from Git.
 
-Releases live as plain files in a public Git repository (``KOTODAMA_UPDATE_REPO``, by default
-ninjalife/kotodama-firmware), so publishing one is an ordinary commit and checking needs no credentials::
+Releases live as plain files in a public Git repository (``HARKENN_UPDATE_REPO``, by default the
+``releases`` branch of harkenn/harkenn-speakerfirmware), so publishing one is an ordinary commit and checking needs no credentials::
 
     latest.json            {"version": "0.5.0", "file": "v0.5.0/firmware.bin", "sha256": "..."}
     v0.5.0/firmware.bin
 
-tools/publish_firmware.py makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket).
-Kotodama then reads latest.json from the repository's main branch (reusing a check younger than CACHE_S), downloads a
+tools/publish_release.py in that repo makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket).
+Harkenn then reads latest.json from that branch (reusing a check younger than CACHE_S), downloads a
 new release, checks its SHA-256 and stores it like a manual upload (firmware.py). If it is newer than the speaker's
 firmware, the speaker shows "Update available" with Install / Dismiss. The admin UI can also check on demand.
 """
@@ -30,7 +30,7 @@ from .firmware import MAX_FIRMWARE_BYTES, update_args
 if TYPE_CHECKING:
     from .context import Context
 
-log = logging.getLogger("kotodama.updates")
+log = logging.getLogger("harkenn.updates")
 
 STATE_KEY = "firmware_updates"
 CACHE_S = 600  # speakers booting together share one check
@@ -50,7 +50,7 @@ def is_newer(candidate: str, current: str | None) -> bool:
 
 
 def _get(url: str, limit: int) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "kotodama-update-check"})
+    req = urllib.request.Request(url, headers={"User-Agent": "harkenn-update-check"})
     with urllib.request.urlopen(req, timeout=60) as resp:
         data = resp.read(limit + 1)
     if len(data) > limit:
