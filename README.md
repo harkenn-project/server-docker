@@ -91,3 +91,7 @@ tools/simulate_device.py   fake speaker for testing
 
 Harkenn means *the one that listens* (from *harken*). It began as a homelab project called Kotodama (言霊, "word
 spirit"), which lives on as the default character.
+
+## Credits
+
+Harkenn is built on Whisper, Piper and many other open-source projects: see [CREDITS.md](CREDITS.md).
