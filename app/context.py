@@ -11,6 +11,7 @@ from starlette.requests import HTTPConnection
 
 from .assets import CharacterStore
 from .db import Database
+from .firmware import FirmwareStore
 from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
@@ -27,6 +28,7 @@ class Context:
     db: Database
     hub: Hub
     characters: CharacterStore
+    firmware: FirmwareStore
 
 
 def get_ctx(conn: HTTPConnection) -> Context:

@@ -14,6 +14,19 @@
   </div>
 </div>
 <section class="card"><h2>Live status</h2><dl class="status" id="status"></dl></section>
+<section class="card">
+  <h2>Firmware update</h2>
+  {% if builds %}
+  <div class="inline-form">
+    <select id="firmware-build">
+      {% for b in builds %}<option value="{{ b.id }}">{{ b.version }} ({{ b.sha256[:8] }})</option>{% endfor %}
+    </select>
+    <button class="secondary" data-install-device="{{ device.id }}">Install</button>
+  </div>
+  {% else %}
+  <p class="hint">No firmware for this speaker yet. Upload one on the <a href="/admin/firmware">Firmware</a> page.</p>
+  {% endif %}
+</section>
 <section><h2>Configuration</h2>{{ config_form("/admin/api/devices/" ~ device.id, catalog, True) }}</section>
 <section class="card">
   <div class="section-head"><h2>Logs</h2><label class="inline"><input type="checkbox" id="follow-logs" checked> Follow</label></div>

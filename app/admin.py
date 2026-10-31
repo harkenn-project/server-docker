@@ -19,7 +19,8 @@ from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
 from .device_api import hash_token
-from .models import ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn
+from .firmware import MAX_FIRMWARE_BYTES
+from .models import ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn
 from .themes import LAYOUTS, THEMES
 
 MAX_ADOPTION_ATTEMPTS = 5
@@ -169,7 +170,8 @@ async def device_page(device_id: str, request: Request) -> Response:
     device = c.db.get_device(device_id)
     if device is None:
         raise HTTPException(404, "unknown device")
-    return _page(request, "device.html", device=device, catalog=catalog(c),
+    builds = [b for b in c.firmware.list() if not device["hardware"] or b["hardware"] == device["hardware"]]
+    return _page(request, "device.html", device=device, catalog=catalog(c), builds=builds,
                  form_data={"name": device["name"], "config": mask_secrets(_full_config(device))})
 
 
@@ -188,6 +190,14 @@ async def characters_page(request: Request) -> Response:
         return _login_redirect(request)
     c = get_ctx(request)
     return _page(request, "characters.html", characters=c.characters.list(), states=STATES)
+
+
+@pages.get("/firmware")
+async def firmware_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    return _page(request, "firmware.html", builds=c.firmware.list(), devices=c.db.list_devices())
 
 
 @pages.get("/events")
@@ -344,6 +354,22 @@ async def send_command(device_id: str, body: CommandIn, request: Request) -> dic
     return {"sent": True}
 
 
+@api.post("/devices/{device_id}/update")
+async def update_firmware(device_id: str, body: FirmwareUpdateIn, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    device = _device_or_404(c, device_id)
+    fw = c.firmware.get(body.firmware)
+    if fw is None:
+        raise HTTPException(404, "unknown firmware")
+    if device["hardware"] and fw["hardware"] != device["hardware"]:
+        raise HTTPException(422, f"this firmware is for {fw['hardware']}, the speaker is {device['hardware']}")
+    args = {"url": f"{c.settings.public_url}/api/v1/device/firmware/{fw['id']}.bin", "version": fw["version"],
+            "size": fw["size"], "sha256": fw["sha256"]}
+    if not await c.hub.send(device_id, {"type": "command", "command": "update_firmware", "args": args}):
+        raise HTTPException(409, "speaker is offline")
+    return {"sent": True, "version": fw["version"]}
+
+
 @api.get("/devices/{device_id}/logs")
 async def device_logs(device_id: str, request: Request, limit: int = 200, before: int | None = None) -> list[dict]:
     c = get_ctx(request)
@@ -380,6 +406,27 @@ async def put_defaults(body: DefaultsIn, request: Request) -> dict[str, Any]:
 @api.get("/catalog")
 async def get_catalog(request: Request) -> dict[str, Any]:
     return catalog(get_ctx(request))
+
+
+@api.get("/firmware")
+async def list_firmware(request: Request) -> list[dict[str, Any]]:
+    return get_ctx(request).firmware.list()
+
+
+@api.post("/firmware", status_code=201)
+async def upload_firmware(file: UploadFile, request: Request) -> dict[str, Any]:
+    data = await file.read(MAX_FIRMWARE_BYTES + 1)
+    try:
+        return await run_in_threadpool(get_ctx(request).firmware.add, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@api.delete("/firmware/{fid}", status_code=204)
+async def delete_firmware(fid: str, request: Request) -> Response:
+    if not get_ctx(request).firmware.delete(fid):
+        raise HTTPException(404)
+    return Response(status_code=204)
 
 
 @api.post("/characters", status_code=201)

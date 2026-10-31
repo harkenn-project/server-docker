@@ -172,6 +172,14 @@ async def post_recording(request: Request, device: dict = Depends(current_device
     return {"id": rid}
 
 
+@router.get("/device/firmware/{fid}.bin")
+async def get_firmware(fid: str, request: Request, device: dict = Depends(current_device)) -> FileResponse:
+    path = get_ctx(request).firmware.path(fid)
+    if path is None:
+        raise HTTPException(404, "unknown firmware")
+    return FileResponse(path, media_type="application/octet-stream")
+
+
 # WebSocket
 
 async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: str | None) -> None:

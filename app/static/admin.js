@@ -373,6 +373,9 @@ function initDevice() {
       } catch (err) { toast(err.message, true); }
     });
   }
+  for (const button of $$("[data-install-device]")) {
+    button.addEventListener("click", () => installFirmware($("#firmware-build").value, id));
+  }
   $("#forget").addEventListener("click", async () => {
     if (!confirm("Forget this speaker? It will have to be adopted again.")) return;
     await api("DELETE", `/admin/api/devices/${id}`);
@@ -426,8 +429,46 @@ function initCharacters() {
   }
 }
 
+// firmware
+
+async function installFirmware(build, deviceId) {
+  if (!build || !deviceId) return;
+  try {
+    const r = await api("POST", `/admin/api/devices/${deviceId}/update`, { firmware: build });
+    toast(`Updating to ${r.version}: the speaker restarts when it's done`);
+  } catch (err) { toast(err.message, true); }
+}
+
+function initFirmware() {
+  for (const cell of $$("[data-bytes]")) cell.textContent = bytes(Number(cell.dataset.bytes));
+  for (const cell of $$("[data-time]")) cell.textContent = new Date(cell.dataset.time * 1000).toLocaleString();
+  $("#upload-firmware").addEventListener("submit", async e => {
+    e.preventDefault();
+    toast("Uploading…");
+    try {
+      const fw = await api("POST", "/admin/api/firmware", new FormData(e.target));
+      toast(`Uploaded ${fw.version}`);
+      setTimeout(() => location.reload(), 800);
+    } catch (err) { toast(err.message, true); }
+  });
+  for (const button of $$("[data-install]")) {
+    const select = $(`[data-install-target="${button.dataset.install}"]`);
+    button.addEventListener("click", () => installFirmware(button.dataset.install, select.value));
+  }
+  for (const button of $$("[data-delete-firmware]")) {
+    button.addEventListener("click", async () => {
+      if (!confirm("Delete this firmware image?")) return;
+      try {
+        await api("DELETE", `/admin/api/firmware/${button.dataset.deleteFirmware}`);
+        location.reload();
+      } catch (err) { toast(err.message, true); }
+    });
+  }
+}
+
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
 if (page === "defaults") initConfigForm();
 if (page === "characters") initCharacters();
+if (page === "firmware") initFirmware();

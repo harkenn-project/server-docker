@@ -153,6 +153,10 @@ class CommandIn(Strict):
     args: dict[str, Any] = Field(default_factory=dict)
 
 
+class FirmwareUpdateIn(Strict):
+    firmware: str = Field(pattern=r"^[0-9a-f]{16}$")
+
+
 class CharacterIn(Strict):
     id: str = Field(pattern=SLUG)
     name: str = Field(min_length=1, max_length=48)

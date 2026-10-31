@@ -18,6 +18,7 @@ from .context import Context
 from .db import Database
 from .device_api import assets_router
 from .device_api import router as device_router
+from .firmware import FirmwareStore
 from .hub import Hub
 from .settings import Settings, load_settings
 from .starter import ensure_builtin_characters
@@ -39,7 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db.set_setting("session_secret", session_secret)
 
     app = FastAPI(title="Kotodama", version=__version__, docs_url="/api/docs", redoc_url=None)
-    app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters)
+    app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
+                            firmware=FirmwareStore(settings.firmware_dir))
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="kotodama_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")

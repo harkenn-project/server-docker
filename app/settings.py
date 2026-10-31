@@ -36,6 +36,10 @@ class Settings:
     def recordings_dir(self) -> Path:
         return self.data_dir / "recordings"
 
+    @property
+    def firmware_dir(self) -> Path:
+        return self.data_dir / "firmware"
+
 
 def load_settings() -> Settings:
     env = os.environ.get

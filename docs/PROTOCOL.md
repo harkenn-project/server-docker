@@ -65,16 +65,17 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds} |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256} |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
 
 **Device → server**
 
 | type | fields | meaning |
 |---|---|---|
-| `status` | `status: {state, firmware, ip, ssid, rssi, uptime_s, free_heap, free_psram, battery, charging, volume, brightness, config_version, message}` | Send on every state change and at least every 30 s. Every field is optional |
+| `status` | `status: {state, firmware, ip, ssid, rssi, uptime_s, free_heap, free_psram, battery, charging, volume, muted, brightness, config_version, message}` | Send on every state change and at least every 30 s. Every field is optional |
 | `log` | `lines: [{ts, level, tag, message}]` | Batches of up to 200 lines. `level` is one of E/W/I/D/V. `ts` is Unix seconds, or 0 if the clock isn't set |
 | `event` | `name`, `data` | Notable events such as `wake`, `button`, `touch`, `wifi_changed` |
+| `settings` | `volume` | A setting changed on the speaker itself (touch screen). The server stores it in the config without bumping the version or pushing it back |
 | `config_request` | | Asks the server to send the current config again |
 | `pong` | | Reply to `ping` |
 
@@ -86,6 +87,7 @@ changes.
 | POST | `/api/v1/device/status` | Body is the `status` object |
 | POST | `/api/v1/device/logs` | Body is `{"lines": [...]}` |
 | POST | `/api/v1/device/recordings?kind=utterance` | Raw body. `Content-Type` is `audio/wav`, `audio/ogg`, `audio/opus`, `audio/L16` or `application/octet-stream`. Returns 201 `{"id"}` |
+| GET | `/api/v1/device/firmware/<id>.bin` | Firmware image for `update_firmware`. The device checks the size and SHA-256, writes it to the spare app slot and restarts |
 
 ## 4. Config payload
 

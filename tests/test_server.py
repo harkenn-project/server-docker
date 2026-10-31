@@ -399,3 +399,54 @@ def test_readoption_replaces_token_and_keeps_config(client):
     assert client.get("/api/v1/device/config", headers=bearer(old)).status_code == 401
     view = client.get("/api/v1/device/config", headers=bearer(new)).json()
     assert view["device"]["name"] == "Kitchen" and view["config"]["audio"]["volume"] == 12
+
+
+def fake_firmware(version="0.4.0", hardware="test"):
+    return bytes([0xE9]) + bytes(2000) + f"KOTODAMA-FW|{version}|{hardware}|".encode() + bytes(500)
+
+
+def upload_firmware(c, data):
+    return c.post("/admin/api/firmware", files={"file": ("firmware.bin", data, "application/octet-stream")},
+                  headers=ADMIN)
+
+
+def test_firmware_upload_and_update(client):
+    token = adopt(client)
+    r = upload_firmware(client, fake_firmware())
+    assert r.status_code == 201, r.text
+    fw = r.json()
+    assert fw["version"] == "0.4.0" and fw["hardware"] == "test"
+    assert upload_firmware(client, fake_firmware()).json()["id"] == fw["id"]  # same file: no duplicate
+    assert [b["id"] for b in client.get("/admin/api/firmware").json()] == [fw["id"]]
+    assert client.get("/admin/firmware").status_code == 200
+    assert fw["version"] in client.get(f"/admin/devices/{MAC}").text
+
+    # offline speaker
+    r = client.post(f"/admin/api/devices/{MAC}/update", json={"firmware": fw["id"]}, headers=ADMIN)
+    assert r.status_code == 409
+
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.post(f"/admin/api/devices/{MAC}/update", json={"firmware": fw["id"]}, headers=ADMIN)
+        assert r.status_code == 200, r.text
+        cmd = ws.receive_json()
+    assert cmd["command"] == "update_firmware"
+    args = cmd["args"]
+    assert args["version"] == "0.4.0" and args["size"] == fw["size"] and args["sha256"] == fw["sha256"]
+
+    path = args["url"].removeprefix("http://testserver")
+    assert client.get(path).status_code == 401  # speakers only
+    got = client.get(path, headers=bearer(token))
+    assert got.status_code == 200 and got.content == fake_firmware()
+
+    assert client.delete(f"/admin/api/firmware/{fw['id']}", headers=ADMIN).status_code == 204
+    assert client.get(path, headers=bearer(token)).status_code == 404
+
+
+def test_firmware_rejects_other_files_and_hardware(client):
+    adopt(client)
+    assert upload_firmware(client, b"\x00" * 4000).status_code == 422  # not an ESP32 image
+    assert upload_firmware(client, bytes([0xE9]) + bytes(4000)).status_code == 422  # no Kotodama marker
+    fw = upload_firmware(client, fake_firmware(hardware="other-board")).json()
+    r = client.post(f"/admin/api/devices/{MAC}/update", json={"firmware": fw["id"]}, headers=ADMIN)
+    assert r.status_code == 422 and "other-board" in r.text
