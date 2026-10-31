@@ -460,19 +460,20 @@ def git_client(tmp_path, prebuilt):
         yield c
 
 
-def fake_gitlab(c, version="0.5.0", calls=None):
+def fake_gitlab(c, version="0.5.0", calls=None, sha=None):
+    import hashlib
     updates = c.app.state.ctx.updates
     calls = calls if calls is not None else []
+    data = fake_firmware(version)
 
-    def release():
-        calls.append("release")
-        return {"tag_name": f"v{version}", "assets": {"links": [
-            {"name": "firmware.bin", "url": "https://gitlab.example/firmware.bin"}]}}
+    def manifest():
+        calls.append("manifest")
+        return {"version": version, "file": f"v{version}/firmware.bin",
+                "sha256": sha or hashlib.sha256(data).hexdigest()}
 
-    updates.fetch_latest_release = release
-    updates.fetch_asset = lambda url: calls.append(url) or fake_firmware(version)
+    updates.fetch_manifest = manifest
+    updates.fetch_file = lambda path: calls.append(path) or data
     return calls
-
 
 def test_boot_update_check_offers_newer_release(git_client):
     c = git_client
@@ -486,7 +487,7 @@ def test_boot_update_check_offers_newer_release(git_client):
     assert offer["firmware"]["version"] == "0.5.0" and offer["firmware"]["url"].endswith(".bin")
     state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
     assert state["release"] == "v0.5.0" and state["latest"]["version"] == "0.5.0" and state["error"] is None
-    assert calls.count("https://gitlab.example/firmware.bin") == 1  # the same release isn't downloaded again
+    assert calls.count("v0.5.0/firmware.bin") == 1  # the same release isn't downloaded again
     assert "v0.5.0" in c.get("/admin/firmware").text
 
 
@@ -500,7 +501,7 @@ def test_boot_update_check_is_quiet_when_up_to_date(git_client):
         ws.send_json({"type": "update_check"})  # a second speaker booting soon after: cached
         ws.send_json({"type": "config_request"})
         assert ws.receive_json()["type"] == "config"  # no offer came first
-    assert calls.count("release") == 1
+    assert calls.count("manifest") == 1
 
 
 def test_update_check_failure_is_reported(git_client):
@@ -511,7 +512,7 @@ def test_update_check_failure_is_reported(git_client):
     def broken():
         raise OSError("gitlab unreachable")
 
-    updates.fetch_latest_release = broken
+    updates.fetch_manifest = broken
     state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
     assert "unreachable" in state["error"] and state["latest"] is None
 
@@ -520,3 +521,10 @@ def test_version_order():
     from app.updates import is_newer
     assert is_newer("0.4.10", "0.4.9") and is_newer("1.0.0", "0.9.9") and is_newer("0.5.0", None)
     assert not is_newer("0.4.1", "0.4.1") and not is_newer("v0.4.0", "0.4.1")
+
+def test_update_check_rejects_a_bad_checksum(git_client):
+    c = git_client
+    login(c)
+    fake_gitlab(c, sha="0" * 64)
+    state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
+    assert "sha256" in state["error"] and state["latest"] is None

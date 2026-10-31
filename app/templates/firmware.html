@@ -12,9 +12,8 @@
     {% if updates.enabled %}<button class="secondary" id="check-updates">Check now</button>{% endif %}
   </div>
   {% if updates.enabled %}
-  <p class="hint">Speakers ask for updates once each time they start. Kotodama then looks at the latest release of
-    <a href="{{ request.app.state.ctx.settings.update_gitlab_url }}/{{ updates.repo }}/-/releases">{{ updates.repo }}</a>
-    and offers it if it's newer; the speaker shows <em>Update available</em> with Install and Dismiss.</p>
+  <p class="hint">Speakers ask for updates once each time they start. Kotodama then reads <code>latest.json</code> in
+    <a href="{{ updates.url }}">{{ updates.repo }}</a> and offers that firmware if it's newer; the speaker shows <em>Update available</em> with Install and Dismiss.</p>
   <dl class="status">
     <dt>Latest release</dt><dd>{{ updates.release or "none yet" }}{% if updates.latest %} (firmware {{ updates.latest.version }}){% endif %}</dd>
     <dt>Last checked</dt><dd data-time="{{ updates.checked_at or '' }}">{% if not updates.checked_at %}never{% endif %}</dd>

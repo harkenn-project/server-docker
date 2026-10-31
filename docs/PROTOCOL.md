@@ -66,6 +66,7 @@ changes.
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
 | `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256} |
+| `update_available` | `firmware: {url, version, size, sha256}` | Reply to `update_check` when a newer release exists. The speaker offers it on screen (Install / Dismiss) |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
 
 **Device → server**
@@ -76,6 +77,7 @@ changes.
 | `log` | `lines: [{ts, level, tag, message}]` | Batches of up to 200 lines. `level` is one of E/W/I/D/V. `ts` is Unix seconds, or 0 if the clock isn't set |
 | `event` | `name`, `data` | Notable events such as `wake`, `button`, `touch`, `wifi_changed` |
 | `settings` | `volume` | A setting changed on the speaker itself (touch screen). The server stores it in the config without bumping the version or pushing it back |
+| `update_check` | | Sent once after boot. The server checks the firmware repository and may answer `update_available` |
 | `config_request` | | Asks the server to send the current config again |
 | `pong` | | Reply to `ping` |
 

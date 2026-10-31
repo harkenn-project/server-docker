@@ -1,15 +1,20 @@
 """Firmware releases from Git.
 
-Speakers ask once per boot (``update_check`` over the WebSocket). Kotodama then looks at the latest release of a
-GitLab project (``KOTODAMA_UPDATE_REPO``, by default this project) for a ``firmware.bin`` asset, reusing a check
-younger than CACHE_S, downloads a new release and checks it like a manual upload (firmware.py). If it is newer than
-the speaker's firmware, the speaker shows "Update available" with Install / Dismiss. The admin UI can also check on
-demand. Releases are made by the Jenkins job in jenkins/release-firmware.xml whenever FW_VERSION in
-firmware/platformio.ini changes.
+Releases live as plain files in a public Git repository (``KOTODAMA_UPDATE_REPO``, by default
+ninjalife/kotodama-firmware), so publishing one is an ordinary commit and checking needs no credentials::
+
+    latest.json            {"version": "0.5.0", "file": "v0.5.0/firmware.bin", "sha256": "..."}
+    v0.5.0/firmware.bin
+
+tools/publish_firmware.py makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket).
+Kotodama then reads latest.json from the repository's main branch (reusing a check younger than CACHE_S), downloads a
+new release, checks its SHA-256 and stores it like a manual upload (firmware.py). If it is newer than the speaker's
+firmware, the speaker shows "Update available" with Install / Dismiss. The admin UI can also check on demand.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
@@ -17,7 +22,6 @@ import time
 import urllib.error
 import urllib.request
 from typing import TYPE_CHECKING, Any
-from urllib.parse import quote
 
 from starlette.concurrency import run_in_threadpool
 
@@ -30,7 +34,7 @@ log = logging.getLogger("kotodama.updates")
 
 STATE_KEY = "firmware_updates"
 CACHE_S = 600  # speakers booting together share one check
-ASSET_NAME = "firmware.bin"
+MANIFEST = "latest.json"
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -59,21 +63,22 @@ class UpdateChecker:
         self.ctx = ctx
         s = ctx.settings
         self.repo = s.update_repo
-        self.api = f"{s.update_gitlab_url.rstrip('/')}/api/v4/projects/{quote(self.repo, safe='')}"
+        self.page = f"{s.update_gitlab_url.rstrip('/')}/{self.repo}"
+        self.raw = f"{self.page}/-/raw/{s.update_branch}"
         self._lock = asyncio.Lock()
 
     # network, replaced in tests
 
-    def fetch_latest_release(self) -> dict[str, Any] | None:
+    def fetch_manifest(self) -> dict[str, Any] | None:
         try:
-            return json.loads(_get(f"{self.api}/releases/permalink/latest", 1_000_000))
+            return json.loads(_get(f"{self.raw}/{MANIFEST}", 100_000))
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                return None  # no releases yet
+                return None  # nothing released yet
             raise
 
-    def fetch_asset(self, url: str) -> bytes:
-        return _get(url, MAX_FIRMWARE_BYTES)
+    def fetch_file(self, path: str) -> bytes:
+        return _get(f"{self.raw}/{path}", MAX_FIRMWARE_BYTES)
 
     # state
 
@@ -84,29 +89,30 @@ class UpdateChecker:
     def state(self) -> dict[str, Any]:
         st = self.ctx.db.get_setting(STATE_KEY) or {}
         latest = self.ctx.firmware.get(st["latest_id"]) if st.get("latest_id") else None
-        return {"enabled": self.enabled, "repo": self.repo, "checked_at": st.get("checked_at"),
+        return {"enabled": self.enabled, "repo": self.repo, "url": self.page, "checked_at": st.get("checked_at"),
                 "error": st.get("error"), "release": st.get("release"), "latest": latest}
 
     def latest(self) -> dict[str, Any] | None:
         return self.state()["latest"]
 
     def _check_sync(self) -> dict[str, Any] | None:
-        """Fetch the latest release and store its firmware. Returns the firmware, or None if there is no release."""
-        release = self.fetch_latest_release()
-        if release is None:
+        """Read latest.json and store its firmware. Returns the firmware, or None if nothing is released."""
+        manifest = self.fetch_manifest()
+        if manifest is None:
             return None
-        links = (release.get("assets") or {}).get("links") or []
-        link = next((ln for ln in links if str(ln.get("name", "")).endswith(ASSET_NAME)), None)
-        if link is None:
-            raise ValueError(f"release {release.get('tag_name')} has no {ASSET_NAME}")
-        url = link.get("direct_asset_url") or link["url"]
-        tag = str(release.get("tag_name", ""))
+        version, path, sha = str(manifest.get("version", "")), str(manifest.get("file", "")), manifest.get("sha256")
+        if not version or not path or ".." in path or path.startswith("/"):
+            raise ValueError(f"{MANIFEST} needs a version and a relative file path")
+        tag = f"v{version}"
         known = next((fw for fw in self.ctx.firmware.list() if fw.get("release") == tag), None)
         if known:
             return known
-        fw = self.ctx.firmware.add(self.fetch_asset(url))
-        if version_key(fw["version"]) != version_key(tag):
-            log.warning("release %s contains firmware %s", tag, fw["version"])
+        data = self.fetch_file(path)
+        if sha and hashlib.sha256(data).hexdigest() != str(sha).lower():
+            raise ValueError(f"{path} doesn't match the sha256 in {MANIFEST}")
+        fw = self.ctx.firmware.add(data)
+        if version_key(fw["version"]) != version_key(version):
+            raise ValueError(f"{MANIFEST} says {version} but {path} is firmware {fw['version']}")
         return self.ctx.firmware.tag(fw["id"], release=tag)
 
     async def check(self, max_age_s: float = 0) -> dict[str, Any]:

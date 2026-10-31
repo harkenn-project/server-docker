@@ -19,8 +19,9 @@ class Settings:
     max_recording_bytes: int = 10 * 1024 * 1024
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
-    update_repo: str = ""  # GitLab project whose releases carry firmware.bin (updates.py); empty = no Git checks
+    update_repo: str = ""  # public GitLab project holding latest.json + firmware (updates.py); empty = no Git checks
     update_gitlab_url: str = "https://gitlab.com"
+    update_branch: str = "main"
 
     @property
     def db_path(self) -> Path:
@@ -62,6 +63,7 @@ def load_settings() -> Settings:
         max_recording_bytes=int(env("KOTODAMA_MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
         max_upload_bytes=int(env("KOTODAMA_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(p) if (p := env("KOTODAMA_PREBUILT_CHARACTERS")) else None,
-        update_repo=env("KOTODAMA_UPDATE_REPO", "ninjalife/kotodama").strip("/"),
+        update_repo=env("KOTODAMA_UPDATE_REPO", "ninjalife/kotodama-firmware").strip("/"),
         update_gitlab_url=env("KOTODAMA_UPDATE_GITLAB_URL", "https://gitlab.com").rstrip("/"),
+        update_branch=env("KOTODAMA_UPDATE_BRANCH", "main"),
     )
