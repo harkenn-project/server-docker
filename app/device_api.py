@@ -26,6 +26,7 @@ log = logging.getLogger("kotodama.device")
 router = APIRouter(prefix="/api/v1", tags=["device"])
 assets_router = APIRouter(tags=["assets"])
 
+HEX = r"^[0-9a-fA-F]{6}$"
 POLL_INTERVAL_S = 3
 PING_INTERVAL_S = 25
 RECORDING_TYPES = {"audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg", "audio/opus": "opus",
@@ -240,22 +241,41 @@ async def device_ws(ws: WebSocket) -> None:
 # character assets (public, read-only)
 
 @router.get("/characters/{cid}/manifest")
-async def character_manifest(cid: str, request: Request, size: list[int] = Query([240])) -> dict[str, Any]:
+async def character_manifest(cid: str, request: Request, size: list[int] = Query([240]),
+                             bg: str = Query("000000", pattern=HEX)) -> dict[str, Any]:
     c = get_ctx(request)
     sizes = sorted({s for s in size if s in ALL_CHARACTER_SIZES}) or [240]
-    manifest = c.characters.manifest(cid, sizes, c.settings.public_url)
+    manifest = c.characters.manifest(cid, sizes, c.settings.public_url, bg)
     if manifest is None:
         raise HTTPException(404, "unknown character")
     return manifest
 
 
-@assets_router.get("/assets/characters/{cid}/{state}.gif")
-async def character_gif(cid: str, state: str, request: Request, size: int = 240, v: int | None = None,
-                        bg: str | None = Query(None, pattern=r"^[0-9a-fA-F]{6}$")) -> FileResponse:
-    if state not in STATES or size not in ALL_CHARACTER_SIZES:
-        raise HTTPException(404)
-    path = await run_in_threadpool(get_ctx(request).characters.state_file, cid, state, size, bg)
+def _asset(path, media_type: str, versioned: bool) -> FileResponse:
     if path is None:
         raise HTTPException(404)
-    cache = "public, max-age=31536000, immutable" if v is not None else "no-cache"
-    return FileResponse(path, media_type="image/gif", headers={"Cache-Control": cache})
+    cache = "public, max-age=31536000, immutable" if versioned else "no-cache"
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": cache})
+
+
+@assets_router.get("/assets/characters/{cid}/{state}.gif")
+async def character_preview(cid: str, state: str, request: Request, size: int = 240,
+                            v: int | None = None) -> FileResponse:
+    """Transparent GIF preview, for the admin UI."""
+    if state not in STATES or size not in ALL_CHARACTER_SIZES:
+        raise HTTPException(404)
+    path = await run_in_threadpool(get_ctx(request).characters.preview_gif, cid, state, size)
+    return _asset(path, "image/gif", v is not None)
+
+
+@assets_router.get("/assets/characters/{cid}/{state}.kani")
+async def character_animation(cid: str, state: str, request: Request, size: int = 240, v: int | None = None,
+                              bg: str = Query(pattern=HEX)) -> FileResponse:
+    """Speaker animation (see kani.py), flattened onto the speaker's background colour."""
+    if state not in STATES or size not in ALL_CHARACTER_SIZES:
+        raise HTTPException(404)
+    try:
+        path = await run_in_threadpool(get_ctx(request).characters.device_animation, cid, state, size, bg)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return _asset(path, "application/octet-stream", v is not None)

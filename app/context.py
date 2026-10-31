@@ -67,7 +67,7 @@ def device_payload(ctx: Context, device: dict[str, Any]) -> dict[str, Any]:
     theme = resolve_theme(config.display.theme, config.display.colors.model_dump())
     sizes = character_sizes(config.display.layout)
     base = ctx.settings.public_url
-    background = theme["background"].lstrip("#")  # speakers get GIFs flattened onto their background colour
+    background = theme["background"].lstrip("#")  # animations are flattened onto the speaker's background
     character = (ctx.characters.manifest(config.character, sizes, base, background)
                  or ctx.characters.manifest("default", sizes, base, background))
     return {

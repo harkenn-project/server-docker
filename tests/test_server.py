@@ -1,21 +1,33 @@
 import io
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
+from app import kani
 from app.main import create_app
 from app.settings import Settings
+from app.starter import BUILTIN_VERSION, build
 
 ADMIN = {"X-Requested-With": "kotodama"}
 MAC = "907069f466b0"
 
 
+@pytest.fixture(scope="session")
+def prebuilt(tmp_path_factory):
+    """Draw the built-in characters once for the whole test run."""
+    path = tmp_path_factory.mktemp("prebuilt")
+    build(path)
+    return path
+
+
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, prebuilt):
     settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
-                        public_url="http://testserver", secure_cookies=False, max_recording_bytes=1000)
+                        public_url="http://testserver", secure_cookies=False, max_recording_bytes=1000,
+                        prebuilt_characters=prebuilt)
     with TestClient(create_app(settings)) as c:
         yield c
 
@@ -202,18 +214,60 @@ def test_character_assets_are_sized(client):
     token = adopt(client)
     config = client.get("/api/v1/device/config", headers=bearer(token)).json()
     url = config["character"]["states"]["idle"]["urls"]["144"]
+    # speakers get KANI animations flattened onto their theme background (midnight = #0b1020)
+    assert ".kani?" in url and "bg=0b1020" in url
     r = client.get(url.replace("http://testserver", ""))
-    assert r.status_code == 200 and r.headers["content-type"] == "image/gif"
-    with Image.open(io.BytesIO(r.content)) as im:
+    assert r.status_code == 200
+    assert r.content[:4] == b"KANI"
+    frames = kani.decode(r.content)
+    assert len(frames) > 1 and all(len(f) == 144 * 144 for f in frames)
+    midnight = (0x0b >> 3) << 11 | (0x10 >> 2) << 5 | (0x20 >> 3)
+    assert frames[0][0] == midnight  # corner pixel is the background
+    # admin previews are transparent GIFs
+    with Image.open(io.BytesIO(client.get("/assets/characters/default/idle.gif?size=144").content)) as im:
         assert im.size == (144, 144) and im.n_frames > 1
-    # speakers get opaque GIFs flattened onto their theme background (midnight = #0b1020)
-    assert "&bg=0b1020" in url
-    with Image.open(io.BytesIO(r.content)) as im:
-        assert "transparency" not in im.info
-        assert im.convert("RGB").getpixel((0, 0)) == (0x0b, 0x10, 0x20)
     assert client.get("/assets/characters/default/idle.gif?size=999").status_code == 404
-    assert client.get("/assets/characters/default/idle.gif?size=144&bg=nothex").status_code == 422
+    assert client.get("/assets/characters/default/idle.kani?size=144&bg=nothex").status_code == 422
+    assert client.get("/assets/characters/default/idle.kani?size=144").status_code == 422
     assert client.get("/assets/characters/../idle.gif").status_code == 404
+
+
+def test_builtin_characters(client):
+    login(client)
+    chars = client.get("/admin/api/catalog").json()["characters"]
+    assert [c["id"] for c in chars] == ["default", "obake", "neko", "robo"]
+    assert all(len(c["states"]) == 6 for c in chars)
+
+
+def test_kani_roundtrip():
+    rng = np.random.default_rng(1)
+    frames = []
+    base = Image.new("RGBA", (40, 30), (10, 20, 30, 255))
+    for k in range(5):
+        f = base.copy()
+        f.paste((200, 100, 50, 255), (k * 3, 5, k * 3 + 10, 20))
+        noise = Image.fromarray(rng.integers(0, 255, (3, 7, 4), dtype=np.uint8))
+        f.paste(noise, (30, 2))
+        frames.append(f)
+    data = kani.encode(frames, [50] * 5, "000000")
+    for decoded, f in zip(kani.decode(data), frames):
+        flat = Image.alpha_composite(Image.new("RGBA", f.size, (0, 0, 0, 255)), f)
+        assert np.array_equal(decoded, kani.to_rgb565(flat))
+
+
+def test_customized_builtin_is_not_redrawn(tmp_path, prebuilt):
+    from app.assets import CharacterStore
+    from app.starter import ensure_builtin_characters
+    store = CharacterStore(tmp_path / "c", tmp_path / "cache")
+    ensure_builtin_characters(store, prebuilt)
+    v1 = store.get("neko")["version"]
+    store.update_meta("neko", builtin=BUILTIN_VERSION - 1)  # pretend a newer drawing shipped
+    ensure_builtin_characters(store, prebuilt)
+    assert store.get("neko")["version"] > v1  # upgraded, with a fresh version number
+    store.update_meta("neko", builtin=BUILTIN_VERSION - 1, customized=True)
+    v2 = store.get("neko")["version"]
+    ensure_builtin_characters(store, prebuilt)
+    assert store.get("neko")["version"] == v2  # customized: left alone
 
 
 def test_upload_character_state(client):
@@ -256,8 +310,9 @@ def test_recordings(client):
 
 
 @pytest.fixture
-def fresh_client(tmp_path):
-    settings = Settings(data_dir=tmp_path, public_url="http://testserver", secure_cookies=False)
+def fresh_client(tmp_path, prebuilt):
+    settings = Settings(data_dir=tmp_path, public_url="http://testserver", secure_cookies=False,
+                        prebuilt_characters=prebuilt)
     with TestClient(create_app(settings)) as c:
         yield c
 
@@ -294,9 +349,9 @@ def test_change_password(client):
                        follow_redirects=False).status_code == 303
 
 
-def test_session_secret_persists(tmp_path):
+def test_session_secret_persists(tmp_path, prebuilt):
     settings = Settings(data_dir=tmp_path, public_url="http://testserver", secure_cookies=False,
-                        admin_password="pw")
+                        admin_password="pw", prebuilt_characters=prebuilt)
     with TestClient(create_app(settings)) as c:
         login(c)
         cookie = c.cookies.get("kotodama_session")

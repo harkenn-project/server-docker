@@ -18,6 +18,7 @@ class Settings:
     log_retention_per_device: int = 5000
     max_recording_bytes: int = 10 * 1024 * 1024
     max_upload_bytes: int = 8 * 1024 * 1024
+    prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
 
     @property
     def db_path(self) -> Path:
@@ -54,4 +55,5 @@ def load_settings() -> Settings:
         log_retention_per_device=int(env("KOTODAMA_LOG_RETENTION", "5000")),
         max_recording_bytes=int(env("KOTODAMA_MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
         max_upload_bytes=int(env("KOTODAMA_MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
+        prebuilt_characters=Path(p) if (p := env("KOTODAMA_PREBUILT_CHARACTERS")) else None,
     )

@@ -20,7 +20,7 @@ from .device_api import assets_router
 from .device_api import router as device_router
 from .hub import Hub
 from .settings import Settings, load_settings
-from .starter import ensure_default_character
+from .starter import ensure_builtin_characters
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -30,7 +30,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     for d in (settings.data_dir, settings.recordings_dir):
         d.mkdir(parents=True, exist_ok=True)
     characters = CharacterStore(settings.characters_dir, settings.cache_dir)
-    ensure_default_character(characters)
+    ensure_builtin_characters(characters, settings.prebuilt_characters)
 
     db = Database(settings.db_path)
     session_secret = settings.session_secret or db.get_setting("session_secret")

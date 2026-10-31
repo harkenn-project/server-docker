@@ -127,10 +127,14 @@ What the firmware has to do with it:
   * `status`: one or two lines of text for the current state, a transcript, or an error.
   * Fonts: `sm` 14 px, `md` 18 px, `lg` 30 px, `xl` 48 px.
 * **Character.** Every state always has an entry. A state without its own animation points at `idle` through
-  `source`. The URLs are versioned, so the device can cache by URL. The files are GIFs that are already the size of
-  the widget, so no scaling happens on the device. They are flattened onto the theme's `background` colour
-  (`&bg=` in the URL) and have no transparency, so every frame fully repaints the widget. Assets need no token.
-* **Ring.** Draw the ring on top of the character, because the character's GIF is opaque.
+  `source`. The URLs are versioned, so the device can cache by URL. The files are **KANI** animations, which are
+  already the size of the widget, so no scaling happens on the device. They are flattened onto the theme's
+  `background` colour (`&bg=` in the URL) and are fully opaque. Assets need no token.
+  * KANI format, specified in `app/kani.py`: native RGB565 pixels, frame 0 complete, later frames as
+    skip/run/literal ops against the previous frame.
+  * Decode into a single frame buffer. On loop, frame 0 repaints everything.
+  * 240 px animations are sent at half frame rate to fit in memory.
+* **Ring.** Draw the ring on top of the character, because the character's animation is opaque.
 * **Wi-Fi.** `wifi` is the full list of networks the server wants the device to know. The device adds new ones to
   its saved list. It must never delete the network it is connected to unless it has just connected successfully to
   one from the list. A long press on BOOT always opens the local provisioning portal as a way back in.
