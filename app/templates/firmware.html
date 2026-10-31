@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Firmware{% endblock %}
+{% block page %}firmware{% endblock %}
+{% block content %}
+<h1>Firmware</h1>
+<p class="hint">Upload <code>firmware.bin</code> from a PlatformIO build (<code>firmware/.pio/build/kotodama-speaker/</code>).
+  Kotodama reads the version from the file. Install it on a speaker from here or from the speaker's page; the speaker
+  downloads it over Wi-Fi, checks it and restarts. The previous version stays on the speaker as a fallback.</p>
+<section class="card">
+  <div class="section-head">
+    <h2>Releases from Git</h2>
+    {% if updates.enabled %}<button class="secondary" id="check-updates">Check now</button>{% endif %}
+  </div>
+  {% if updates.enabled %}
+  <p class="hint">Speakers ask for updates once each time they start. Kotodama then reads <code>latest.json</code> in
+    <a href="{{ updates.url }}">{{ updates.repo }}</a> and offers that firmware if it's newer; the speaker shows <em>Update available</em> with Install and Dismiss.</p>
+  <dl class="status">
+    <dt>Latest release</dt><dd>{{ updates.release or "none yet" }}{% if updates.latest %} (firmware {{ updates.latest.version }}){% endif %}</dd>
+    <dt>Last checked</dt><dd data-time="{{ updates.checked_at or '' }}">{% if not updates.checked_at %}never{% endif %}</dd>
+    {% if updates.error %}<dt>Last error</dt><dd class="error">{{ updates.error }}</dd>{% endif %}
+  </dl>
+  {% else %}
+  <p class="hint">Git release checks are off (set <code>KOTODAMA_UPDATE_REPO</code> to a GitLab project).</p>
+  {% endif %}
+</section>
+<form id="upload-firmware" class="card inline-form">
+  <label>Firmware image <input type="file" name="file" accept=".bin" required></label>
+  <button type="submit">Upload</button>
+</form>
+<section class="card">
+  {% if builds %}
+  <table class="firmware">
+    <thead><tr><th>Version</th><th>Hardware</th><th>Size</th><th>Uploaded</th><th>Install on</th><th></th></tr></thead>
+    <tbody>
+    {% for b in builds %}
+    <tr>
+      <td><strong>{{ b.version }}</strong>{% if b.release %} <small>release {{ b.release }}</small>{% endif %}<br><small class="mono">{{ b.sha256[:12] }}</small></td>
+      <td>{{ b.hardware }}</td>
+      <td data-bytes="{{ b.size }}"></td>
+      <td data-time="{{ b.uploaded_at }}"></td>
+      <td>
+        <select data-install-target="{{ b.id }}">
+          {% for d in devices if not d.hardware or d.hardware == b.hardware %}
+          <option value="{{ d.id }}">{{ d.name }} (now {{ d.firmware or "?" }})</option>
+          {% endfor %}
+        </select>
+        <button class="secondary" data-install="{{ b.id }}">Install</button>
+      </td>
+      <td><button class="danger" data-delete-firmware="{{ b.id }}">Delete</button></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="hint">No firmware uploaded yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

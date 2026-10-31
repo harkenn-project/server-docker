@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Kotodama{% endblock %} · Kotodama</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body data-page="{% block page %}{% endblock %}" {% block body_attrs %}{% endblock %}>
+  <header class="topbar">
+    <a class="brand" href="/admin"><span class="kanji">言霊</span> Kotodama</a>
+    {% if admin %}
+    <nav>
+      <a href="/admin">Speakers</a>
+      <a href="/admin/characters">Characters</a>
+      <a href="/admin/voice">Voice</a>
+      <a href="/admin/defaults">Defaults</a>
+      <a href="/admin/firmware">Firmware</a>
+      <a href="/admin/password">Password</a>
+      <form method="post" action="/admin/logout"><button class="link">Log out</button></form>
+    </nav>
+    {% endif %}
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/admin.js"></script>
+</body>
+</html>

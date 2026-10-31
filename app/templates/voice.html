@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Voice{% endblock %}
+{% block page %}voice{% endblock %}
+{% block content %}
+{% macro choices(name, options, current, empty=None) %}
+<select name="{{ name }}">
+  {% if empty %}<option value="">{{ empty }}</option>{% endif %}
+  {% for value, label in options.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+  {% if current and current not in options %}<option value="{{ current }}">{{ current }} (set elsewhere)</option>{% endif %}
+</select>
+{% endmacro %}
+<h1>Voice</h1>
+<p class="hint">How speakers understand you and answer. Everything runs inside Kotodama by default: Whisper turns speech
+  into text and Piper speaks the reply. Models download into Kotodama's data folder the first time they're used, so
+  the first answer takes a while. You can point either at an existing Wyoming service instead.</p>
+<form id="voice-form" class="card form">
+  <fieldset><legend>Speech to text</legend>
+    <label>Engine <select name="stt_engine">
+      <option value="builtin">Built in (faster-whisper)</option>
+      <option value="wyoming">Wyoming service</option></select></label>
+    <label data-show="stt_engine=builtin">Whisper model {{ choices("stt_model", whisper_models, voice.stt_model) }}
+      <small>A new model downloads the first time it's used.</small></label>
+    <label data-show="stt_engine=wyoming">Wyoming address <input name="stt_address" placeholder="whisper.local:10300"></label>
+    <label>Language {{ choices("language", languages, voice.language, "Detect automatically") }}
+      <small>Models ending in .en only understand English.</small></label>
+  </fieldset>
+  <fieldset><legend>Text to speech</legend>
+    <label>Engine <select name="tts_engine">
+      <option value="builtin">Built in (Piper)</option>
+      <option value="wyoming">Wyoming service</option></select></label>
+    <label>Voice {{ choices("tts_voice", piper_voices, voice.tts_voice) }}
+      <small>A new voice downloads the first time it's used. Each voice's licence is on <a href="https://huggingface.co/rhasspy/piper-voices">its model card</a>.</small></label>
+    <label data-show="tts_engine=wyoming">Wyoming address <input name="tts_address" placeholder="piper.local:10200"></label>
+  </fieldset>
+  <fieldset><legend>Assistant</legend>
+    <p class="hint">Any OpenAI-compatible chat API: Ollama (<code>http://host:11434/v1</code>), llama.cpp, LM Studio, a
+      cloud service or Hermes. Leave the URL empty and speakers answer simple things themselves (time, date) and repeat
+      the rest back.</p>
+    <label>API URL <input name="assistant_url" placeholder="http://ollama:11434/v1"></label>
+    <label>Model <input name="assistant_model" placeholder="llama3.2"></label>
+    <label>API key <input name="assistant_key" type="password" autocomplete="off"></label>
+    <label>Instructions <textarea name="system_prompt" rows="5" placeholder="Empty: the built-in instructions"></textarea>
+      <small>{character}, {speaker} and {now} are filled in.</small></label>
+  </fieldset>
+  <fieldset><legend>Privacy</legend>
+    <label class="inline"><input type="checkbox" name="keep_recordings"> Keep what speakers hear (Recordings on each speaker's page), for troubleshooting</label>
+  </fieldset>
+  <div class="buttons"><button type="submit">Save</button></div>
+</form>
+<section class="card">
+  <h2>Try it</h2>
+  {% if devices %}
+  <form id="say-form" class="inline-form">
+    <label>Speaker <select name="device">{% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+    <label>Voice {{ choices("voice", piper_voices, "", "The voice above") }}</label>
+    <label class="grow">Text <input name="text" value="Hi there! I'm your new speaker." maxlength="600"></label>
+    <button type="submit">Say it</button>
+  </form>
+  {% else %}<p class="hint">Adopt a speaker first.</p>{% endif %}
+</section>
+<script type="application/json" id="voice-data">{{ voice | tojson }}</script>
+{% endblock %}

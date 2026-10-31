@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Characters{% endblock %}
+{% block page %}characters{% endblock %}
+{% block content %}
+<h1>Characters</h1>
+<p class="hint">A character has one animation per state. Upload a GIF, animated WebP or PNG. It gets centred on a square
+  transparent canvas, so a transparent background works best. A state without its own animation uses <em>idle</em>.</p>
+<form id="create-character" class="card inline-form">
+  <label>ID <input name="id" pattern="[a-z0-9][a-z0-9_\-]{0,31}" placeholder="robot" required></label>
+  <label>Name <input name="name" maxlength="48" placeholder="Robot" required></label>
+  <button type="submit">Create character</button>
+</form>
+{% for c in characters %}
+<section class="card character">
+  <div class="section-head">
+    <h2>{{ c.name }} <small>{{ c.id }} · v{{ c.version }}</small></h2>
+    {% if c.id != "default" %}<button class="danger" data-delete-character="{{ c.id }}">Delete</button>{% endif %}
+  </div>
+  <div class="states">
+    {% for s in states %}
+    <figure>
+      {% if s in c.states %}
+      <img src="/assets/characters/{{ c.id }}/{{ s }}.gif?size=144&v={{ c.version }}" width="144" height="144" alt="{{ s }}">
+      <figcaption>{{ s }} · {{ c.states[s].frames }} frames</figcaption>
+      {% else %}
+      <div class="missing">uses idle</div>
+      <figcaption>{{ s }}</figcaption>
+      {% endif %}
+      <label class="upload">Upload<input type="file" accept="image/gif,image/png,image/webp" data-character="{{ c.id }}" data-state="{{ s }}"></label>
+    </figure>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endblock %}
