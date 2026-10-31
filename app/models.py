@@ -69,6 +69,7 @@ class DisplayConfig(Strict):
 
 class AudioConfig(Strict):
     volume: int = Field(70, ge=0, le=100)
+    silence_s: int = Field(5, ge=1, le=30, description="stop listening after this long without speech")
     wake_word: str = Field("ok_nabu", max_length=64)
 
 

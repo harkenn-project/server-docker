@@ -170,7 +170,7 @@ async def device_page(device_id: str, request: Request) -> Response:
     if device is None:
         raise HTTPException(404, "unknown device")
     return _page(request, "device.html", device=device, catalog=catalog(c),
-                 form_data={"name": device["name"], "config": mask_secrets(device["config"])})
+                 form_data={"name": device["name"], "config": mask_secrets(_full_config(device))})
 
 
 @pages.get("/defaults")
@@ -276,6 +276,11 @@ async def reject_adoption(request_id: str, request: Request) -> Response:
 
 # JSON API: devices
 
+def _full_config(device: dict[str, Any]) -> dict[str, Any]:
+    """The stored config with defaults filled in for settings added since it was saved."""
+    return DeviceConfig.model_validate(device["config"]).model_dump()
+
+
 def _device_or_404(c: Context, device_id: str) -> dict[str, Any]:
     device = c.db.get_device(device_id)
     if device is None:
@@ -297,7 +302,7 @@ async def push_config(c: Context, device_id: str) -> bool:
 async def get_device(device_id: str, request: Request) -> dict[str, Any]:
     c = get_ctx(request)
     device = _device_or_404(c, device_id)
-    return device_summary(c, device) | {"config": mask_secrets(device["config"])}
+    return device_summary(c, device) | {"config": mask_secrets(_full_config(device))}
 
 
 @api.put("/devices/{device_id}")
