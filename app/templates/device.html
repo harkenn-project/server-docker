@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% from "_config_form.html" import config_form %}
+{% block title %}{{ device.name }}{% endblock %}
+{% block page %}device{% endblock %}
+{% block body_attrs %}data-device-id="{{ device.id }}"{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1><span class="dot" id="online-dot"></span> <span id="device-name">{{ device.name }}</span></h1>
+  <div class="buttons">
+    <button class="secondary" data-command="identify">Identify</button>
+    <button class="secondary" data-command="refresh_config">Resend config</button>
+    <button class="secondary" data-command="reboot">Reboot</button>
+    <button class="danger" id="forget">Forget</button>
+  </div>
+</div>
+<section class="card"><h2>Live status</h2><dl class="status" id="status"></dl></section>
+<section><h2>Configuration</h2>{{ config_form("/admin/api/devices/" ~ device.id, catalog, True) }}</section>
+<section class="card">
+  <div class="section-head"><h2>Logs</h2><label class="inline"><input type="checkbox" id="follow-logs" checked> Follow</label></div>
+  <div id="logs" class="logs"></div>
+</section>
+<section class="card"><h2>Recordings</h2>
+  <table class="recordings"><thead><tr><th>When</th><th>Kind</th><th>Size</th><th></th></tr></thead><tbody id="recordings"></tbody></table>
+</section>
+<script type="application/json" id="form-data">{{ form_data | tojson }}</script>
+{% endblock %}

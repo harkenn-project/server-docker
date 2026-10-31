@@ -1,0 +1,67 @@
+{% macro config_form(endpoint, catalog, with_name) %}
+<div class="config-editor">
+  <form class="card config-form" data-endpoint="{{ endpoint }}" novalidate>
+    {% if with_name %}
+    <fieldset><legend>General</legend>
+      <label>Name <input data-path="name" maxlength="48" required></label>
+    </fieldset>
+    {% endif %}
+    <fieldset><legend>Screen</legend>
+      <label>Character
+        <select data-path="config.character">
+          {% for c in catalog.characters %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Layout
+        <select data-path="config.display.layout">
+          {% for id, l in catalog.layouts.items() %}<option value="{{ id }}">{{ l.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Colour scheme
+        <select data-path="config.display.theme">
+          {% for id, t in catalog.themes.items() %}<option value="{{ id }}">{{ t.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="colors">
+        <span class="label">Custom colours</span>
+        {% for key in ["background", "surface", "primary", "accent", "text", "muted"] %}
+        <label class="color"><input type="checkbox" data-color-enable="{{ key }}"> {{ key }}
+          <input type="color" data-color="{{ key }}"></label>
+        {% endfor %}
+      </div>
+      <label>Brightness <span class="range"><input type="range" min="5" max="100" data-path="config.display.brightness" data-type="int"><output></output></span></label>
+      <label>Dim after (seconds, 0 = never) <input type="number" min="0" max="86400" data-path="config.display.sleep_after_s" data-type="int"></label>
+      <label class="inline"><input type="checkbox" data-path="config.display.clock_24h" data-type="bool"> 24-hour clock</label>
+      <label>Time zone (POSIX TZ) <input data-path="config.timezone" maxlength="64"></label>
+    </fieldset>
+    <fieldset><legend>Audio</legend>
+      <label>Volume <span class="range"><input type="range" min="0" max="100" data-path="config.audio.volume" data-type="int"><output></output></span></label>
+      <label>Wake word <input data-path="config.audio.wake_word" maxlength="64"></label>
+    </fieldset>
+    <fieldset><legend>Wi-Fi networks</legend>
+      <p class="hint">The speaker adds these to its saved networks. It only drops the network it's on after it has connected to one of these.</p>
+      <div class="wifi-list"></div>
+      <button type="button" class="secondary add-wifi">Add network</button>
+    </fieldset>
+    <fieldset><legend>Assistant</legend>
+      <label>Hermes URL <input data-path="config.assistant.url" maxlength="256" placeholder="not configured yet"></label>
+      <label>Log level
+        <select data-path="config.log_level">
+          {% for l in ["error", "warn", "info", "debug"] %}<option>{{ l }}</option>{% endfor %}
+        </select>
+      </label>
+    </fieldset>
+    <div class="actions"><button type="submit">Save</button><span class="form-message"></span></div>
+  </form>
+  <div class="card preview">
+    <h3>Preview</h3>
+    <div class="screen-wrap"><div class="screen"></div></div>
+    <label>State
+      <select class="preview-state">
+        {% for s in catalog.states %}<option>{{ s }}</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+</div>
+<script type="application/json" id="catalog">{{ catalog | tojson }}</script>
+{% endmacro %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Speakers{% endblock %}
+{% block page %}dashboard{% endblock %}
+{% block content %}
+<section id="pending-section" hidden>
+  <h2>Waiting for adoption</h2>
+  <p class="hint">Each speaker below is showing a 3-digit code on its screen. Type that code to adopt it.</p>
+  <div id="pending" class="cards"></div>
+</section>
+<section>
+  <h2>Speakers</h2>
+  <table class="devices">
+    <thead><tr><th></th><th>Name</th><th>State</th><th>Wi-Fi</th><th>Battery</th><th>Firmware</th><th>IP</th><th>Last seen</th></tr></thead>
+    <tbody id="devices"></tbody>
+  </table>
+  <p id="no-devices" class="hint" hidden>No speakers adopted yet. Power one on and it will appear above.</p>
+</section>
+{% endblock %}
