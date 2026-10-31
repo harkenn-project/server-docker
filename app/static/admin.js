@@ -477,9 +477,55 @@ function initFirmware() {
   }
 }
 
+// voice
+
+function initVoice() {
+  const form = $("#voice-form");
+  const fill = data => {
+    for (const input of form.elements) {
+      if (!input.name || !(input.name in data)) continue;
+      if (input.type === "checkbox") input.checked = !!data[input.name];
+      else input.value = data[input.name] ?? "";
+    }
+    showFields();
+  };
+  const showFields = () => {
+    for (const node of $$("[data-show]", form)) {
+      const [name, value] = node.dataset.show.split("=");
+      node.hidden = form.elements[name].value !== value;
+    }
+  };
+  form.addEventListener("change", showFields);
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const body = {};
+    for (const input of form.elements) {
+      if (!input.name) continue;
+      body[input.name] = input.type === "checkbox" ? input.checked : input.value;
+    }
+    try {
+      fill(await api("PUT", "/admin/api/voice", body));
+      toast("Saved");
+    } catch (err) { toast(err.message, true); }
+  });
+  fill(jsonScript("voice-data"));
+
+  const say = $("#say-form");
+  if (say) say.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = new FormData(say);
+    toast("Speaking… (the first time, the voice downloads first)");
+    try {
+      await api("POST", `/admin/api/devices/${f.get("device")}/say`, { text: f.get("text"), voice: f.get("voice") });
+      toast("Sent");
+    } catch (err) { toast(err.message, true); }
+  });
+}
+
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
 if (page === "defaults") initConfigForm();
 if (page === "characters") initCharacters();
 if (page === "firmware") initFirmware();
+if (page === "voice") initVoice();

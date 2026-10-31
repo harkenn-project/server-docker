@@ -1,0 +1,18 @@
+# Kotodama on one machine: `docker compose up -d`, then open http://<this machine>:8000/admin and set a password.
+# Speech recognition (Whisper) and speech (Piper) run inside the container; their models download the first time
+# they're needed and are kept in the kotodama-data volume. Speakers need to reach this server: enter its address in
+# the speaker's Wi-Fi setup page under "Advanced" (server URL), e.g. http://192.168.1.20:8000.
+services:
+  kotodama:
+    image: registry.gitlab.com/ninjalife/kotodama:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      KOTODAMA_PUBLIC_URL: "http://192.168.1.20:8000"  # how speakers reach this server: change to this machine
+      TZ: "America/Edmonton"
+    volumes:
+      - kotodama-data:/data
+
+volumes:
+  kotodama-data:

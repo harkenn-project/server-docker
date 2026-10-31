@@ -17,6 +17,7 @@ from .models import DeviceConfig
 from .settings import Settings
 from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
+from .voice.service import VoiceService
 
 log = logging.getLogger("kotodama")
 
@@ -31,9 +32,11 @@ class Context:
     characters: CharacterStore
     firmware: FirmwareStore
     updates: UpdateChecker = field(init=False)
+    voice: VoiceService = field(init=False)
 
     def __post_init__(self) -> None:
         self.updates = UpdateChecker(self)
+        self.voice = VoiceService(self)
 
 
 def get_ctx(conn: HTTPConnection) -> Context:

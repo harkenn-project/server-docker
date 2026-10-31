@@ -17,11 +17,13 @@ from starlette.concurrency import run_in_threadpool
 
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
-from .context import Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
+from .context import PASSWORD_MASK, Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
-from .models import ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn
+from .models import (ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+                     VoiceSettings)
 from .themes import LAYOUTS, THEMES
+from .voice.engines import PIPER_VOICES, WHISPER_MODELS
 
 MAX_ADOPTION_ATTEMPTS = 5
 
@@ -201,6 +203,15 @@ async def firmware_page(request: Request) -> Response:
                  updates=c.updates.state())
 
 
+@pages.get("/voice")
+async def voice_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    return _page(request, "voice.html", voice=_voice_out(c), whisper_models=WHISPER_MODELS, piper_voices=PIPER_VOICES,
+                 devices=c.db.list_devices())
+
+
 @pages.get("/events")
 async def events(request: Request) -> Response:
     if not is_admin(request):
@@ -370,6 +381,19 @@ async def update_firmware(device_id: str, body: FirmwareUpdateIn, request: Reque
     return {"sent": True, "version": fw["version"]}
 
 
+@api.post("/devices/{device_id}/say")
+async def say(device_id: str, body: SayIn, request: Request) -> dict[str, bool]:
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    if not c.hub.online(device_id):
+        raise HTTPException(409, "speaker is offline")
+    try:
+        await c.voice.say(device_id, body.text, body.voice)
+    except Exception as e:  # engine missing, voice download failed, Wyoming service down, ...
+        raise HTTPException(502, f"text-to-speech failed: {e}") from e
+    return {"sent": True}
+
+
 @api.get("/devices/{device_id}/logs")
 async def device_logs(device_id: str, request: Request, limit: int = 200, before: int | None = None) -> list[dict]:
     c = get_ctx(request)
@@ -406,6 +430,27 @@ async def put_defaults(body: DefaultsIn, request: Request) -> dict[str, Any]:
 @api.get("/catalog")
 async def get_catalog(request: Request) -> dict[str, Any]:
     return catalog(get_ctx(request))
+
+
+def _voice_out(c: Context) -> dict[str, Any]:
+    out = c.voice.settings().model_dump()
+    if out["assistant_key"]:
+        out["assistant_key"] = PASSWORD_MASK
+    return out
+
+
+@api.get("/voice")
+async def get_voice(request: Request) -> dict[str, Any]:
+    return _voice_out(get_ctx(request))
+
+
+@api.put("/voice")
+async def put_voice(body: VoiceSettings, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    if body.assistant_key == PASSWORD_MASK:
+        body.assistant_key = c.voice.settings().assistant_key
+    c.voice.save_settings(body)
+    return _voice_out(c)
 
 
 @api.get("/firmware")

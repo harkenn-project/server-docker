@@ -528,3 +528,115 @@ def test_update_check_rejects_a_bad_checksum(git_client):
     fake_gitlab(c, sha="0" * 64)
     state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
     assert "sha256" in state["error"] and state["latest"] is None
+
+def fake_voice(c, heard="what time is it"):
+    voice = c.app.state.ctx.voice
+    got = {}
+
+    def transcribe(pcm, **kw):
+        got["pcm"] = pcm
+        got["stt"] = kw
+        return heard
+
+    def synthesize(text, **kw):
+        got["tts"] = (text, kw)
+        return b"\x01\x00" * 4000  # 0.25 s at 16 kHz
+
+    voice.stt.transcribe = transcribe
+    voice.tts.synthesize = synthesize
+    return got
+
+
+def receive_speech(ws):
+    start = ws.receive_json()
+    assert start["type"] == "speak_start" and start["rate"] == 16000
+    audio = b""
+    while len(audio) < start["bytes"]:
+        audio += ws.receive_bytes()
+    assert ws.receive_json()["type"] == "speak_end"
+    return start, audio
+
+
+def test_voice_round_trip(client):
+    token = adopt(client)
+    got = fake_voice(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "s1", "local_time": "2026-10-31T15:42:00"})
+        for _ in range(10):
+            ws.send_bytes(b"\x00\x01" * 1600)  # 1 s in 100 ms frames
+        ws.send_json({"type": "voice_end", "session": "s1"})
+        result = ws.receive_json()
+        assert result == {"type": "voice_result", "session": "s1", "heard": "what time is it",
+                          "reply": "It's 3:42 PM."}  # no assistant configured: built-in answer, speaker's local time
+        start, audio = receive_speech(ws)
+    assert start["text"] == "It's 3:42 PM." and len(audio) == 8000
+    assert len(got["pcm"]) == 32000 and got["stt"]["model"] == "base.en"
+    assert got["tts"][1]["voice"] == "en_US-lessac-medium"
+    logs = [line["message"] for line in client.get(f"/admin/api/devices/{MAC}/logs").json()]
+    assert any(m.startswith('heard "what time is it"') for m in logs)
+    assert client.get(f"/admin/api/devices/{MAC}/recordings").json() == []  # not kept by default
+
+
+def test_voice_silence_and_recordings(client):
+    token = adopt(client)
+    fake_voice(client, heard="")
+    login(client)
+    s = client.get("/admin/api/voice").json()
+    s["keep_recordings"] = True
+    assert client.put("/admin/api/voice", json=s, headers=ADMIN).status_code == 200
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "s2"})
+        ws.send_bytes(b"\x00\x00" * 16000)
+        ws.send_json({"type": "voice_end", "session": "s2"})
+        assert ws.receive_json() == {"type": "voice_result", "session": "s2", "heard": "", "reply": ""}
+    recs = client.get(f"/admin/api/devices/{MAC}/recordings").json()
+    assert len(recs) == 1 and recs[0]["content_type"] == "audio/wav"
+
+
+def test_voice_settings_and_say(client):
+    token = adopt(client)
+    got = fake_voice(client)
+    s = client.get("/admin/api/voice").json()
+    s.update(assistant_url="http://ollama:11434/v1", assistant_key="secret-key", tts_voice="en_US-amy-medium")
+    out = client.put("/admin/api/voice", json=s, headers=ADMIN).json()
+    assert out["assistant_key"] == "********"
+    out["system_prompt"] = "Be brief."
+    client.put("/admin/api/voice", json=out, headers=ADMIN)  # the mask keeps the stored key
+    assert client.app.state.ctx.voice.settings().assistant_key == "secret-key"
+    bad = dict(out, stt_engine="cloud")
+    assert client.put("/admin/api/voice", json=bad, headers=ADMIN).status_code == 422
+    assert client.get("/admin/voice").status_code == 200
+
+    assert client.post(f"/admin/api/devices/{MAC}/say", json={"text": "hi"}, headers=ADMIN).status_code == 409
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.post(f"/admin/api/devices/{MAC}/say", json={"text": "Hi there!"}, headers=ADMIN)
+        assert r.status_code == 200, r.text
+        start, _ = receive_speech(ws)
+    assert start["text"] == "Hi there!" and got["tts"][1]["voice"] == "en_US-amy-medium"
+
+
+def test_builtin_replies_and_cleanup():
+    from datetime import datetime
+    from app.voice.brain import builtin_reply, speakable
+    now = datetime(2026, 10, 31, 9, 5)
+    assert builtin_reply("What time is it?", now) == "It's 9:05 AM."
+    assert builtin_reply("what's the date", now) == "It's Saturday, October 31."
+    assert builtin_reply("Hello there", now) == "Hi there!"
+    assert speakable("<think>hmm</think>**Sure!** See https://x.y") == "Sure! See"
+
+
+def test_resample_keeps_duration():
+    from app.voice.engines import resample
+    pcm = (np.sin(np.arange(22050) / 10) * 8000).astype("<i2").tobytes()
+    out = resample(pcm, 22050)
+    assert abs(len(out) / 2 - 16000) <= 1
+
+
+def test_wyoming_address():
+    from app.voice.wyoming import parse_address
+    assert parse_address("whisper:10300", 1) == ("whisper", 10300)
+    assert parse_address("tcp://piper.local:10200/", 1) == ("piper.local", 10200)
+    assert parse_address("piper", 10200) == ("piper", 10200)

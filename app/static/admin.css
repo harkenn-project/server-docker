@@ -109,3 +109,11 @@ label.upload input { display: none; }
   .preview { position: static; }
   .status { grid-template-columns: max-content 1fr; }
 }
+
+/* voice page */
+.form { display: grid; gap: 4px; }
+textarea { font: inherit; color: inherit; background: #0f1426; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; resize: vertical; }
+label small { color: var(--muted); font-size: .85em; }
+.inline-form .grow { flex: 1; min-width: 200px; }
+[hidden] { display: none !important; }
+.error { color: #ff7a7a; }

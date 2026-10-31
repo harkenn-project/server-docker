@@ -47,6 +47,19 @@ class Hub:
             log.info("send to %s failed: %s", device_id, e)
             return False
 
+    async def send_bytes(self, device_id: str, data: bytes) -> bool:
+        conn = self._conns.get(device_id)
+        if not conn:
+            return False
+        ws, lock = conn
+        try:
+            async with lock:
+                await ws.send_bytes(data)
+            return True
+        except Exception as e:
+            log.info("send to %s failed: %s", device_id, e)
+            return False
+
     async def kick(self, device_id: str, code: int = 4401, reason: str = "token revoked") -> None:
         conn = self._conns.pop(device_id, None)
         if conn:

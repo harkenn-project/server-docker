@@ -204,6 +204,8 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         task = asyncio.create_task(c.updates.handle_boot_check(device_id))
         _background.add(task)
         task.add_done_callback(_background.discard)
+    elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop"):
+        await c.voice.handle(device_id, msg)
     elif kind == "config_request":
         device = c.db.get_device(device_id)
         if device:
@@ -236,7 +238,13 @@ async def device_ws(ws: WebSocket) -> None:
     try:
         await c.hub.send(device_id, device_payload(c, device))
         while True:
-            msg = await ws.receive_json()
+            frame = await ws.receive()
+            if frame["type"] == "websocket.disconnect":
+                raise WebSocketDisconnect(frame.get("code", 1000))
+            if frame.get("bytes") is not None:  # microphone audio for the current utterance
+                c.voice.audio(device_id, frame["bytes"])
+                continue
+            msg = json.loads(frame.get("text") or "null")
             if not isinstance(msg, dict):
                 continue
             try:
@@ -252,6 +260,7 @@ async def device_ws(ws: WebSocket) -> None:
     finally:
         keepalive.cancel()
         if c.hub.detach(device_id, ws):
+            c.voice.disconnected(device_id)
             c.db.touch_device(device_id, now=time.time())
             c.hub.publish({"type": "device", "id": device_id})
             log.info("device %s disconnected", device_id)

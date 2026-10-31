@@ -22,6 +22,7 @@ class Settings:
     update_repo: str = ""  # public GitLab project holding latest.json + firmware (updates.py); empty = no Git checks
     update_gitlab_url: str = "https://gitlab.com"
     update_branch: str = "main"
+    voice_warmup: bool = False  # load the voice models in the background at startup
 
     @property
     def db_path(self) -> Path:
@@ -66,4 +67,5 @@ def load_settings() -> Settings:
         update_repo=env("KOTODAMA_UPDATE_REPO", "ninjalife/kotodama-firmware").strip("/"),
         update_gitlab_url=env("KOTODAMA_UPDATE_GITLAB_URL", "https://gitlab.com").rstrip("/"),
         update_branch=env("KOTODAMA_UPDATE_BRANCH", "main"),
+        voice_warmup=env("KOTODAMA_VOICE_WARMUP", "true") == "true",
     )

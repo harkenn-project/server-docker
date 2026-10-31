@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -39,7 +41,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_secret = secrets.token_urlsafe(48)
         db.set_setting("session_secret", session_secret)
 
-    app = FastAPI(title="Kotodama", version=__version__, docs_url="/api/docs", redoc_url=None)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if settings.voice_warmup:
+            threading.Thread(target=app.state.ctx.voice.warm_up, name="voice-warmup", daemon=True).start()
+        yield
+
+    app = FastAPI(title="Kotodama", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
                             firmware=FirmwareStore(settings.firmware_dir))
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="kotodama_session",

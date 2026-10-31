@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    KOTODAMA_DATA_DIR=/data
+    KOTODAMA_DATA_DIR=/data \
+    HF_HOME=/data/models/huggingface
 
 WORKDIR /srv
 COPY requirements.txt .

@@ -87,6 +87,33 @@ class DeviceConfig(Strict):
     log_level: Literal["error", "warn", "info", "debug"] = "info"
 
 
+# voice pipeline (server-wide; see app/voice)
+
+class VoiceSettings(Strict):
+    stt_engine: Literal["builtin", "wyoming"] = "builtin"
+    stt_model: str = Field("base.en", pattern=r"^[A-Za-z0-9._/-]{2,80}$", description="faster-whisper model")
+    stt_address: str = Field("", max_length=200, description="Wyoming speech-to-text host:port")
+    language: str = Field("en", pattern=r"^[a-z]{0,3}$")
+    tts_engine: Literal["builtin", "wyoming"] = "builtin"
+    tts_voice: str = Field("en_US-lessac-medium", pattern=r"^[A-Za-z0-9._-]{0,80}$")
+    tts_address: str = Field("", max_length=200, description="Wyoming text-to-speech host:port")
+    assistant_url: str = Field("", max_length=300, description="OpenAI-compatible API base URL, e.g. http://ollama:11434/v1")
+    assistant_model: str = Field("", max_length=120)
+    assistant_key: str = Field("", max_length=400)
+    system_prompt: str = Field("", max_length=4000, description="empty = built-in prompt")
+    keep_recordings: bool = Field(False, description="save what speakers hear, for troubleshooting")
+
+    @field_validator("stt_address", "tts_address", "assistant_url")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+
+class SayIn(Strict):
+    text: str = Field(min_length=1, max_length=600)
+    voice: str = Field("", pattern=r"^[A-Za-z0-9._-]{0,80}$")
+
+
 # device -> server
 
 class AdoptionRequestIn(Lenient):

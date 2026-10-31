@@ -143,3 +143,29 @@ What the firmware has to do with it:
   its saved list. It must never delete the network it is connected to unless it has just connected successfully to
   one from the list. A long press on BOOT always opens the local provisioning portal as a way back in.
 * After applying a config, the device reports `config_version` in its next `status`.
+
+## 5. Voice
+
+A tap (later the wake word) starts an utterance. Audio is 16 kHz, 16-bit, mono, little-endian PCM in both directions,
+sent as binary WebSocket frames.
+
+```
+speaker                                     Kotodama
+voice_start {session, rate, local_time}  ->
+binary frames (mic, ~100 ms each)        ->
+voice_end {session}                      ->           speech-to-text (Whisper), reply, text-to-speech (Piper)
+                                         <-  voice_result {session, heard, reply}
+                                         <-  speak_start {session, rate, bytes, text}
+                                         <-  binary frames (speech)
+                                         <-  speak_end {session}
+```
+
+* The speaker ends the utterance itself: on a tap, after `audio.silence_s` without speech, or after 30 s. If it heard
+  no speech at all it sends `voice_cancel` instead of `voice_end`.
+* `local_time` (ISO 8601, no zone) is the speaker's clock, so answers use its time zone.
+* `voice_result` with an empty `heard` means nothing was understood: the speaker plays its cancel sound.
+* `voice_error {session, message}` means the pipeline failed.
+* Speech is sent at most about 3 s ahead of playback. `speak_start` can also arrive without an utterance (the admin
+  UI's *Say it*, announcements).
+* A tap while listening ends the utterance; while waiting, it sends `voice_cancel`; while speaking, it stops playback
+  and sends `speak_stop`.
