@@ -185,6 +185,12 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         data = json.dumps(msg.get("data"))[:900] if msg.get("data") is not None else ""
         _store_logs(c, device_id, [LogLine(level="I", tag="event", message=f"{name} {data}".strip())])
         c.hub.publish({"type": "event", "id": device_id, "name": name})
+    elif kind == "settings":
+        # changed on the speaker itself (touch screen): keep the stored config in step without pushing it back
+        volume = msg.get("volume")
+        if isinstance(volume, int) and not isinstance(volume, bool) and 0 <= volume <= 100:
+            if c.db.note_device_setting(device_id, "audio", "volume", volume):
+                c.hub.publish({"type": "device", "id": device_id})
     elif kind == "config_request":
         device = c.db.get_device(device_id)
         if device:

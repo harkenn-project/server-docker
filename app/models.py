@@ -114,6 +114,7 @@ class StatusIn(Lenient):
     battery: int | None = Field(None, ge=0, le=100)
     charging: bool | None = None
     volume: int | None = None
+    muted: bool | None = None
     brightness: int | None = None
     config_version: int | None = None
     message: str | None = Field(None, max_length=200)

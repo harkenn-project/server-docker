@@ -24,14 +24,14 @@ from .assets import MASTER_SIZE, CharacterStore
 
 log = logging.getLogger("kotodama.starter")
 
-BUILTIN_VERSION = 2
+BUILTIN_VERSION = 3
 SS = 2  # supersampling
 W = MASTER_SIZE
 TAU = 2 * math.pi
 
 # frames, milliseconds per frame
 TIMING = {"idle": (72, 60), "listening": (40, 50), "thinking": (48, 60), "speaking": (32, 60),
-          "sleeping": (64, 80), "error": (36, 50)}
+          "sleeping": (64, 80), "error": (36, 50), "muted": (48, 80)}
 
 INK = (28, 30, 52, 255)
 WHITE = (255, 255, 255, 255)
@@ -219,6 +219,13 @@ def mouth(c: Canvas, cx, cy, w, kind="smile", amount=0.0):
         c.line(pts, INK, w * 0.11)
     elif kind == "frown":
         c.arc(cx, cy + w * 0.36, w * 0.42, w * 0.38, 212, 328, INK, w * 0.13)
+    elif kind == "zip":  # zipped shut, for muted
+        c.line([(cx - w * 0.38, cy), (cx + w * 0.38, cy)], INK, w * 0.1)
+        for k in range(7):
+            x = cx - w * 0.33 + k * w * 0.11
+            c.line([(x, cy - w * 0.09), (x, cy + w * 0.09)], INK, w * 0.05, caps=False)
+        c.rrect(cx + w * 0.36, cy - w * 0.03, cx + w * 0.5, cy + w * 0.2, w * 0.05, fill=(205, 210, 225, 255),
+                outline=INK, width=w * 0.04)
     elif kind == "cat":
         r = w * 0.22
         c.arc(cx - r, cy - r * 0.2, r, r * 0.9, 20, 160, INK, w * 0.1)
@@ -271,6 +278,15 @@ def think_dots(c: Canvas, i, x, y, color=WHITE):
     for k in range(3):
         lift = 7 * pulse(i % 24, k * 6, 10)
         c.circle(x + k * 15, y - lift, 4.5 + k * 0.6, color)
+
+
+def muted_badge(c: Canvas, x, y, s, slash=(255, 90, 90, 255)):
+    """A crossed-out microphone in a dark bubble."""
+    c.overlay(lambda o: o.circle(x, y, s, (20, 24, 40, 175)))
+    c.rrect(x - s * 0.2, y - s * 0.56, x + s * 0.2, y + s * 0.1, s * 0.2, fill=WHITE)
+    c.arc(x, y - s * 0.14, s * 0.36, s * 0.36, 20, 160, WHITE, s * 0.09)
+    c.line([(x, y + s * 0.24), (x, y + s * 0.42)], WHITE, s * 0.09)
+    c.line([(x - s * 0.52, y - s * 0.52), (x + s * 0.52, y + s * 0.52)], slash, s * 0.13)
 
 
 def speech_pattern(i: int) -> float:
@@ -375,6 +391,15 @@ class Kotodama(Character):
                   mouth_kind="wavy", amount=i / n * 2, blush_alpha=60)
         sweat(c, cx + 66, cy - 42, 7, (i % 18) / 18)
 
+    def muted(self, c, i, n):
+        b = osc(i, n)
+        cx, cy = 120, 134 + b * 3
+        peek = window(i, 18, 30)  # glances up at the badge
+        self.body(c, cx, cy, 81, squash=0.02 * b, sway=0.3 * osc(i, n), droop=0.15)
+        self.face(c, cx, cy, open_=blink(i, 8, 40), look=(0.6 * peek, -0.8 * peek), brow_angle=5, brow_lift=2,
+                  brow_asym=2, mouth_kind="zip", blush_alpha=180)
+        muted_badge(c, 182, 50 + 3 * osc(i, n, 1, 0.25), 20)
+
 
 class Obake(Character):
     """A friendly ghost that floats."""
@@ -451,6 +476,13 @@ class Obake(Character):
         self.ghost(c, 120 + 4 * math.sin(i * 2.3) * (i < n // 2), cy, i / n * 3, alpha=flicker, arm_l=1, arm_r=1)
         self.face(c, 120, cy, eyes="x", mouth_kind="wavy", amount=i / n * 2)
         sweat(c, 186, 82, 7, (i % 18) / 18)
+
+    def muted(self, c, i, n):
+        cy = 106 + 5 * osc(i, n)
+        peek = window(i, 20, 32)
+        self.ghost(c, 120, cy, i / n, arm_l=0.55, arm_r=0.55)  # paws over its mouth
+        self.face(c, 120, cy, open_=blink(i, 10, 42), look=(0.6 * peek, -0.7 * peek), mouth_kind="zip")
+        muted_badge(c, 186, 46 + 3 * osc(i, n, 1, 0.25), 20)
 
 
 class Neko(Character):
@@ -536,6 +568,14 @@ class Neko(Character):
         self.face(c, 120 + shake, cy, eyes="x", mouth_kind="wavy", mouth_amount=i / n * 2)
         sweat(c, 188, 84, 7, (i % 18) / 18)
 
+    def muted(self, c, i, n):
+        cy = 136 + 2 * osc(i, n)
+        flick = 10 * pulse(i, 26, 5)  # one ear flicks
+        self.head(c, 120, cy, ear_l=10, ear_r=10 + flick, whisker=0.3 * osc(i, n))
+        look = (0.6 * window(i, 12, 22), -0.6 * window(i, 12, 22))
+        self.face(c, 120, cy, open_=blink(i, 34) * 0.85, look=look, mouth_kind="zip")
+        muted_badge(c, 186, 52 + 3 * osc(i, n, 1, 0.25), 20)
+
 
 class Robo(Character):
     """A little robot with an LED face."""
@@ -543,7 +583,8 @@ class Robo(Character):
     METAL_DARK, METAL_LIGHT = (130, 142, 160), (214, 222, 234)
     SCREEN = (18, 24, 40, 255)
     LED = {"idle": (90, 220, 255), "listening": (110, 255, 160), "thinking": (255, 210, 90),
-           "speaking": (255, 120, 210), "sleeping": (80, 110, 200), "error": (255, 80, 80)}
+           "speaking": (255, 120, 210), "sleeping": (80, 110, 200), "error": (255, 80, 80),
+           "muted": (255, 150, 80)}
 
     def head(self, c, cx, cy, led, glow, antenna_tilt=0.0):
         # antenna
@@ -604,6 +645,10 @@ class Robo(Character):
             c.line([(cx - 18, cy + 24), (cx + 18, cy + 24)], col, 4)
         elif kind == "zig":
             c.line([(cx - 22 + k * 11, cy + 24 + (5 if k % 2 else -5)) for k in range(5)], col, 4)
+        elif kind == "mute":  # a crossed-out microphone on the mouth display
+            c.rrect(cx - 6, cy + 10, cx + 6, cy + 28, 6, fill=col)
+            c.arc(cx, cy + 22, 11, 10, 20, 160, col, 3)
+            c.line([(cx - 14, cy + 8), (cx + 14, cy + 36)], (255, 80, 80, 255), 3.5)
 
     def idle(self, c, i, n):
         led = self.LED["idle"]
@@ -656,6 +701,14 @@ class Robo(Character):
         self.smile(c, 120 + glitch, cy, led, "zig")
         for k in range(3):
             sparkle(c, 60 + k * 50, 46 + 10 * k, 8 * pulse((i + k * 5) % 18, 0, 6), (255, 180, 80, 255))
+
+    def muted(self, c, i, n):
+        led = self.LED["muted"]
+        cy = 136 + 2 * osc(i, n)
+        self.head(c, 120, cy, led, 0.3 + 0.3 * osc(i, n, 2), antenna_tilt=-0.4)
+        side = window(i, 20, 30) - window(i, 34, 42)  # looks one way, then the other
+        self.eyes(c, 120, cy, led, open_=blink(i, 8) * 0.75, look=(side, 0.2))
+        self.smile(c, 120, cy, led, "mute")
 
 
 CHARACTERS: list[Character] = [Kotodama(), Obake(), Neko(), Robo()]

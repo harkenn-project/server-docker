@@ -157,6 +157,20 @@ class Database:
                 return None
             return c.execute("SELECT config_version FROM devices WHERE id=?", (device_id,)).fetchone()[0]
 
+    def note_device_setting(self, device_id: str, section: str, key: str, value: Any) -> bool:
+        """Record a setting the speaker changed itself (e.g. volume from the touch screen). The config version is not
+        bumped, so nothing is pushed back to the speaker, which already has the value."""
+        with self._conn() as c:
+            row = c.execute("SELECT config FROM devices WHERE id=?", (device_id,)).fetchone()
+            if row is None:
+                return False
+            config = json.loads(row[0])
+            if config.get(section, {}).get(key) == value:
+                return False
+            config.setdefault(section, {})[key] = value
+            c.execute("UPDATE devices SET config=? WHERE id=?", (json.dumps(config), device_id))
+            return True
+
     def touch_device(self, device_id: str, *, now: float, ip: str | None = None,
                      firmware: str | None = None, status: dict | None = None) -> None:
         sets, args = ["last_seen=?"], [now]

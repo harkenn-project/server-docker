@@ -7,6 +7,7 @@ from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from app import kani
+from app.assets import STATES
 from app.main import create_app
 from app.settings import Settings
 from app.starter import BUILTIN_VERSION, build
@@ -73,7 +74,7 @@ def test_adoption_flow_hands_out_token_once(client):
     assert config["device"] == {"id": MAC, "name": "Kitchen"}
     assert config["version"] == 1
     assert config["layout"]["id"] == "character_clock"
-    assert set(config["character"]["states"]) == {"idle", "listening", "thinking", "speaking", "sleeping", "error"}
+    assert set(config["character"]["states"]) == set(STATES)
     assert client.get(f"/api/v1/device/config", headers={**bearer(token), "If-None-Match": '"1"'}).status_code == 304
 
 
@@ -172,6 +173,27 @@ def test_websocket_gets_config_and_live_updates(client):
     assert logs[-1]["message"] == "hello"
 
 
+def test_volume_set_on_speaker_is_stored_without_a_push(client):
+    token = adopt(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        assert ws.receive_json()["version"] == 1
+        ws.send_json({"type": "settings", "volume": 42})
+        ws.send_json({"type": "settings", "volume": 400})  # out of range: ignored
+        ws.send_json({"type": "status", "status": {"volume": 42, "muted": True}})
+        ws.send_json({"type": "config_request"})
+        reply = ws.receive_json()  # the next message is the requested config, not a push
+        assert reply["version"] == 1 and reply["config"]["audio"]["volume"] == 42
+    device = client.get(f"/admin/api/devices/{MAC}").json()
+    assert device["config"]["audio"]["volume"] == 42 and device["config_version"] == 1
+    assert device["status"]["muted"] is True
+
+
+def test_every_state_has_an_animation(client):
+    token = adopt(client)
+    states = client.get("/api/v1/device/config", headers=bearer(token)).json()["character"]["states"]
+    assert states["muted"]["source"] == "muted"
+
+
 def test_command_to_offline_device(client):
     adopt(client)
     r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "reboot"}, headers=ADMIN)
@@ -238,7 +260,7 @@ def test_builtin_characters(client):
     login(client)
     chars = client.get("/admin/api/catalog").json()["characters"]
     assert [c["id"] for c in chars] == ["default", "obake", "neko", "robo"]
-    assert all(len(c["states"]) == 6 for c in chars)
+    assert all(len(c["states"]) == len(STATES) for c in chars)
 
 
 def test_kani_roundtrip():

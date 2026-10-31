@@ -333,7 +333,7 @@ function initDevice() {
       ...statusItem("Wi-Fi", s.rssi != null ? `${s.ssid || "?"} (${s.rssi} dBm)` : undefined),
       ...statusItem("IP", d.last_ip),
       ...statusItem("Battery", s.battery != null ? `${s.battery}%${s.charging ? ", charging" : ""}` : undefined),
-      ...statusItem("Volume", s.volume),
+      ...statusItem("Volume", s.volume != null ? `${s.volume}%${s.muted ? ", mic muted" : ""}` : undefined),
       ...statusItem("Uptime", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)}h ${Math.floor(s.uptime_s / 60) % 60}m` : undefined),
       ...statusItem("Free memory", s.free_heap != null ? `${bytes(s.free_heap)} internal, ${bytes(s.free_psram || 0)} PSRAM` : undefined),
       ...statusItem("Firmware", d.firmware),

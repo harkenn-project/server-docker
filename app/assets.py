@@ -24,7 +24,7 @@ from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 from . import kani
 
-STATES = ("idle", "listening", "thinking", "speaking", "sleeping", "error")
+STATES = ("idle", "listening", "thinking", "speaking", "sleeping", "error", "muted")
 MASTER_SIZE = 240
 LARGE_SIZE = 160  # speaker animations above this size are sent at half frame rate
 MAX_FRAMES = 120
