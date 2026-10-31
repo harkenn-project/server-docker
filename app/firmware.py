@@ -31,6 +31,12 @@ def inspect(data: bytes) -> dict[str, str]:
     return {"version": m.group(1).decode(), "hardware": m.group(2).decode()}
 
 
+def update_args(public_url: str, fw: dict[str, Any]) -> dict[str, Any]:
+    """What a speaker needs to install `fw` (the args of update_firmware / update_available)."""
+    return {"url": f"{public_url}/api/v1/device/firmware/{fw['id']}.bin", "version": fw["version"],
+            "size": fw["size"], "sha256": fw["sha256"]}
+
+
 class FirmwareStore:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -55,6 +61,16 @@ class FirmwareStore:
             return None
         path = self.root / f"{fid}.json"
         return json.loads(path.read_text()) if path.is_file() else None
+
+    def tag(self, fid: str, **fields: Any) -> dict[str, Any]:
+        """Add fields to a firmware's metadata, e.g. the Git release it came from."""
+        with self._lock:
+            meta = self.get(fid)
+            if meta is None:
+                raise KeyError(fid)
+            meta.update(fields)
+            (self.root / f"{fid}.json").write_text(json.dumps(meta))
+        return meta
 
     def path(self, fid: str) -> Path | None:
         return self.root / f"{fid}.bin" if self.get(fid) else None

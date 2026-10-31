@@ -450,3 +450,73 @@ def test_firmware_rejects_other_files_and_hardware(client):
     fw = upload_firmware(client, fake_firmware(hardware="other-board")).json()
     r = client.post(f"/admin/api/devices/{MAC}/update", json={"firmware": fw["id"]}, headers=ADMIN)
     assert r.status_code == 422 and "other-board" in r.text
+
+@pytest.fixture
+def git_client(tmp_path, prebuilt):
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        update_repo="ninjalife/kotodama")
+    with TestClient(create_app(settings)) as c:
+        yield c
+
+
+def fake_gitlab(c, version="0.5.0", calls=None):
+    updates = c.app.state.ctx.updates
+    calls = calls if calls is not None else []
+
+    def release():
+        calls.append("release")
+        return {"tag_name": f"v{version}", "assets": {"links": [
+            {"name": "firmware.bin", "url": "https://gitlab.example/firmware.bin"}]}}
+
+    updates.fetch_latest_release = release
+    updates.fetch_asset = lambda url: calls.append(url) or fake_firmware(version)
+    return calls
+
+
+def test_boot_update_check_offers_newer_release(git_client):
+    c = git_client
+    token = adopt(c)  # adopted with firmware 0.0.1, hardware "test"
+    calls = fake_gitlab(c)
+    with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "update_check"})
+        offer = ws.receive_json()
+    assert offer["type"] == "update_available"
+    assert offer["firmware"]["version"] == "0.5.0" and offer["firmware"]["url"].endswith(".bin")
+    state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
+    assert state["release"] == "v0.5.0" and state["latest"]["version"] == "0.5.0" and state["error"] is None
+    assert calls.count("https://gitlab.example/firmware.bin") == 1  # the same release isn't downloaded again
+    assert "v0.5.0" in c.get("/admin/firmware").text
+
+
+def test_boot_update_check_is_quiet_when_up_to_date(git_client):
+    c = git_client
+    token = adopt(c)
+    calls = fake_gitlab(c, version="0.0.1")  # same as the speaker
+    with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "update_check"})
+        ws.send_json({"type": "update_check"})  # a second speaker booting soon after: cached
+        ws.send_json({"type": "config_request"})
+        assert ws.receive_json()["type"] == "config"  # no offer came first
+    assert calls.count("release") == 1
+
+
+def test_update_check_failure_is_reported(git_client):
+    c = git_client
+    login(c)
+    updates = c.app.state.ctx.updates
+
+    def broken():
+        raise OSError("gitlab unreachable")
+
+    updates.fetch_latest_release = broken
+    state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
+    assert "unreachable" in state["error"] and state["latest"] is None
+
+
+def test_version_order():
+    from app.updates import is_newer
+    assert is_newer("0.4.10", "0.4.9") and is_newer("1.0.0", "0.9.9") and is_newer("0.5.0", None)
+    assert not is_newer("0.4.1", "0.4.1") and not is_newer("v0.4.0", "0.4.1")

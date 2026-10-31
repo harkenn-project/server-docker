@@ -441,7 +441,18 @@ async function installFirmware(build, deviceId) {
 
 function initFirmware() {
   for (const cell of $$("[data-bytes]")) cell.textContent = bytes(Number(cell.dataset.bytes));
-  for (const cell of $$("[data-time]")) cell.textContent = new Date(cell.dataset.time * 1000).toLocaleString();
+  for (const cell of $$("[data-time]")) {
+    if (cell.dataset.time) cell.textContent = new Date(cell.dataset.time * 1000).toLocaleString();
+  }
+  const check = $("#check-updates");
+  if (check) check.addEventListener("click", async () => {
+    check.disabled = true;
+    try {
+      const st = await api("POST", "/admin/api/firmware/check");
+      toast(st.error ? `Check failed: ${st.error}` : `Latest release: ${st.release || "none"}`, !!st.error);
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) { toast(err.message, true); check.disabled = false; }
+  });
   $("#upload-firmware").addEventListener("submit", async e => {
     e.preventDefault();
     toast("Uploading…");

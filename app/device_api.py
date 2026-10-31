@@ -29,6 +29,7 @@ assets_router = APIRouter(tags=["assets"])
 HEX = r"^[0-9a-fA-F]{6}$"
 POLL_INTERVAL_S = 3
 PING_INTERVAL_S = 25
+_background: set[asyncio.Task] = set()  # keeps fire-and-forget tasks alive until they finish
 RECORDING_TYPES = {"audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg", "audio/opus": "opus",
                    "audio/l16": "pcm", "application/octet-stream": "bin"}
 
@@ -199,6 +200,10 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         if isinstance(volume, int) and not isinstance(volume, bool) and 0 <= volume <= 100:
             if c.db.note_device_setting(device_id, "audio", "volume", volume):
                 c.hub.publish({"type": "device", "id": device_id})
+    elif kind == "update_check":  # sent once after the speaker boots; may hit GitLab, so don't block the socket
+        task = asyncio.create_task(c.updates.handle_boot_check(device_id))
+        _background.add(task)
+        task.add_done_callback(_background.discard)
     elif kind == "config_request":
         device = c.db.get_device(device_id)
         if device:

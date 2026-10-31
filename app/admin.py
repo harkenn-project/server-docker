@@ -19,7 +19,7 @@ from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
 from .device_api import hash_token
-from .firmware import MAX_FIRMWARE_BYTES
+from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .models import ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn
 from .themes import LAYOUTS, THEMES
 
@@ -197,7 +197,8 @@ async def firmware_page(request: Request) -> Response:
     if not is_admin(request):
         return _login_redirect(request)
     c = get_ctx(request)
-    return _page(request, "firmware.html", builds=c.firmware.list(), devices=c.db.list_devices())
+    return _page(request, "firmware.html", builds=c.firmware.list(), devices=c.db.list_devices(),
+                 updates=c.updates.state())
 
 
 @pages.get("/events")
@@ -363,8 +364,7 @@ async def update_firmware(device_id: str, body: FirmwareUpdateIn, request: Reque
         raise HTTPException(404, "unknown firmware")
     if device["hardware"] and fw["hardware"] != device["hardware"]:
         raise HTTPException(422, f"this firmware is for {fw['hardware']}, the speaker is {device['hardware']}")
-    args = {"url": f"{c.settings.public_url}/api/v1/device/firmware/{fw['id']}.bin", "version": fw["version"],
-            "size": fw["size"], "sha256": fw["sha256"]}
+    args = update_args(c.settings.public_url, fw)
     if not await c.hub.send(device_id, {"type": "command", "command": "update_firmware", "args": args}):
         raise HTTPException(409, "speaker is offline")
     return {"sent": True, "version": fw["version"]}
@@ -420,6 +420,11 @@ async def upload_firmware(file: UploadFile, request: Request) -> dict[str, Any]:
         return await run_in_threadpool(get_ctx(request).firmware.add, data)
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
+
+
+@api.post("/firmware/check")
+async def check_firmware_updates(request: Request) -> dict[str, Any]:
+    return await get_ctx(request).updates.check()
 
 
 @api.delete("/firmware/{fid}", status_code=204)

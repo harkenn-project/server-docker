@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import ValidationError
@@ -16,6 +16,7 @@ from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
 from .themes import LAYOUTS, character_sizes, resolve_theme
+from .updates import UpdateChecker
 
 log = logging.getLogger("kotodama")
 
@@ -29,6 +30,10 @@ class Context:
     hub: Hub
     characters: CharacterStore
     firmware: FirmwareStore
+    updates: UpdateChecker = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.updates = UpdateChecker(self)
 
 
 def get_ctx(conn: HTTPConnection) -> Context:
