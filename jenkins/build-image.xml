@@ -1,7 +1,7 @@
 <?xml version="1.1" encoding="UTF-8"?>
 <!-- Jenkins freestyle job "Build kotodama image". Kept here so the job definition is versioned.
-     Needs: docker on the Jenkins node, and credential "gitlab-registry-kotodama"
-     (username/password = GitLab deploy token with write_registry). -->
+     Needs: docker on the Jenkins node, and credential c516f6bb... ("Gitlab", shared with the deploy job;
+     GitLab user + token that can push to this registry). -->
 <project>
   <description>Runs the tests, builds registry.gitlab.com/ninjalife/kotodama and pushes :latest and :&lt;sha&gt;. Definition lives in the kotodama repo at jenkins/build-image.xml.</description>
   <keepDependencies>false</keepDependencies>
@@ -70,7 +70,7 @@ docker image prune -f --filter "until=168h" &gt;/dev/null
     <org.jenkinsci.plugins.credentialsbinding.impl.SecretBuildWrapper plugin="credentials-binding">
       <bindings>
         <org.jenkinsci.plugins.credentialsbinding.impl.UsernamePasswordMultiBinding>
-          <credentialsId>gitlab-registry-kotodama</credentialsId>
+          <credentialsId>c516f6bb-0b33-4ad7-a8b1-f6b116c49aa9</credentialsId>
           <usernameVariable>REGISTRY_USER</usernameVariable>
           <passwordVariable>REGISTRY_PASSWORD</passwordVariable>
         </org.jenkinsci.plugins.credentialsbinding.impl.UsernamePasswordMultiBinding>
