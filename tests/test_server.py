@@ -20,6 +20,8 @@ def prebuilt(tmp_path_factory):
     """Draw the built-in characters once for the whole test run."""
     path = tmp_path_factory.mktemp("prebuilt")
     build(path)
+    # In the container the prebuilt set is read-only to the app: make sure nothing tries to write there.
+    (path / ".cache").write_text("not a directory")
     return path
 
 

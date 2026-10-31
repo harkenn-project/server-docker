@@ -10,6 +10,7 @@ UI are redrawn (or copied from the prebuilt set baked into the container image).
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 import shutil
@@ -687,7 +688,9 @@ def ensure_builtin_characters(store: CharacterStore, prebuilt: Path | None = Non
             continue
         old_version = meta["version"] if meta else 0
         source = prebuilt / ch.id if prebuilt else None
-        src_meta = CharacterStore(prebuilt, prebuilt / ".cache").get(ch.id) if source and source.is_dir() else None
+        meta_file = source / "character.json" if source else None
+        # read-only: the prebuilt set lives in the image and is not writable at runtime
+        src_meta = json.loads(meta_file.read_text()) if meta_file and meta_file.is_file() else None
         target = store.root / ch.id
         if src_meta and src_meta.get("builtin") == BUILTIN_VERSION:
             log.info("installing built-in character %s from %s", ch.id, prebuilt)
