@@ -250,10 +250,11 @@ async def character_manifest(cid: str, request: Request, size: list[int] = Query
 
 
 @assets_router.get("/assets/characters/{cid}/{state}.gif")
-async def character_gif(cid: str, state: str, request: Request, size: int = 240, v: int | None = None) -> FileResponse:
+async def character_gif(cid: str, state: str, request: Request, size: int = 240, v: int | None = None,
+                        bg: str | None = Query(None, pattern=r"^[0-9a-fA-F]{6}$")) -> FileResponse:
     if state not in STATES or size not in ALL_CHARACTER_SIZES:
         raise HTTPException(404)
-    path = await run_in_threadpool(get_ctx(request).characters.state_file, cid, state, size)
+    path = await run_in_threadpool(get_ctx(request).characters.state_file, cid, state, size, bg)
     if path is None:
         raise HTTPException(404)
     cache = "public, max-age=31536000, immutable" if v is not None else "no-cache"

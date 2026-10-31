@@ -128,7 +128,9 @@ What the firmware has to do with it:
   * Fonts: `sm` 14 px, `md` 18 px, `lg` 30 px, `xl` 48 px.
 * **Character.** Every state always has an entry. A state without its own animation points at `idle` through
   `source`. The URLs are versioned, so the device can cache by URL. The files are GIFs that are already the size of
-  the widget, with 1-bit transparency, so no scaling happens on the device. Assets need no token.
+  the widget, so no scaling happens on the device. They are flattened onto the theme's `background` colour
+  (`&bg=` in the URL) and have no transparency, so every frame fully repaints the widget. Assets need no token.
+* **Ring.** Draw the ring on top of the character, because the character's GIF is opaque.
 * **Wi-Fi.** `wifi` is the full list of networks the server wants the device to know. The device adds new ones to
   its saved list. It must never delete the network it is connected to unless it has just connected successfully to
   one from the list. A long press on BOOT always opens the local provisioning portal as a way back in.

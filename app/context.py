@@ -64,15 +64,18 @@ def restore_secrets(new: DeviceConfig, old: dict[str, Any]) -> DeviceConfig:
 
 def device_payload(ctx: Context, device: dict[str, Any]) -> dict[str, Any]:
     config = DeviceConfig.model_validate(device["config"])
+    theme = resolve_theme(config.display.theme, config.display.colors.model_dump())
     sizes = character_sizes(config.display.layout)
     base = ctx.settings.public_url
-    character = ctx.characters.manifest(config.character, sizes, base) or ctx.characters.manifest("default", sizes, base)
+    background = theme["background"].lstrip("#")  # speakers get GIFs flattened onto their background colour
+    character = (ctx.characters.manifest(config.character, sizes, base, background)
+                 or ctx.characters.manifest("default", sizes, base, background))
     return {
         "type": "config",
         "version": device["config_version"],
         "device": {"id": device["id"], "name": device["name"]},
         "config": config.model_dump(),
-        "theme": resolve_theme(config.display.theme, config.display.colors.model_dump()),
+        "theme": theme,
         "layout": {"id": config.display.layout, "widgets": LAYOUTS[config.display.layout]["widgets"]},
         "character": character,
     }

@@ -206,7 +206,13 @@ def test_character_assets_are_sized(client):
     assert r.status_code == 200 and r.headers["content-type"] == "image/gif"
     with Image.open(io.BytesIO(r.content)) as im:
         assert im.size == (144, 144) and im.n_frames > 1
+    # speakers get opaque GIFs flattened onto their theme background (midnight = #0b1020)
+    assert "&bg=0b1020" in url
+    with Image.open(io.BytesIO(r.content)) as im:
+        assert "transparency" not in im.info
+        assert im.convert("RGB").getpixel((0, 0)) == (0x0b, 0x10, 0x20)
     assert client.get("/assets/characters/default/idle.gif?size=999").status_code == 404
+    assert client.get("/assets/characters/default/idle.gif?size=144&bg=nothex").status_code == 422
     assert client.get("/assets/characters/../idle.gif").status_code == 404
 
 
