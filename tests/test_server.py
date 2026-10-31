@@ -607,7 +607,11 @@ def test_voice_settings_and_say(client):
     assert client.app.state.ctx.voice.settings().assistant_key == "secret-key"
     bad = dict(out, stt_engine="cloud")
     assert client.put("/admin/api/voice", json=bad, headers=ADMIN).status_code == 422
-    assert client.get("/admin/voice").status_code == 200
+    page = client.get("/admin/voice").text
+    assert "<datalist" not in page  # plain dropdowns: a datalist hides the other choices once one is picked
+    for name in ("stt_model", "tts_voice", "language", "voice"):
+        assert f'<select name="{name}">' in page
+    assert "Amy · US English · female" in page
 
     assert client.post(f"/admin/api/devices/{MAC}/say", json={"text": "hi"}, headers=ADMIN).status_code == 409
     with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:

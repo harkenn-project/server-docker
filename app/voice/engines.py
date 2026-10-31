@@ -23,15 +23,41 @@ log = logging.getLogger("kotodama.voice")
 
 RATE = 16000  # the speakers' sample rate, both ways
 
-WHISPER_MODELS = ["tiny.en", "base.en", "small.en", "distil-small.en", "distil-medium.en", "medium.en",
-                  "tiny", "base", "small", "medium", "large-v3", "distil-large-v3"]
+# Offered in the admin UI: model or voice name -> description.
+WHISPER_MODELS = {
+    "tiny.en": "tiny.en · fastest, least accurate",
+    "base.en": "base.en · fast, fine for a small machine",
+    "small.en": "small.en · more accurate, slower",
+    "distil-small.en": "distil-small.en · as accurate as small, faster",
+    "distil-medium.en": "distil-medium.en · accurate, needs a server CPU",
+    "medium.en": "medium.en · most accurate English, slow",
+    "base": "base · multilingual",
+    "small": "small · multilingual",
+    "distil-large-v3": "distil-large-v3 · multilingual, accurate, needs a server CPU",
+    "large-v3": "large-v3 · multilingual, most accurate, very slow on a CPU",
+}
 
-# English Piper voices offered in the admin UI (any valid voice name can be entered). Each voice's licence is in its
-# MODEL_CARD at https://huggingface.co/rhasspy/piper-voices.
-PIPER_VOICES = ["en_US-lessac-medium", "en_US-amy-medium", "en_US-kristin-medium", "en_US-hfc_female-medium",
-                "en_US-ljspeech-high", "en_US-ryan-high", "en_US-joe-medium", "en_US-norman-medium",
-                "en_GB-alba-medium", "en_GB-jenny_dioco-medium", "en_GB-cori-high", "en_GB-alan-medium",
-                "en_GB-northern_english_male-medium"]
+LANGUAGES = {"en": "English", "fr": "French", "de": "German", "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+             "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "ja": "Japanese", "zh": "Chinese", "ko": "Korean",
+             "hi": "Hindi", "ar": "Arabic", "ru": "Russian", "uk": "Ukrainian"}
+
+# English Piper voices. Each voice's licence is in its MODEL_CARD at https://huggingface.co/rhasspy/piper-voices.
+PIPER_VOICES = {
+    "en_US-lessac-medium": "Lessac · US English · female",
+    "en_US-amy-medium": "Amy · US English · female",
+    "en_US-kristin-medium": "Kristin · US English · female",
+    "en_US-hfc_female-medium": "HFC · US English · female",
+    "en_US-ljspeech-high": "LJ Speech · US English · female",
+    "en_US-ryan-high": "Ryan · US English · male",
+    "en_US-joe-medium": "Joe · US English · male",
+    "en_US-norman-medium": "Norman · US English · male",
+    "en_GB-alba-medium": "Alba · Scottish English · female",
+    "en_GB-jenny_dioco-medium": "Jenny · British English · female",
+    "en_GB-cori-high": "Cori · British English · female",
+    "en_GB-alan-medium": "Alan · British English · male",
+    "en_GB-northern_english_male-medium": "Northern English · male",
+}
+
 PIPER_VOICE_RE = re.compile(r"^([a-z]{2,3})_([A-Z]{2})-([a-z0-9_]+)-(x_low|low|medium|high)$")
 PIPER_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0"
 

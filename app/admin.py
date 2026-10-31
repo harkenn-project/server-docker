@@ -23,7 +23,7 @@ from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .models import (ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      VoiceSettings)
 from .themes import LAYOUTS, THEMES
-from .voice.engines import PIPER_VOICES, WHISPER_MODELS
+from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
 
 MAX_ADOPTION_ATTEMPTS = 5
 
@@ -209,6 +209,7 @@ async def voice_page(request: Request) -> Response:
         return _login_redirect(request)
     c = get_ctx(request)
     return _page(request, "voice.html", voice=_voice_out(c), whisper_models=WHISPER_MODELS, piper_voices=PIPER_VOICES,
+                 languages=LANGUAGES,
                  devices=c.db.list_devices())
 
 

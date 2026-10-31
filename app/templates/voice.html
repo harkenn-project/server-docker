@@ -2,6 +2,13 @@
 {% block title %}Voice{% endblock %}
 {% block page %}voice{% endblock %}
 {% block content %}
+{% macro choices(name, options, current, empty=None) %}
+<select name="{{ name }}">
+  {% if empty %}<option value="">{{ empty }}</option>{% endif %}
+  {% for value, label in options.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+  {% if current and current not in options %}<option value="{{ current }}">{{ current }} (set elsewhere)</option>{% endif %}
+</select>
+{% endmacro %}
 <h1>Voice</h1>
 <p class="hint">How speakers understand you and answer. Everything runs inside Kotodama by default: Whisper turns speech
   into text and Piper speaks the reply. Models download into Kotodama's data folder the first time they're used, so
@@ -11,19 +18,18 @@
     <label>Engine <select name="stt_engine">
       <option value="builtin">Built in (faster-whisper)</option>
       <option value="wyoming">Wyoming service</option></select></label>
-    <label data-show="stt_engine=builtin">Whisper model <input name="stt_model" list="whisper-models">
-      <small>Bigger is more accurate and slower. base.en suits a small machine; distil-medium.en a server CPU.</small></label>
-    <datalist id="whisper-models">{% for m in whisper_models %}<option value="{{ m }}">{% endfor %}</datalist>
+    <label data-show="stt_engine=builtin">Whisper model {{ choices("stt_model", whisper_models, voice.stt_model) }}
+      <small>A new model downloads the first time it's used.</small></label>
     <label data-show="stt_engine=wyoming">Wyoming address <input name="stt_address" placeholder="whisper.local:10300"></label>
-    <label>Language <input name="language" maxlength="3" size="4"> <small>Two-letter code; ignored by .en models</small></label>
+    <label>Language {{ choices("language", languages, voice.language, "Detect automatically") }}
+      <small>Models ending in .en only understand English.</small></label>
   </fieldset>
   <fieldset><legend>Text to speech</legend>
     <label>Engine <select name="tts_engine">
       <option value="builtin">Built in (Piper)</option>
       <option value="wyoming">Wyoming service</option></select></label>
-    <label>Voice <input name="tts_voice" list="piper-voices">
-      <small>Piper voice name; each voice's licence is on <a href="https://huggingface.co/rhasspy/piper-voices">its model card</a>.</small></label>
-    <datalist id="piper-voices">{% for v in piper_voices %}<option value="{{ v }}">{% endfor %}</datalist>
+    <label>Voice {{ choices("tts_voice", piper_voices, voice.tts_voice) }}
+      <small>A new voice downloads the first time it's used. Each voice's licence is on <a href="https://huggingface.co/rhasspy/piper-voices">its model card</a>.</small></label>
     <label data-show="tts_engine=wyoming">Wyoming address <input name="tts_address" placeholder="piper.local:10200"></label>
   </fieldset>
   <fieldset><legend>Assistant</legend>
@@ -46,7 +52,7 @@
   {% if devices %}
   <form id="say-form" class="inline-form">
     <label>Speaker <select name="device">{% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
-    <label>Voice <input name="voice" list="piper-voices" placeholder="the voice above"></label>
+    <label>Voice {{ choices("voice", piper_voices, "", "The voice above") }}</label>
     <label class="grow">Text <input name="text" value="Hi there! I'm your new speaker." maxlength="600"></label>
     <button type="submit">Say it</button>
   </form>
