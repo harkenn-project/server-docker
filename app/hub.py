@@ -14,14 +14,20 @@ log = logging.getLogger("harkenn.hub")
 class Hub:
     def __init__(self) -> None:
         self._conns: dict[str, tuple[WebSocket, asyncio.Lock]] = {}
+        self._bases: dict[str, str] = {}  # the address each speaker connected through
         self._subscribers: set[asyncio.Queue] = set()
 
     def online(self, device_id: str) -> bool:
         return device_id in self._conns
 
-    async def attach(self, device_id: str, ws: WebSocket) -> None:
+    def base(self, device_id: str) -> str | None:
+        """The address an online speaker used to reach the server (context.base_url)."""
+        return self._bases.get(device_id) if device_id in self._conns else None
+
+    async def attach(self, device_id: str, ws: WebSocket, base: str = "") -> None:
         old = self._conns.get(device_id)
         self._conns[device_id] = (ws, asyncio.Lock())
+        self._bases[device_id] = base
         if old:
             with suppress(Exception):
                 await old[0].close(code=4000, reason="replaced by a newer connection")

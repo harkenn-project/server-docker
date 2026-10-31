@@ -1,8 +1,8 @@
 """Firmware images for over-the-air updates.
 
 Each upload is checked to be an ESP32 app image built from the Harkenn speaker firmware: the firmware embeds a
-marker string, ``HARKENN-FW|<version>|<hardware>|`` (KOTODAMA-FW before the rename; see src/main.cpp in harkenn-speakerfirmware), which gives its version and the board it
-was built for. Files are stored as ``<id>.bin`` with a ``<id>.json`` sidecar.
+marker string, ``HARKENN-FW|<version>|<hardware>|`` (src/main.cpp in harkenn-speakerfirmware), which gives its version
+and the board it was built for. Files are stored as ``<id>.bin`` with a ``<id>.json`` sidecar.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from typing import Any
 
 ESP_IMAGE_MAGIC = 0xE9
 MAX_FIRMWARE_BYTES = 0x3F0000  # an app partition (firmware/partitions.csv)
-MARKER = re.compile(rb"(?:HARKENN|KOTODAMA)-FW\|([0-9A-Za-z.+_-]{1,32})\|([0-9A-Za-z._-]{1,64})\|")
+MARKER = re.compile(rb"HARKENN-FW\|([0-9A-Za-z.+_-]{1,32})\|([0-9A-Za-z._-]{1,64})\|")
 
 
 def inspect(data: bytes) -> dict[str, str]:

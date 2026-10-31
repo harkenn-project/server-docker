@@ -522,6 +522,23 @@ function initVoice() {
   });
 }
 
+// server
+
+function initServer() {
+  const form = $("#server-form");
+  const fill = data => {
+    form.elements.public_url.value = data.public_url;
+    $("#effective-url").textContent = data.effective_public_url;
+  };
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      fill(await api("PUT", "/admin/api/server", { public_url: form.elements.public_url.value }));
+      toast("Saved; online speakers have been told");
+    } catch (err) { toast(err.message, true); }
+  });
+  fill(jsonScript("server-data"));
+}
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
@@ -529,3 +546,4 @@ if (page === "defaults") initConfigForm();
 if (page === "characters") initCharacters();
 if (page === "firmware") initFirmware();
 if (page === "voice") initVoice();
+if (page === "server") initServer();

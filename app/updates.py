@@ -146,7 +146,8 @@ class UpdateChecker:
             return None
         if not is_newer(fw["version"], device.get("firmware")):
             return None
-        return {"type": "update_available", "firmware": update_args(self.ctx.settings.public_url, fw)}
+        base = self.ctx.hub.base(device["id"]) or self.ctx.public_url()
+        return {"type": "update_available", "firmware": update_args(base, fw)}
 
     async def handle_boot_check(self, device_id: str) -> bool:
         """A speaker that just started asks for updates: check (cached) and offer. Returns True if offered."""

@@ -31,23 +31,31 @@ class Announcer:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._zc = None
+        self._info = None
 
-    async def start(self) -> None:
+    def _service(self, url: str):
+        from zeroconf import ServiceInfo
+        return ServiceInfo(SERVICE, f"Harkenn on {socket.gethostname()}.{SERVICE}", port=int(env("PORT", "8000")),
+                           properties={"url": url, "path": "/"}, server=HOSTNAME, parsed_addresses=[primary_ipv4()])
+
+    async def start(self, url: str) -> None:
         try:
-            from zeroconf import IPVersion, ServiceInfo
+            from zeroconf import IPVersion
             from zeroconf.asyncio import AsyncZeroconf
 
-            ip = primary_ipv4()
-            port = int(env("PORT", "8000"))
-            info = ServiceInfo(SERVICE, f"Harkenn on {socket.gethostname()}.{SERVICE}", port=port,
-                               properties={"url": self.settings.public_url, "path": "/"}, server=HOSTNAME,
-                               parsed_addresses=[ip])
+            self._info = self._service(url)
             self._zc = AsyncZeroconf(ip_version=IPVersion.V4Only)
-            await self._zc.async_register_service(info, allow_name_change=True)
-            log.info("announced %s on %s:%d (%s)", SERVICE, ip, port, self.settings.public_url)
+            await self._zc.async_register_service(self._info, allow_name_change=True)
+            log.info("announced %s on %s:%d (%s)", SERVICE, self._info.parsed_addresses()[0], self._info.port, url)
         except Exception as e:  # no multicast (e.g. a container without host networking): speakers use DNS instead
             log.warning("mDNS announcement unavailable: %s", e)
             self._zc = None
+
+    async def update(self, url: str) -> None:
+        """The public URL changed (admin UI): announce the new one."""
+        if self._zc and self._info:
+            self._info.properties = {"url": url, "path": "/"}
+            await self._zc.async_update_service(self._info)
 
     async def stop(self) -> None:
         if self._zc:

@@ -22,6 +22,7 @@ from .voice.service import VoiceService
 log = logging.getLogger("harkenn")
 
 PASSWORD_MASK = "********"
+PUBLIC_URL_KEY = "public_url"  # settings table: public URL set in the admin UI
 
 
 @dataclass
@@ -38,9 +39,20 @@ class Context:
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
 
+    def public_url(self) -> str:
+        """The server's public address: set in the admin UI, else HARKENN_PUBLIC_URL."""
+        return (self.db.get_setting(PUBLIC_URL_KEY) or self.settings.public_url).rstrip("/")
+
 
 def get_ctx(conn: HTTPConnection) -> Context:
     return conn.app.state.ctx
+
+
+def base_url(conn: HTTPConnection) -> str:
+    """The address a speaker used to reach this server. Links sent back to that speaker use it, so they keep working
+    whatever the public URL is (e.g. a speaker adopted through http://harkenn)."""
+    scheme = {"ws": "http", "wss": "https"}.get(conn.url.scheme, conn.url.scheme)
+    return f"{scheme}://{conn.headers.get('host') or conn.url.netloc}"
 
 
 def default_config(ctx: Context) -> DeviceConfig:
@@ -72,18 +84,20 @@ def restore_secrets(new: DeviceConfig, old: dict[str, Any]) -> DeviceConfig:
     return new
 
 
-def device_payload(ctx: Context, device: dict[str, Any]) -> dict[str, Any]:
+def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None) -> dict[str, Any]:
+    """The config message for a speaker. `base` is the address it connected through (base_url)."""
     config = DeviceConfig.model_validate(device["config"])
     theme = resolve_theme(config.display.theme, config.display.colors.model_dump())
     sizes = character_sizes(config.display.layout)
-    base = ctx.settings.public_url
+    base = base or ctx.hub.base(device["id"]) or ctx.public_url()
     background = theme["background"].lstrip("#")  # animations are flattened onto the speaker's background
     character = (ctx.characters.manifest(config.character, sizes, base, background)
                  or ctx.characters.manifest("default", sizes, base, background))
     return {
         "type": "config",
         "version": device["config_version"],
-        "server_url": ctx.settings.public_url,  # the speaker saves it, so it can find this server again
+        # The speaker remembers this as a second address, after the one it was adopted through.
+        "server_url": ctx.public_url(),
         "device": {"id": device["id"], "name": device["name"]},
         "config": config.model_dump(),
         "theme": theme,

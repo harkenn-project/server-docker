@@ -46,11 +46,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         if settings.voice_warmup:
             threading.Thread(target=app.state.ctx.voice.warm_up, name="voice-warmup", daemon=True).start()
+        if settings.mdns:
+            await app.state.announcer.start(app.state.ctx.public_url())
         yield
+        await app.state.announcer.stop()
 
     app = FastAPI(title="Harkenn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
                             firmware=FirmwareStore(settings.firmware_dir))
+    app.state.announcer = Announcer(settings)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="harkenn_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")

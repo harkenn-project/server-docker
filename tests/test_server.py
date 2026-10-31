@@ -572,7 +572,7 @@ def test_voice_round_trip(client):
         start, audio = receive_speech(ws)
     assert start["text"] == "It's 3:42 PM." and len(audio) == 8000
     assert len(got["pcm"]) == 32000 and got["stt"]["model"] == "base.en"
-    assert got["tts"][1]["voice"] == "en_US-lessac-medium"
+    assert got["tts"][1]["voice"] == "en_US-ljspeech-high"
     logs = [line["message"] for line in client.get(f"/admin/api/devices/{MAC}/logs").json()]
     assert any(m.startswith('heard "what time is it"') for m in logs)
     assert client.get(f"/admin/api/devices/{MAC}/recordings").json() == []  # not kept by default
@@ -645,20 +645,37 @@ def test_wyoming_address():
     assert parse_address("tcp://piper.local:10200/", 1) == ("piper.local", 10200)
     assert parse_address("piper", 10200) == ("piper", 10200)
 
-def test_firmware_from_before_the_rename_is_accepted(client):
+
+def test_only_harkenn_firmware_is_accepted(client):
     login(client)
-    r = upload_firmware(client, fake_firmware(version="0.6.0", marker="KOTODAMA-FW"))
-    assert r.status_code == 201 and r.json()["version"] == "0.6.0"
+    assert upload_firmware(client, fake_firmware(marker="OTHER-FW")).status_code == 422
 
 
-def test_env_falls_back_to_old_names_and_db_moves(tmp_path, monkeypatch):
+def test_settings_from_environment(tmp_path, monkeypatch):
     from app.settings import load_settings
-    monkeypatch.setenv("KOTODAMA_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("KOTODAMA_PUBLIC_URL", "https://old.example")
-    monkeypatch.setenv("HARKENN_PUBLIC_URL", "https://new.example")
-    (tmp_path / "kotodama.db").write_bytes(b"x")
+    monkeypatch.setenv("HARKENN_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("HARKENN_PUBLIC_URL", "https://harkenn.example/")
     s = load_settings()
-    assert s.data_dir == tmp_path and s.public_url == "https://new.example"
+    assert s.data_dir == tmp_path and s.public_url == "https://harkenn.example" and s.secure_cookies
     assert s.update_repo == "harkenn/harkenn-speakerfirmware" and s.update_branch == "releases"
-    assert s.db_path == tmp_path / "harkenn.db" and s.db_path.read_bytes() == b"x"
-    assert not (tmp_path / "kotodama.db").exists()
+    assert s.db_path == tmp_path / "harkenn.db"
+
+
+def test_public_url_from_admin_and_links_follow_the_speaker(client):
+    token = adopt(client)
+    assert client.get("/admin/api/server").json()["effective_public_url"] == "http://testserver"
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        first = ws.receive_json()
+        assert first["server_url"] == "http://testserver"
+        r = client.put("/admin/api/server", json={"public_url": " https://harkenn.example/ "}, headers=ADMIN)
+        assert r.status_code == 200 and r.json()["effective_public_url"] == "https://harkenn.example"
+        pushed = ws.receive_json()  # every online speaker hears about it
+    assert pushed["server_url"] == "https://harkenn.example"
+    # but links for the speaker still use the address it connected through
+    assert pushed["character"]["states"]["idle"]["urls"]["144"].startswith("http://testserver/assets/")
+    assert client.get("/api/v1/device/config", headers={**bearer(token), "Host": "harkenn"}).json()[
+        "character"]["states"]["idle"]["urls"]["144"].startswith("http://harkenn/assets/")
+    assert client.put("/admin/api/server", json={"public_url": "harkenn.example"}, headers=ADMIN).status_code == 422
+    client.put("/admin/api/server", json={"public_url": ""}, headers=ADMIN)  # back to the default
+    assert client.get("/admin/api/server").json()["effective_public_url"] == "http://testserver"
+    assert client.get("/admin/server").status_code == 200

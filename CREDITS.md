@@ -11,7 +11,7 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [CTranslate2](https://github.com/OpenNMT/CTranslate2) (OpenNMT) | Inference engine behind faster-whisper | MIT |
 | [Piper](https://github.com/OHF-Voice/piper1-gpl) (Open Home Foundation, originally Rhasspy) | Speech synthesis | GPL-3.0-or-later |
 | [espeak-ng](https://github.com/espeak-ng/espeak-ng) | Phonemes for Piper (bundled with it) | GPL-3.0-or-later |
-| [Piper voices](https://huggingface.co/rhasspy/piper-voices) | The voices. Downloaded when first used, not shipped with Harkenn; each voice has its own licence on its model card | per voice |
+| [Piper voices](https://huggingface.co/rhasspy/piper-voices) | The voices. Downloaded when first used, not shipped with Harkenn; each voice has its own licence on its model card. The default, [LJ Speech](https://keithito.com/LJ-Speech-Dataset/), is public domain; Lessac's dataset allows research use only | per voice |
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) (Microsoft) | Runs the Piper voices | MIT |
 | [Wyoming protocol](https://github.com/OHF-Voice/wyoming) (Open Home Foundation) | Talking to external speech services; Harkenn has its own small client | protocol |
 | [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Downloading models | Apache-2.0 |

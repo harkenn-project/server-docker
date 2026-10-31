@@ -41,13 +41,13 @@ LANGUAGES = {"en": "English", "fr": "French", "de": "German", "es": "Spanish", "
              "nl": "Dutch", "pl": "Polish", "sv": "Swedish", "ja": "Japanese", "zh": "Chinese", "ko": "Korean",
              "hi": "Hindi", "ar": "Arabic", "ru": "Russian", "uk": "Ukrainian"}
 
-# English Piper voices. Each voice's licence is in its MODEL_CARD at https://huggingface.co/rhasspy/piper-voices.
+# English Piper voices. Each voice's licence is in its MODEL_CARD at https://huggingface.co/rhasspy/piper-voices; the
+# default, LJ Speech, is public domain. Lessac's dataset licence allows research use only.
 PIPER_VOICES = {
-    "en_US-lessac-medium": "Lessac · US English · female",
+    "en_US-ljspeech-high": "LJ Speech · US English · female · public domain",
     "en_US-amy-medium": "Amy · US English · female",
     "en_US-kristin-medium": "Kristin · US English · female",
     "en_US-hfc_female-medium": "HFC · US English · female",
-    "en_US-ljspeech-high": "LJ Speech · US English · female",
     "en_US-ryan-high": "Ryan · US English · male",
     "en_US-joe-medium": "Joe · US English · male",
     "en_US-norman-medium": "Norman · US English · male",
@@ -56,6 +56,7 @@ PIPER_VOICES = {
     "en_GB-cori-high": "Cori · British English · female",
     "en_GB-alan-medium": "Alan · British English · male",
     "en_GB-northern_english_male-medium": "Northern English · male",
+    "en_US-lessac-medium": "Lessac · US English · female · research use only",
 }
 
 PIPER_VOICE_RE = re.compile(r"^([a-z]{2,3})_([A-Z]{2})-([a-z0-9_]+)-(x_low|low|medium|high)$")
@@ -94,7 +95,7 @@ class SpeechToText:
         if self._model is None or self._name != name:
             from faster_whisper import WhisperModel
             log.info("loading Whisper model %s (downloaded on first use)", name)
-            threads = int(os.environ.get("HARKENN_WHISPER_THREADS") or os.environ.get("KOTODAMA_WHISPER_THREADS") or "0") or min(8, os.cpu_count() or 4)
+            threads = int(os.environ.get("HARKENN_WHISPER_THREADS") or "0") or min(8, os.cpu_count() or 4)
             self._model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads,
                                        download_root=str(self.models_dir / "whisper"))
             self._name = name

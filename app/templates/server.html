@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Server{% endblock %}
+{% block page %}server{% endblock %}
+{% block content %}
+<h1>Server</h1>
+<form id="server-form" class="card form">
+  <fieldset><legend>Public address</legend>
+    <p class="hint">The address speakers and browsers use for this server, e.g. <code>https://harkenn.example.com</code>.
+      Speakers learn it as a second address: they keep using the one they were adopted through first, so changing
+      this can't cut them off. Leave it empty to use the default from <code>HARKENN_PUBLIC_URL</code>.</p>
+    <label>Public URL <input name="public_url" placeholder="{{ server.default_public_url }}" maxlength="200"></label>
+    <p class="hint">In use now: <strong id="effective-url">{{ server.effective_public_url }}</strong></p>
+  </fieldset>
+  <fieldset><legend>How speakers find this server</legend>
+    <p class="hint">A new speaker looks for its server by itself: first an address entered on its Wi-Fi setup page
+      (under <em>Advanced</em>), then this server's announcement on the network
+      ({% if server.mdns %}<code>_harkenn._tcp</code> and <code>harkenn.local</code>, on{% else %}off: <code>HARKENN_MDNS</code>{% endif %}),
+      then the name <code>harkenn</code>. If speakers are on another network than this server, add a DNS record
+      <code>harkenn</code> for it in your router.</p>
+  </fieldset>
+  <div class="buttons"><button type="submit">Save</button></div>
+</form>
+<script type="application/json" id="server-data">{{ server | tojson }}</script>
+{% endblock %}

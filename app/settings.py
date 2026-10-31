@@ -1,4 +1,4 @@
-"""Runtime settings, read from HARKENN_* environment variables (KOTODAMA_*, the project's old name, still works)."""
+"""Runtime settings, read from HARKENN_* environment variables."""
 from __future__ import annotations
 
 import os
@@ -27,14 +27,7 @@ class Settings:
 
     @property
     def db_path(self) -> Path:
-        path = self.data_dir / "harkenn.db"
-        legacy = self.data_dir / "kotodama.db"  # before the rename
-        if not path.exists() and legacy.exists():
-            for suffix in ("", "-wal", "-shm"):
-                old = legacy.with_name(legacy.name + suffix)
-                if old.exists():
-                    old.rename(path.with_name(path.name + suffix))
-        return path
+        return self.data_dir / "harkenn.db"
 
     @property
     def characters_dir(self) -> Path:
@@ -54,8 +47,8 @@ class Settings:
 
 
 def env(name: str, default: str = "") -> str:
-    """HARKENN_<name>, else KOTODAMA_<name>, else the default."""
-    return os.environ.get(f"HARKENN_{name}") or os.environ.get(f"KOTODAMA_{name}") or default
+    """HARKENN_<name>, or the default."""
+    return os.environ.get(f"HARKENN_{name}") or default
 
 
 def load_settings() -> Settings:

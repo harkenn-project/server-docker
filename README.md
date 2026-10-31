@@ -43,11 +43,11 @@ its adoption code.
 
 ## Settings
 
-Environment variables. The `KOTODAMA_` prefix (the project's old name) is still accepted.
+Environment variables.
 
 | Variable | Default | |
 |---|---|---|
-| `HARKENN_PUBLIC_URL` | `http://harkenn.local:8000` | How speakers reach this server; used in the links sent to them |
+| `HARKENN_PUBLIC_URL` | `http://harkenn.local:8000` | The server's public address. Can be changed on the admin UI's **Server** page |
 | `HARKENN_DATA_DIR` | `./data` (`/data` in the image) | Database, characters, recordings, voice models, firmware |
 | `HARKENN_ADMIN_PASSWORD` | unset | Recovery only. The admin password is set in the web UI; this applies only while none is stored, so delete `admin_password_hash` from the `settings` table first |
 | `HARKENN_SESSION_SECRET` | generated and stored | Signs admin session cookies |
@@ -95,3 +95,12 @@ spirit"), which lives on as the default character.
 ## Credits
 
 Harkenn is built on Whisper, Piper and many other open-source projects: see [CREDITS.md](CREDITS.md).
+
+Created and maintained by **Master Magic**, with the Harkenn contributors.
+
+## Licence
+
+[MIT](LICENSE), copyright the Harkenn contributors. Third-party components keep their own licences (see
+[CREDITS.md](CREDITS.md)). Note that Piper, the built-in speech engine, is GPL-3.0: the Docker image, which includes
+it, is distributed under the GPL's terms as a whole. Piper voices each have their own licence; the default voice,
+LJ Speech, is public domain.

@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__
 from .assets import STATES
-from .context import Context, device_payload, get_ctx
+from .context import Context, base_url, device_payload, get_ctx
 from .models import AdoptionRequestIn, LogBatch, LogLine, StatusIn
 from .themes import ALL_CHARACTER_SIZES
 
@@ -133,7 +133,7 @@ async def get_config(request: Request, response: Response, device: dict = Depend
     if request.headers.get("if-none-match") in (etag, str(device["config_version"])):
         return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
-    return device_payload(c, device)
+    return device_payload(c, device, base_url(request))
 
 
 @router.post("/device/status", status_code=204)
@@ -230,13 +230,14 @@ async def device_ws(ws: WebSocket) -> None:
         return
     await ws.accept()
     device_id, ip = device["id"], _client_ip(ws)
-    await c.hub.attach(device_id, ws)
+    base = base_url(ws)
+    await c.hub.attach(device_id, ws, base)
     c.db.touch_device(device_id, now=time.time(), ip=ip)
     c.hub.publish({"type": "device", "id": device_id})
     log.info("device %s connected from %s", device_id, ip)
     keepalive = asyncio.create_task(_keepalive(c, device_id))
     try:
-        await c.hub.send(device_id, device_payload(c, device))
+        await c.hub.send(device_id, device_payload(c, device, base))
         while True:
             frame = await ws.receive()
             if frame["type"] == "websocket.disconnect":
@@ -273,7 +274,7 @@ async def character_manifest(cid: str, request: Request, size: list[int] = Query
                              bg: str = Query("000000", pattern=HEX)) -> dict[str, Any]:
     c = get_ctx(request)
     sizes = sorted({s for s in size if s in ALL_CHARACTER_SIZES}) or [240]
-    manifest = c.characters.manifest(cid, sizes, c.settings.public_url, bg)
+    manifest = c.characters.manifest(cid, sizes, base_url(request), bg)
     if manifest is None:
         raise HTTPException(404, "unknown character")
     return manifest

@@ -17,11 +17,12 @@ from starlette.concurrency import run_in_threadpool
 
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
-from .context import PASSWORD_MASK, Context, default_config, device_payload, get_ctx, mask_secrets, restore_secrets
+from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, get_ctx, mask_secrets,
+                      restore_secrets)
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .models import (ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
-                     VoiceSettings)
+                     ServerSettingsIn, VoiceSettings)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
 
@@ -213,6 +214,13 @@ async def voice_page(request: Request) -> Response:
                  devices=c.db.list_devices())
 
 
+@pages.get("/server")
+async def server_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "server.html", server=_server_out(get_ctx(request)))
+
+
 @pages.get("/events")
 async def events(request: Request) -> Response:
     if not is_admin(request):
@@ -376,7 +384,7 @@ async def update_firmware(device_id: str, body: FirmwareUpdateIn, request: Reque
         raise HTTPException(404, "unknown firmware")
     if device["hardware"] and fw["hardware"] != device["hardware"]:
         raise HTTPException(422, f"this firmware is for {fw['hardware']}, the speaker is {device['hardware']}")
-    args = update_args(c.settings.public_url, fw)
+    args = update_args(c.hub.base(device_id) or c.public_url(), fw)
     if not await c.hub.send(device_id, {"type": "command", "command": "update_firmware", "args": args}):
         raise HTTPException(409, "speaker is offline")
     return {"sent": True, "version": fw["version"]}
@@ -431,6 +439,28 @@ async def put_defaults(body: DefaultsIn, request: Request) -> dict[str, Any]:
 @api.get("/catalog")
 async def get_catalog(request: Request) -> dict[str, Any]:
     return catalog(get_ctx(request))
+
+
+def _server_out(c: Context) -> dict[str, Any]:
+    return {"public_url": c.db.get_setting(PUBLIC_URL_KEY) or "", "default_public_url": c.settings.public_url,
+            "effective_public_url": c.public_url(), "mdns": c.settings.mdns}
+
+
+@api.get("/server")
+async def get_server(request: Request) -> dict[str, Any]:
+    return _server_out(get_ctx(request))
+
+
+@api.put("/server")
+async def put_server(body: ServerSettingsIn, request: Request) -> dict[str, Any]:
+    """Change the public URL. Speakers keep the address they were adopted through and learn this one as a second
+    address (it reaches them in their next config), so a wrong value can't strand them."""
+    c = get_ctx(request)
+    c.db.set_setting(PUBLIC_URL_KEY, body.public_url)
+    await request.app.state.announcer.update(c.public_url())
+    for device in c.db.list_devices():
+        await push_config(c, device["id"])
+    return _server_out(c)
 
 
 def _voice_out(c: Context) -> dict[str, Any]:

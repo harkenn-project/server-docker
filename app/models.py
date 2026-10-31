@@ -95,7 +95,7 @@ class VoiceSettings(Strict):
     stt_address: str = Field("", max_length=200, description="Wyoming speech-to-text host:port")
     language: str = Field("en", pattern=r"^[a-z]{0,3}$")
     tts_engine: Literal["builtin", "wyoming"] = "builtin"
-    tts_voice: str = Field("en_US-lessac-medium", pattern=r"^[A-Za-z0-9._-]{0,80}$")
+    tts_voice: str = Field("en_US-ljspeech-high", pattern=r"^[A-Za-z0-9._-]{0,80}$")
     tts_address: str = Field("", max_length=200, description="Wyoming text-to-speech host:port")
     assistant_url: str = Field("", max_length=300, description="OpenAI-compatible API base URL, e.g. http://ollama:11434/v1")
     assistant_model: str = Field("", max_length=120)
@@ -107,6 +107,16 @@ class VoiceSettings(Strict):
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+
+class ServerSettingsIn(Strict):
+    public_url: str = Field("", max_length=200, pattern=r"^$|^https?://[^\s/?#]+(/[^\s?#]*)?$",
+                            description="empty = HARKENN_PUBLIC_URL")
+
+    @field_validator("public_url", mode="before")
+    @classmethod
+    def _clean(cls, v: Any) -> Any:
+        return v.strip().rstrip("/") if isinstance(v, str) else v
 
 
 class SayIn(Strict):
