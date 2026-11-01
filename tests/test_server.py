@@ -467,7 +467,9 @@ def fake_releases(c, version="0.5.0", calls=None, sha=None):
     calls = calls if calls is not None else []
     data = fake_firmware(version)
 
-    def manifest():
+    def manifest(channel="stable"):
+        if channel != "stable":
+            return None
         calls.append("manifest")
         return {"version": version, "file": f"v{version}/firmware.bin",
                 "sha256": sha or hashlib.sha256(data).hexdigest()}
@@ -510,7 +512,7 @@ def test_update_check_failure_is_reported(git_client):
     login(c)
     updates = c.app.state.ctx.updates
 
-    def broken():
+    def broken(channel="stable"):
         raise OSError("releases unreachable")
 
     updates.fetch_manifest = broken
@@ -1118,3 +1120,40 @@ def test_the_assistant_decides_when_to_listen(monkeypatch):
     assert r == "Done." and r.listen is False
     r = brain.ask("hm", **kw)
     assert r == "OK then." and r.listen is True  # anywhere, any case, never spoken
+
+
+def test_version_order_is_semver():
+    from app.updates import is_newer, version_key
+
+    order = ["0.5.0", "0.6.0-alpha.1", "0.6.0-alpha.2", "0.6.0-beta.2", "0.6.0-beta.10", "0.6.0-development.3",
+             "0.6.0", "0.6.1", "0.10.0"]
+    assert sorted(order, key=version_key) == ["0.5.0", "0.6.0-alpha.1", "0.6.0-alpha.2", "0.6.0-beta.2",
+                                              "0.6.0-beta.10", "0.6.0-development.3", "0.6.0", "0.6.1", "0.10.0"]
+    assert is_newer("0.6.0", "0.6.0-beta.10") and not is_newer("0.6.0-beta.1", "0.6.0")
+    assert version_key("v0.6.0+build.7") == version_key("0.6.0")
+
+
+def test_release_channels(git_client):
+    import hashlib
+
+    c = git_client
+    login(c)
+    updates = c.app.state.ctx.updates
+    builds = {"stable": "0.5.0", "beta": "0.6.0-beta.2", "alpha": "0.6.0-alpha.4", "development": "0.7.0-development.1"}
+    images = {v: fake_firmware(v) for v in builds.values()}
+
+    def manifest(channel="stable"):
+        v = builds.get(channel)
+        return {"version": v, "file": f"v{v}/firmware.bin", "sha256": hashlib.sha256(images[v]).hexdigest()} if v else None
+
+    updates.fetch_manifest = manifest
+    updates.fetch_file = lambda path: images[path.split("/")[0][1:]]
+    assert c.post("/admin/api/firmware/check", headers=ADMIN).json()["release"] == "v0.5.0"  # stable by default
+    st = c.put("/admin/api/firmware/channel", json={"channel": "alpha"}, headers=ADMIN).json()
+    assert st["channel"] == "alpha" and st["release"] == "v0.6.0-beta.2"  # beta is newer than the last alpha
+    st = c.put("/admin/api/firmware/channel", json={"channel": "development"}, headers=ADMIN).json()
+    assert st["release"] == "v0.7.0-development.1"
+    builds["stable"] = "0.7.0"
+    images["0.7.0"] = fake_firmware("0.7.0")
+    assert c.post("/admin/api/firmware/check", headers=ADMIN).json()["release"] == "v0.7.0"  # the release wins
+    assert c.put("/admin/api/firmware/channel", json={"channel": "nightly"}, headers=ADMIN).status_code == 422

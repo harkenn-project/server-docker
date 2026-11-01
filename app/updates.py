@@ -4,8 +4,15 @@ Releases live as plain files in a public Git repository, by default the ``releas
 github.com/harkenn-project/speaker-firmware, so publishing one is an ordinary commit and checking needs no
 credentials::
 
-    latest.json            {"version": "0.5.0", "file": "v0.5.0/firmware.bin", "sha256": "..."}
+    latest.json            {"version": "0.5.0", "file": "v0.5.0/firmware.bin", "sha256": "..."}   stable
+    latest-beta.json       {"version": "0.6.0-beta.2", ...}                                        beta
+    latest-alpha.json      ...                                                                     alpha
+    latest-development.json                                                                        development
     v0.5.0/firmware.bin
+
+Channels: the server follows one (admin Firmware page; HARKENN_UPDATE_CHANNEL sets the default). It offers the newest
+release on that channel or any more stable one, so a beta server still gets a stable release that's newer than the
+last beta. Versions compare as semantic versions: 0.6.0-beta.2 < 0.6.0-beta.10 < 0.6.0.
 
 ``HARKENN_UPDATE_URL`` is where those files are served raw (any host works). tools/publish_release.py in the firmware
 repo makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket). Harkenn then reads
@@ -35,14 +42,29 @@ if TYPE_CHECKING:
 log = logging.getLogger("harkenn.updates")
 
 STATE_KEY = "firmware_updates"
+CHANNEL_KEY = "firmware_channel"
 CACHE_S = 600  # speakers booting together share one check
-MANIFEST = "latest.json"
+CHANNELS = ("stable", "beta", "alpha", "development")  # most stable first
+CHANNEL_LABELS = {"stable": "Stable", "beta": "Beta: nearly ready, for people happy to report problems",
+                  "alpha": "Alpha: new features as they come together; expect rough edges",
+                  "development": "Development: every build; for testing only"}
 
 
-def version_key(version: str) -> tuple[int, ...]:
-    """0.4.10 > 0.4.9; anything after a '-' or '+' (pre-release, build) is ignored."""
-    core = re.split(r"[-+]", version.strip().lstrip("vV"), maxsplit=1)[0]
-    return tuple(int(p) for p in re.findall(r"\d+", core)[:3])
+def manifest_name(channel: str) -> str:
+    return "latest.json" if channel == "stable" else f"latest-{channel}.json"
+
+
+def version_key(version: str) -> tuple:
+    """Semantic-version order: 0.4.9 < 0.4.10, and a pre-release sorts before its release
+    (0.6.0-alpha.1 < 0.6.0-beta.2 < 0.6.0-beta.10 < 0.6.0). Build metadata (+...) is ignored."""
+    v = version.strip().lstrip("vV").split("+", 1)[0]
+    core, _, pre = v.partition("-")
+    nums = [int(p) for p in re.findall(r"\d+", core)[:3]]
+    nums += [0] * (3 - len(nums))
+    if not pre:
+        return (*nums, 1, ())
+    ids = tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in pre.split("."))
+    return (*nums, 0, ids)
 
 
 def is_newer(candidate: str, current: str | None) -> bool:
@@ -68,9 +90,9 @@ class UpdateChecker:
 
     # network, replaced in tests
 
-    def fetch_manifest(self) -> dict[str, Any] | None:
+    def fetch_manifest(self, channel: str = "stable") -> dict[str, Any] | None:
         try:
-            return json.loads(_get(f"{self.raw}/{MANIFEST}", 100_000))
+            return json.loads(_get(f"{self.raw}/{manifest_name(channel)}", 100_000))
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None  # nothing released yet
@@ -85,33 +107,47 @@ class UpdateChecker:
     def enabled(self) -> bool:
         return bool(self.raw)
 
+    def channel(self) -> str:
+        ch = self.ctx.db.get_setting(CHANNEL_KEY) or self.ctx.settings.update_channel
+        return ch if ch in CHANNELS else "stable"
+
+    async def set_channel(self, channel: str) -> dict[str, Any]:
+        if channel not in CHANNELS:
+            raise ValueError(f"unknown channel '{channel}'")
+        self.ctx.db.set_setting(CHANNEL_KEY, channel)
+        return await self.check()
+
     def state(self) -> dict[str, Any]:
         st = self.ctx.db.get_setting(STATE_KEY) or {}
         latest = self.ctx.firmware.get(st["latest_id"]) if st.get("latest_id") else None
-        return {"enabled": self.enabled, "source": self.raw, "checked_at": st.get("checked_at"),
+        return {"enabled": self.enabled, "source": self.raw, "channel": self.channel(), "checked_at": st.get("checked_at"),
                 "error": st.get("error"), "release": st.get("release"), "latest": latest}
 
     def latest(self) -> dict[str, Any] | None:
         return self.state()["latest"]
 
     def _check_sync(self) -> dict[str, Any] | None:
-        """Read latest.json and store its firmware. Returns the firmware, or None if nothing is released."""
-        manifest = self.fetch_manifest()
-        if manifest is None:
+        """Read the manifests of the channel and the more stable ones, and store the newest release's firmware.
+        Returns the firmware, or None if nothing is released."""
+        channels = CHANNELS[: CHANNELS.index(self.channel()) + 1]
+        found = [(m, ch) for ch in channels if (m := self.fetch_manifest(ch)) is not None and m.get("version")]
+        if not found:
             return None
+        manifest, channel = max(found, key=lambda f: version_key(str(f[0]["version"])))
+        name = manifest_name(channel)
         version, path, sha = str(manifest.get("version", "")), str(manifest.get("file", "")), manifest.get("sha256")
         if not version or not path or ".." in path or path.startswith("/"):
-            raise ValueError(f"{MANIFEST} needs a version and a relative file path")
+            raise ValueError(f"{name} needs a version and a relative file path")
         tag = f"v{version}"
         known = next((fw for fw in self.ctx.firmware.list() if fw.get("release") == tag), None)
         if known:
             return known
         data = self.fetch_file(path)
         if sha and hashlib.sha256(data).hexdigest() != str(sha).lower():
-            raise ValueError(f"{path} doesn't match the sha256 in {MANIFEST}")
+            raise ValueError(f"{path} doesn't match the sha256 in {name}")
         fw = self.ctx.firmware.add(data)
         if version_key(fw["version"]) != version_key(version):
-            raise ValueError(f"{MANIFEST} says {version} but {path} is firmware {fw['version']}")
+            raise ValueError(f"{name} says {version} but {path} is firmware {fw['version']}")
         return self.ctx.firmware.tag(fw["id"], release=tag)
 
     async def check(self, max_age_s: float = 0) -> dict[str, Any]:

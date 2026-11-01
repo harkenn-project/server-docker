@@ -453,6 +453,15 @@ function initFirmware() {
       setTimeout(() => location.reload(), 1200);
     } catch (err) { toast(err.message, true); check.disabled = false; }
   });
+  const channel = $("#update-channel");
+  if (channel) channel.addEventListener("change", async () => {
+    toast("Checking the channel…");
+    try {
+      const st = await api("PUT", "/admin/api/firmware/channel", { channel: channel.value });
+      toast(st.error ? `Check failed: ${st.error}` : `Latest release: ${st.release || "none"}`, !!st.error);
+      setTimeout(() => location.reload(), 1200);
+    } catch (err) { toast(err.message, true); }
+  });
   $("#upload-firmware").addEventListener("submit", async e => {
     e.preventDefault();
     toast("Uploading…");

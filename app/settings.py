@@ -20,6 +20,7 @@ class Settings:
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
     update_url: str = ""  # where latest.json + firmware are served raw (updates.py); empty = no update checks
+    update_channel: str = "stable"  # stable, beta, alpha or development; the admin Firmware page can change it
     voice_warmup: bool = False  # load the voice models in the background at startup
     mdns: bool = False  # announce the server on the local network so speakers find it (discovery.py)
     # The assistant, when it's set up outside the admin UI (e.g. a key from a Kubernetes secret). The admin UI's own
@@ -77,6 +78,7 @@ def load_settings() -> Settings:
         max_upload_bytes=int(env("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(prebuilt) if prebuilt else None,
         update_url=env("UPDATE_URL", DEFAULT_UPDATE_URL).rstrip("/"),
+        update_channel=env("UPDATE_CHANNEL", "stable"),
         voice_warmup=env("VOICE_WARMUP", "true") == "true",
         mdns=env("MDNS", "true") == "true",
         assistant_api=env("ASSISTANT_API"),

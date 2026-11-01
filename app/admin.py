@@ -23,7 +23,8 @@ from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .mcp_server import Tokens
 from .sounds import SLOT_LABELS, SLOTS, decode_upload, trim
-from .models import (AgentTokenIn, ApproveIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .updates import CHANNEL_LABELS
+from .models import (AgentTokenIn, ApproveIn, ChannelIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -204,7 +205,7 @@ async def firmware_page(request: Request) -> Response:
         return _login_redirect(request)
     c = get_ctx(request)
     return _page(request, "firmware.html", builds=c.firmware.list(), devices=c.db.list_devices(),
-                 updates=c.updates.state())
+                 updates=c.updates.state(), channels=CHANNEL_LABELS)
 
 
 @pages.get("/voice")
@@ -672,6 +673,12 @@ async def upload_firmware(file: UploadFile, request: Request) -> dict[str, Any]:
 @api.post("/firmware/check")
 async def check_firmware_updates(request: Request) -> dict[str, Any]:
     return await get_ctx(request).updates.check()
+
+
+@api.put("/firmware/channel")
+async def set_firmware_channel(body: ChannelIn, request: Request) -> dict[str, Any]:
+    """Follow another release channel, and check it now."""
+    return await get_ctx(request).updates.set_channel(body.channel)
 
 
 @api.delete("/firmware/{fid}", status_code=204)

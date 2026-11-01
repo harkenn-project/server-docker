@@ -162,6 +162,10 @@ class PlaySoundIn(Strict):
     slot: str = Field(pattern=r"^[a-z]{1,16}$")
 
 
+class ChannelIn(Strict):
+    channel: Literal["stable", "beta", "alpha", "development"]
+
+
 class AgentTokenIn(Strict):
     name: str = Field(min_length=1, max_length=60, description="who the token is for, e.g. Hermes")
 
