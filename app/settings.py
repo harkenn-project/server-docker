@@ -19,9 +19,7 @@ class Settings:
     max_recording_bytes: int = 10 * 1024 * 1024
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
-    update_repo: str = ""  # public GitLab project holding latest.json + firmware (updates.py); empty = no Git checks
-    update_gitlab_url: str = "https://gitlab.com"
-    update_branch: str = "releases"
+    update_url: str = ""  # where latest.json + firmware are served raw (updates.py); empty = no update checks
     voice_warmup: bool = False  # load the voice models in the background at startup
     mdns: bool = False  # announce the server on the local network so speakers find it (discovery.py)
 
@@ -46,6 +44,9 @@ class Settings:
         return self.data_dir / "firmware"
 
 
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/harkenn-project/speaker-firmware/releases"
+
+
 def env(name: str, default: str = "") -> str:
     """HARKENN_<name>, or the default."""
     return os.environ.get(f"HARKENN_{name}") or default
@@ -68,9 +69,7 @@ def load_settings() -> Settings:
         max_recording_bytes=int(env("MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
         max_upload_bytes=int(env("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(prebuilt) if prebuilt else None,
-        update_repo=env("UPDATE_REPO", "harkenn/harkenn-speakerfirmware").strip("/"),
-        update_gitlab_url=env("UPDATE_GITLAB_URL", "https://gitlab.com").rstrip("/"),
-        update_branch=env("UPDATE_BRANCH", "releases"),
+        update_url=env("UPDATE_URL", DEFAULT_UPDATE_URL).rstrip("/"),
         voice_warmup=env("VOICE_WARMUP", "true") == "true",
         mdns=env("MDNS", "true") == "true",
     )

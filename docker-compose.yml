@@ -7,7 +7,7 @@
 # machine in your router, or enter the address in the speaker's Wi-Fi setup page under "Advanced".
 services:
   harkenn:
-    image: registry.gitlab.com/harkenn/harkenn-dockerserver:latest
+    image: ghcr.io/harkenn-project/server-docker:latest
     restart: unless-stopped
     network_mode: host  # port 8000, plus mDNS
     environment:

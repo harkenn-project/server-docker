@@ -1,7 +1,7 @@
 """Firmware images for over-the-air updates.
 
 Each upload is checked to be an ESP32 app image built from the Harkenn speaker firmware: the firmware embeds a
-marker string, ``HARKENN-FW|<version>|<hardware>|`` (src/main.cpp in harkenn-speakerfirmware), which gives its version
+marker string, ``HARKENN-FW|<version>|<hardware>|`` (src/main.cpp in speaker-firmware), which gives its version
 and the board it was built for. Files are stored as ``<id>.bin`` with a ``<id>.json`` sidecar.
 """
 from __future__ import annotations

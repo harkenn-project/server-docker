@@ -1,15 +1,17 @@
 """Firmware releases from Git.
 
-Releases live as plain files in a public Git repository (``HARKENN_UPDATE_REPO``, by default the
-``releases`` branch of harkenn/harkenn-speakerfirmware), so publishing one is an ordinary commit and checking needs no credentials::
+Releases live as plain files in a public Git repository, by default the ``releases`` branch of
+github.com/harkenn-project/speaker-firmware, so publishing one is an ordinary commit and checking needs no
+credentials::
 
     latest.json            {"version": "0.5.0", "file": "v0.5.0/firmware.bin", "sha256": "..."}
     v0.5.0/firmware.bin
 
-tools/publish_release.py in that repo makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket).
-Harkenn then reads latest.json from that branch (reusing a check younger than CACHE_S), downloads a
-new release, checks its SHA-256 and stores it like a manual upload (firmware.py). If it is newer than the speaker's
-firmware, the speaker shows "Update available" with Install / Dismiss. The admin UI can also check on demand.
+``HARKENN_UPDATE_URL`` is where those files are served raw (any host works). tools/publish_release.py in the firmware
+repo makes such a commit. Speakers ask once per boot (``update_check`` over the WebSocket). Harkenn then reads
+latest.json (reusing a check younger than CACHE_S), downloads a new release, checks its SHA-256 and stores it like a
+manual upload (firmware.py). If it is newer than the speaker's firmware, the speaker shows "Update available" with
+Install / Dismiss. The admin UI can also check on demand.
 """
 from __future__ import annotations
 
@@ -61,10 +63,7 @@ def _get(url: str, limit: int) -> bytes:
 class UpdateChecker:
     def __init__(self, ctx: Context) -> None:
         self.ctx = ctx
-        s = ctx.settings
-        self.repo = s.update_repo
-        self.page = f"{s.update_gitlab_url.rstrip('/')}/{self.repo}"
-        self.raw = f"{self.page}/-/raw/{s.update_branch}"
+        self.raw = ctx.settings.update_url.rstrip("/")
         self._lock = asyncio.Lock()
 
     # network, replaced in tests
@@ -84,12 +83,12 @@ class UpdateChecker:
 
     @property
     def enabled(self) -> bool:
-        return bool(self.repo)
+        return bool(self.raw)
 
     def state(self) -> dict[str, Any]:
         st = self.ctx.db.get_setting(STATE_KEY) or {}
         latest = self.ctx.firmware.get(st["latest_id"]) if st.get("latest_id") else None
-        return {"enabled": self.enabled, "repo": self.repo, "url": self.page, "checked_at": st.get("checked_at"),
+        return {"enabled": self.enabled, "source": self.raw, "checked_at": st.get("checked_at"),
                 "error": st.get("error"), "release": st.get("release"), "latest": latest}
 
     def latest(self) -> dict[str, Any] | None:
@@ -127,7 +126,7 @@ class UpdateChecker:
             try:
                 fw = await run_in_threadpool(self._check_sync)
                 st.update(latest_id=fw["id"] if fw else None, release=fw.get("release") if fw else None, error=None)
-            except Exception as e:  # network, GitLab or a bad image: keep the previous latest
+            except Exception as e:  # network, the release host or a bad image: keep the previous latest
                 log.warning("firmware update check failed: %s", e)
                 st["error"] = str(e)[:300]
                 st["release"] = previous.get("release")

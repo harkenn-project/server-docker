@@ -1,9 +1,9 @@
 <?xml version="1.1" encoding="UTF-8"?>
 <!-- Jenkins freestyle job "Build harkenn server image". Kept here so the job definition is versioned.
-     Needs: docker on the Jenkins node, and credential c516f6bb... ("Gitlab", shared with the deploy job;
-     GitLab user + token that can push to this registry). -->
+     Needs: docker on the Jenkins node, and credential 25ded552... ("Github": a GitHub user + token with
+     the write:packages scope, to push to ghcr.io). -->
 <project>
-  <description>Runs the tests, builds registry.gitlab.com/harkenn/harkenn-dockerserver and pushes :latest and :&lt;sha&gt;. Definition lives in harkenn-dockerserver at jenkins/build-image.xml.</description>
+  <description>Runs the tests, builds ghcr.io/harkenn-project/server-docker and pushes :latest and :&lt;sha&gt;. Definition lives in server-docker at jenkins/build-image.xml.</description>
   <keepDependencies>false</keepDependencies>
   <properties>
     <jenkins.model.BuildDiscarderProperty>
@@ -19,7 +19,7 @@
     <configVersion>2</configVersion>
     <userRemoteConfigs>
       <hudson.plugins.git.UserRemoteConfig>
-        <url>https://gitlab.com/harkenn/harkenn-dockerserver.git</url>
+        <url>https://github.com/harkenn-project/server-docker.git</url>
       </hudson.plugins.git.UserRemoteConfig>
     </userRemoteConfigs>
     <branches>
@@ -45,7 +45,7 @@
   <builders>
     <hudson.tasks.Shell>
       <command>set -eu
-IMAGE=registry.gitlab.com/harkenn/harkenn-dockerserver
+IMAGE=ghcr.io/harkenn-project/server-docker
 SHA=$(git rev-parse --short HEAD)
 
 echo "--- tests"
@@ -56,10 +56,10 @@ echo "--- build $IMAGE:$SHA"
 docker build --pull -t "$IMAGE:$SHA" -t "$IMAGE:latest" .
 
 echo "--- push"
-echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin registry.gitlab.com
+echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin ghcr.io
 docker push "$IMAGE:$SHA"
 docker push "$IMAGE:latest"
-docker logout registry.gitlab.com
+docker logout ghcr.io
 docker image prune -f --filter "until=168h" &gt;/dev/null
 </command>
       <configuredLocalRules/>
@@ -70,7 +70,7 @@ docker image prune -f --filter "until=168h" &gt;/dev/null
     <org.jenkinsci.plugins.credentialsbinding.impl.SecretBuildWrapper plugin="credentials-binding">
       <bindings>
         <org.jenkinsci.plugins.credentialsbinding.impl.UsernamePasswordMultiBinding>
-          <credentialsId>c516f6bb-0b33-4ad7-a8b1-f6b116c49aa9</credentialsId>
+          <credentialsId>25ded552-ae60-4e08-b1e2-f0d356bd926f</credentialsId>
           <usernameVariable>REGISTRY_USER</usernameVariable>
           <passwordVariable>REGISTRY_PASSWORD</passwordVariable>
         </org.jenkinsci.plugins.credentialsbinding.impl.UsernamePasswordMultiBinding>

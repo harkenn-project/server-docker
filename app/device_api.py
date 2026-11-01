@@ -200,7 +200,7 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         if isinstance(volume, int) and not isinstance(volume, bool) and 0 <= volume <= 100:
             if c.db.note_device_setting(device_id, "audio", "volume", volume):
                 c.hub.publish({"type": "device", "id": device_id})
-    elif kind == "update_check":  # sent once after the speaker boots; may hit GitLab, so don't block the socket
+    elif kind == "update_check":  # sent once after the speaker boots; may fetch the releases, so don't block the socket
         task = asyncio.create_task(c.updates.handle_boot_check(device_id))
         _background.add(task)
         task.add_done_callback(_background.discard)

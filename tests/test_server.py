@@ -455,12 +455,12 @@ def test_firmware_rejects_other_files_and_hardware(client):
 def git_client(tmp_path, prebuilt):
     settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
                         public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
-                        update_repo="harkenn/harkenn-speakerfirmware")
+                        update_url="https://releases.example/fw")
     with TestClient(create_app(settings)) as c:
         yield c
 
 
-def fake_gitlab(c, version="0.5.0", calls=None, sha=None):
+def fake_releases(c, version="0.5.0", calls=None, sha=None):
     import hashlib
     updates = c.app.state.ctx.updates
     calls = calls if calls is not None else []
@@ -478,7 +478,7 @@ def fake_gitlab(c, version="0.5.0", calls=None, sha=None):
 def test_boot_update_check_offers_newer_release(git_client):
     c = git_client
     token = adopt(c)  # adopted with firmware 0.0.1, hardware "test"
-    calls = fake_gitlab(c)
+    calls = fake_releases(c)
     with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
         ws.receive_json()
         ws.send_json({"type": "update_check"})
@@ -494,7 +494,7 @@ def test_boot_update_check_offers_newer_release(git_client):
 def test_boot_update_check_is_quiet_when_up_to_date(git_client):
     c = git_client
     token = adopt(c)
-    calls = fake_gitlab(c, version="0.0.1")  # same as the speaker
+    calls = fake_releases(c, version="0.0.1")  # same as the speaker
     with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
         ws.receive_json()
         ws.send_json({"type": "update_check"})
@@ -510,7 +510,7 @@ def test_update_check_failure_is_reported(git_client):
     updates = c.app.state.ctx.updates
 
     def broken():
-        raise OSError("gitlab unreachable")
+        raise OSError("releases unreachable")
 
     updates.fetch_manifest = broken
     state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
@@ -525,7 +525,7 @@ def test_version_order():
 def test_update_check_rejects_a_bad_checksum(git_client):
     c = git_client
     login(c)
-    fake_gitlab(c, sha="0" * 64)
+    fake_releases(c, sha="0" * 64)
     state = c.post("/admin/api/firmware/check", headers=ADMIN).json()
     assert "sha256" in state["error"] and state["latest"] is None
 
@@ -657,7 +657,7 @@ def test_settings_from_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("HARKENN_PUBLIC_URL", "https://harkenn.example/")
     s = load_settings()
     assert s.data_dir == tmp_path and s.public_url == "https://harkenn.example" and s.secure_cookies
-    assert s.update_repo == "harkenn/harkenn-speakerfirmware" and s.update_branch == "releases"
+    assert s.update_url == "https://raw.githubusercontent.com/harkenn-project/speaker-firmware/releases"
     assert s.db_path == tmp_path / "harkenn.db"
 
 

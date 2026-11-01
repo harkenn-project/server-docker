@@ -4,7 +4,7 @@
 {% block content %}
 <h1>Firmware</h1>
 <p class="hint">Upload <code>firmware.bin</code> from a PlatformIO build (<code>.pio/build/harkenn-speaker/</code> in
-  harkenn-speakerfirmware). Harkenn reads the version from the file. Install it on a speaker from here or from the speaker's page; the speaker
+  speaker-firmware). Harkenn reads the version from the file. Install it on a speaker from here or from the speaker's page; the speaker
   downloads it over Wi-Fi, checks it and restarts. The previous version stays on the speaker as a fallback.</p>
 <section class="card">
   <div class="section-head">
@@ -13,14 +13,14 @@
   </div>
   {% if updates.enabled %}
   <p class="hint">Speakers ask for updates once each time they start. Harkenn then reads <code>latest.json</code> in
-    <a href="{{ updates.url }}">{{ updates.repo }}</a> and offers that firmware if it's newer; the speaker shows <em>Update available</em> with Install and Dismiss.</p>
+    <a href="https://github.com/harkenn-project/speaker-firmware/tree/releases">the firmware releases</a> (<code>{{ updates.source }}</code>) and offers that firmware if it's newer; the speaker shows <em>Update available</em> with Install and Dismiss.</p>
   <dl class="status">
     <dt>Latest release</dt><dd>{{ updates.release or "none yet" }}{% if updates.latest %} (firmware {{ updates.latest.version }}){% endif %}</dd>
     <dt>Last checked</dt><dd data-time="{{ updates.checked_at or '' }}">{% if not updates.checked_at %}never{% endif %}</dd>
     {% if updates.error %}<dt>Last error</dt><dd class="error">{{ updates.error }}</dd>{% endif %}
   </dl>
   {% else %}
-  <p class="hint">Git release checks are off (set <code>HARKENN_UPDATE_REPO</code> to a GitLab project).</p>
+  <p class="hint">Git release checks are off (<code>HARKENN_UPDATE_URL</code> is empty).</p>
   {% endif %}
 </section>
 <form id="upload-firmware" class="card inline-form">

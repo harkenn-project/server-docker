@@ -12,7 +12,7 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   page to adopt them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
 - **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it.
 
-The speaker firmware is in [harkenn-speakerfirmware](https://gitlab.com/harkenn/harkenn-speakerfirmware). The
+The speaker firmware is in [speaker-firmware](https://github.com/harkenn-project/speaker-firmware). The
 contract between them is [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
 ## Run it
@@ -55,8 +55,7 @@ Environment variables.
 | `HARKENN_MDNS` | `true` | Announce `_harkenn._tcp` / `harkenn.local` on the network |
 | `HARKENN_VOICE_WARMUP` | `true` | Load the voice models at startup |
 | `HARKENN_WHISPER_THREADS` | up to 8 | CPU threads for speech recognition |
-| `HARKENN_UPDATE_REPO` | `harkenn/harkenn-speakerfirmware` | GitLab project whose `releases` branch holds firmware releases; empty turns update checks off |
-| `HARKENN_UPDATE_BRANCH` | `releases` | |
+| `HARKENN_UPDATE_URL` | the `releases` branch of speaker-firmware, raw | Where firmware releases (`latest.json`) are read from; empty turns update checks off |
 | `HARKENN_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
 | `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
 
@@ -67,7 +66,7 @@ Run **one replica**: speaker connections are held in memory, and SQLite has a si
 ## Build
 
 Jenkins job **Build harkenn server image** ([jenkins/build-image.xml](jenkins/build-image.xml)) polls this repo, runs
-the tests, and pushes `registry.gitlab.com/harkenn/harkenn-dockerserver:latest` and `:<sha>`.
+the tests, and pushes `ghcr.io/harkenn-project/server-docker:latest` and `:<sha>`.
 
 ## Layout
 
@@ -96,7 +95,13 @@ spirit"), which lives on as the default character.
 
 Harkenn is built on Whisper, Piper and many other open-source projects: see [CREDITS.md](CREDITS.md).
 
-Created and maintained by **Master Magic**, with the Harkenn contributors.
+Created by **Master Magic** and **Claude** (Anthropic's AI), with the Harkenn contributors.
+
+## Support
+
+Buy us a coffee on [GitHub Sponsors](https://github.com/sponsors/harkenn-project). Half of every donation goes to the
+open-source projects Harkenn is built on: see [SUPPORT.md](SUPPORT.md) for the shares, and [THANKS.md](THANKS.md) for
+everyone who has helped and every payout made.
 
 ## Licence
 
