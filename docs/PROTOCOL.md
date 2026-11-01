@@ -156,7 +156,7 @@ What the firmware has to do with it:
   one from the list. A long press on BOOT always opens the local provisioning portal as a way back in.
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
-  keeps them in flash, so `boot` plays before it's online. Download only clips whose URL changed. An empty `url` is a
+  keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a
   silent slot. `"sounds": null` means the speaker's own built-in chimes (the Classic pack). Firmware before 0.10.0
   ignores `sounds`.
 * **Shutting down.** The speaker plays `shutdown` before it restarts (an update, the reboot command) and before it

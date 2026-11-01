@@ -6,7 +6,7 @@
     custom     uploaded clips (any format PyAV reads), copied from another pack to start with; a slot can be silent
 
 Clips are 16 kHz, 16-bit mono PCM, at most MAX_CLIP_S long. Speakers download their pack's clips into flash, so they
-play instantly, even before the speaker is online (docs/PROTOCOL.md, config "sounds").
+play instantly (docs/PROTOCOL.md, config "sounds").
 """
 from __future__ import annotations
 
