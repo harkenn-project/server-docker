@@ -281,7 +281,7 @@ class VoiceService:
                 await send(device_id, {"type": "voice_result", "session": u.session, "heard": "", "reply": ""})
                 return
             if who:
-                self._log(device_id, "I", f"voice: {who.get('name') or 'not recognized'} ({who['score']:.2f})")
+                self._log(device_id, "I", f"voice: {voiceprint.tag(who)[7:-1]} ({who['score']:.2f})")
             await self._answer(device_id, u.session, heard, s, who=who, local_time=u.local_time,
                                heard_note=f"({t1 - t0:.1f} s)")
         except asyncio.CancelledError:
@@ -320,13 +320,14 @@ class VoiceService:
         character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
         speaker = device.get("name", "speaker")
         t1 = time.perf_counter()
+        person = self.conversations.person(device_id, who["id"] if who and who.get("sure") else "")
         reply = await self._keep_waiting(device_id, session, run_in_threadpool(
             brain.ask, heard, device_id=device_id, speaker=speaker,
             character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
             settings=s.model_dump(), conversations=self.conversations,
             context=brain.request_context(speaker, device_id, voiceprint.describe(who)),
-            memory_key=f"harkenn-person-{who['id']}" if who and who.get("sure") else "",
-            screen_prompt=self.ctx.screens.prompt() if s.screen else ""))
+            memory_key=f"harkenn-person-{person}" if person else "",
+            screen_prompt=self.ctx.screens.prompt() if s.screen else "", voice_tag=voiceprint.tag(who)))
         t2 = time.perf_counter()
         if reply.screen_error:
             self._log(device_id, "W", f"screen: {reply.screen_error}")

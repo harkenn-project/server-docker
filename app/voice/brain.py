@@ -59,8 +59,19 @@ class Conversations:
     def start(self, device_id: str) -> None:
         convs = self._convs.setdefault(device_id, [])
         if not convs or convs[-1]["turns"]:  # an empty one (nothing was said) is reused
-            convs.append({"turns": [], "last": time.time()})
+            convs.append({"turns": [], "last": time.time(), "person": ""})
+        convs[-1]["person"] = ""
         del convs[:-50]
+
+    def person(self, device_id: str, sure: str = "") -> str:
+        """Whose long-term memory the current conversation uses: the person voice recognition was sure of at its
+        start, until it's sure of someone else. Unsure turns keep it, so one conversation stays in one memory."""
+        convs = self._convs.setdefault(device_id, [])
+        if not convs:
+            convs.append({"turns": [], "last": time.time(), "person": ""})
+        if sure:
+            convs[-1]["person"] = sure
+        return convs[-1].get("person", "")
 
     def add(self, device_id: str, user: str, assistant: str) -> None:
         convs = self._convs.setdefault(device_id, [])
@@ -176,7 +187,8 @@ def request_context(speaker: str, device_id: str, who: str = "") -> str:
 
 
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
-        conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "") -> Reply:
+        conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "",
+        voice_tag: str = "") -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
@@ -189,6 +201,10 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
+    # who is probably talking (voiceprints), on the message itself and kept in the history, so the assistant can
+    # tell who said what when people take turns
+    if voice_tag:
+        text = f"{voice_tag} {text}"
     messages = [*history, {"role": "user", "content": text}]
     tokens = MAX_TOKENS_WITH_SCREEN if screen_prompt else MAX_TOKENS
     if api == "anthropic":

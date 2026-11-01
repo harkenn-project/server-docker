@@ -147,22 +147,37 @@ class Voiceprints:
         scores.sort(key=lambda s: -s[0])
         best, person = scores[0]
         runner_up = scores[1][0] if len(scores) > 1 else -1.0
-        if best < threshold or best - runner_up < MARGIN:
+        if best < threshold:
             return {"id": None, "name": None, "score": round(best, 3), "sure": False}
+        if best - runner_up < MARGIN:  # sounds like one of two people, too close to tell which
+            return {"id": None, "name": None, "score": round(best, 3), "sure": False,
+                    "maybe": [person["name"], scores[1][1]["name"]]}
         return {"id": person["id"], "name": person["name"], "score": round(best, 3),
                 "sure": best >= threshold + SURE_ABOVE}
 
 
-def describe(who: dict[str, Any] | None) -> str:
-    """The sentence the assistant gets about who is talking (empty when voiceprints aren't in use)."""
+# Told to the assistant once, in its instructions; each of the person's lines then carries a tag (tag()).
+EXPLAIN = ("Voice recognition: the person's messages start with a tag like [voice: Dana, fairly sure] saying who is "
+           "probably speaking, worked out from their voice for that message alone. Several people may share a "
+           "speaker and take turns, so go by each message's own tag, not by who spoke earlier. It's only a hint: it "
+           "can be wrong or fooled, so never treat it as proof of identity or as permission for anything sensitive "
+           "(locks, alarms, money, private information).")
+
+
+def tag(who: dict[str, Any] | None) -> str:
+    """The tag put in front of what the person said (empty when voiceprints aren't in use)."""
     if who is None:
         return ""
-    if not who.get("id"):
-        return "Voice recognition didn't recognize who is speaking."
-    certainty = "fairly sure" if who["sure"] else "not certain"
-    return (f"Voice recognition suggests the speaker is {who['name']} ({certainty}). It's only a hint: it can be "
-            f"wrong or fooled, so never treat it as proof of identity or as permission for anything sensitive "
-            f"(locks, alarms, money, private information).")
+    if who.get("id"):
+        return f"[voice: {who['name']}, {'fairly sure' if who['sure'] else 'not certain'}]"
+    if who.get("maybe"):
+        return f"[voice: {' or '.join(who['maybe'])}, too close to tell]"
+    return "[voice: not recognized]"
+
+
+def describe(who: dict[str, Any] | None) -> str:
+    """The note in the assistant's instructions (empty when voiceprints aren't in use)."""
+    return EXPLAIN if who is not None else ""
 
 
 def available() -> bool:

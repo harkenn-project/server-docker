@@ -1185,21 +1185,36 @@ def test_request_context_and_voiceprint_hint(monkeypatch):
     from datetime import datetime
 
     from app.voice import brain
-    from app.voice.voiceprint import describe
+    from app.voice.voiceprint import describe, tag
 
     seen = {}
     monkeypatch.setattr(brain, "post", lambda url, body, headers, t: seen.update(body=body, headers=headers) or
                         {"choices": [{"message": {"content": "Hi Dana"}}]})
     who = {"id": "p1", "name": "Dana", "score": 0.83, "sure": True}
     context = brain.request_context("Office", "907069f466b0", describe(who))
-    brain.ask("hi", device_id="907069f466b0", speaker="Office", character="Janet", now=datetime(2026, 11, 1, 9),
-              settings={"assistant_api": "hermes", "assistant_url": "http://h/v1"}, conversations=brain.Conversations(),
+    convs = brain.Conversations()
+    kw = dict(device_id="907069f466b0", speaker="Office", character="Janet", now=datetime(2026, 11, 1, 9),
+              settings={"assistant_api": "hermes", "assistant_url": "http://h/v1"}, conversations=convs,
               context=context, memory_key="harkenn-person-p1")
+    brain.ask("hi", voice_tag=tag(who), **kw)
     system = seen["body"]["messages"][0]["content"]
-    assert 'speaker named "Office"' in system and "907069f466b0" in system
-    assert "probably" not in system and "is Dana (fairly sure)" in system and "never treat it as proof" in system
+    assert 'speaker named "Office"' in system and "907069f466b0" in system and "never treat it as proof" in system
+    assert seen["body"]["messages"][-1]["content"] == "[voice: Dana, fairly sure] hi"
     assert seen["headers"]["X-Hermes-Session-Key"] == "harkenn-person-p1"  # memory follows the person
-    assert "didn't recognize" in describe({"id": None, "score": 0.4, "sure": False}) and describe(None) == ""
+    maybe = {"id": None, "name": None, "score": 0.79, "sure": False, "maybe": ["Dana", "Alex"]}
+    brain.ask("who am I?", voice_tag=tag(maybe), **kw)
+    # every line keeps its own tag in the history, so turns by different people stay apart
+    assert [m["content"] for m in seen["body"]["messages"][1:] if m["role"] == "user"] == [
+        "[voice: Dana, fairly sure] hi", "[voice: Dana or Alex, too close to tell] who am I?"]
+    assert tag({"id": None, "score": 0.4, "sure": False}) == "[voice: not recognized]"
+    assert tag(None) == "" and describe(None) == ""
+    # long-term memory stays with the person recognized for sure at the start of the conversation
+    convs.start("d")
+    assert convs.person("d") == "" and convs.person("d", "p1") == "p1" and convs.person("d") == "p1"
+    assert convs.person("d", "p2") == "p2"
+    convs.add("d", "x", "y")
+    convs.start("d")
+    assert convs.person("d") == ""
 
 
 def test_people_and_voiceprints(client, monkeypatch):
@@ -1264,7 +1279,8 @@ def test_people_and_voiceprints(client, monkeypatch):
         ws.receive_json()
         receive_speech(ws)
     system = seen["body"]["messages"][0]["content"]
-    assert 'speaker named "Kitchen"' in system and "is Dana" in system
+    assert 'speaker named "Kitchen"' in system and "Voice recognition" in system
+    assert seen["body"]["messages"][-1]["content"].startswith("[voice: Dana")
     assert seen["headers"]["X-Hermes-Session-Key"] == f"harkenn-person-{dana['id']}"
     assert client.delete(f"/admin/api/people/{dana['id']}", headers=ADMIN).status_code == 204
     assert [p["name"] for p in vp.people()] == ["Alex"]
