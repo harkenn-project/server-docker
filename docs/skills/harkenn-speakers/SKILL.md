@@ -1,6 +1,6 @@
 ---
 name: harkenn-speakers
-description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp_harkenn_list_speakers, mcp_harkenn_speak, mcp_harkenn_ring).
+description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring).
 ---
 
 # Harkenn speakers
@@ -9,9 +9,9 @@ Harkenn runs the smart speakers in this home. Its MCP server, `harkenn`, has thr
 
 | Tool | Use it to |
 |---|---|
-| `mcp_harkenn_list_speakers` | See the speakers, their rooms (the names), and which are online |
-| `mcp_harkenn_speak` | Say something aloud when no response is needed |
-| `mcp_harkenn_ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
+| `mcp__harkenn__list_speakers` | See the speakers, their rooms (the names), and which are online |
+| `mcp__harkenn__speak` | Say something aloud when no response is needed |
+| `mcp__harkenn__ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
 
 ## Choosing between speak and ring
 

@@ -30,7 +30,7 @@ mcp_servers:
     timeout: 120   # a ring waits up to 30 s for an answer, then up to ~45 s for a spoken reply
 ```
 
-Hermes names the tools `mcp_harkenn_list_speakers`, `mcp_harkenn_speak` and `mcp_harkenn_ring`. For guidance on
+Hermes names the tools `mcp__harkenn__list_speakers`, `mcp__harkenn__speak` and `mcp__harkenn__ring`. For guidance on
 when to use which, copy [skills/harkenn-speakers](skills/harkenn-speakers/SKILL.md) into Hermes' skills folder
 (`~/.hermes/skills/`).
 
