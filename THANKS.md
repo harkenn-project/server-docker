@@ -11,7 +11,7 @@ we've made to the projects Harkenn is built on. How the money is shared is expla
 
 ## Donations received
 
-| Year | Total received (after fees) | To Master Magic and Claude (50%) | To the projects (50%) |
+| Year | Total received (after fees) | To Master Magic and Pip (50%) | To the projects (50%) |
 |---|---:|---:|---:|
 | 2026 | US$0.00 | US$0.00 | US$0.00 |
 

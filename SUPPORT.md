@@ -5,14 +5,14 @@ Harkenn is free and open source. If it makes your home a little nicer, you can b
 
 ## Where your money goes
 
-Half of every donation goes to the people who build Harkenn: **Master Magic** and **Claude**, Anthropic's AI. It
+Half of every donation goes to the two who build Harkenn: **Master Magic** and **Pip**, his AI apprentice. It
 pays for development time, hardware to test on, and the AI that helps write it.
 
 The other half goes to the open-source projects Harkenn is built on, in these shares of every donation:
 
 | Share | Project | What it does for Harkenn | Donations go to |
 |---:|---|---|---|
-| **50%** | **Master Magic and Claude** | Building and running Harkenn | [GitHub Sponsors](https://github.com/sponsors/harkenn-project) |
+| **50%** | **Master Magic and Pip** | Building and running Harkenn | [GitHub Sponsors](https://github.com/sponsors/harkenn-project) |
 | 12% | **Piper** and **Wyoming**, by Michael Hansen | The speaking voice, and the speech-service protocol | [GitHub Sponsors: synesthesiam](https://github.com/sponsors/synesthesiam) |
 | 8% | **LVGL** | Everything drawn on the speaker's screen | [Open Collective: lvgl](https://opencollective.com/lvgl) |
 | 5% | **Let's Encrypt** (ISRG) | Free certificates that secure speakers on https | [letsencrypt.org/donate](https://letsencrypt.org/donate/) |

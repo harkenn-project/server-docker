@@ -39,6 +39,10 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 - The hardware notes for the Spotpear ESP32-S3 speaker come from the board definition in
   [xiaozhi-esp32](https://github.com/78/xiaozhi-esp32) (MIT).
 
+## Pip
+
+Pip, Master Magic's AI apprentice, is the name we give the AI assistant that co-writes Harkenn. Pip's portrait is drawn in code by `tools/draw_pip.py`.
+
 ## Characters
 
 The built-in characters (Kotodama, Obake, Neko and Robo) are drawn in code in `app/starter.py` and belong to this
