@@ -17,6 +17,11 @@
   <h2>Add a person</h2>
   <form id="new-person" class="form">
     <label>Name <input name="name" maxlength="40" required placeholder="e.g. Dana"></label>
+    <label>Phonetic <input name="phonetic" maxlength="60" placeholder="how to say it, e.g. DAY-nuh">
+      <small>Optional. The assistant writes the name this way when it speaks, so the voice says it right.</small></label>
+    <label>Gender identity <input name="gender" maxlength="40" list="genders" placeholder="optional">
+      <small>As they describe it. The assistant uses it when it refers to them.</small></label>
+    <datalist id="genders"><option value="woman"><option value="man"><option value="non-binary"></datalist>
     <label class="inline"><input type="checkbox" name="consent" required> They agree to Harkenn keeping a voiceprint
       of their voice on this server (ask each person yourself; for a child, their parent or guardian).</label>
     <div class="buttons"><button type="submit">Add</button></div>

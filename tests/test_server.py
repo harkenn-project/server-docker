@@ -1207,6 +1207,9 @@ def test_request_context_and_voiceprint_hint(monkeypatch):
     assert [m["content"] for m in seen["body"]["messages"][1:] if m["role"] == "user"] == [
         "[voice: Dana, fairly sure] hi", "[voice: Dana or Alex, too close to tell] who am I?"]
     assert tag({"id": None, "score": 0.4, "sure": False}) == "[voice: not recognized]"
+    marika = {"id": "p2", "name": "Marika", "phonetic": "Ma-ree-ka", "gender": "woman", "score": 0.9, "sure": True}
+    assert tag(marika) == '[voice: Marika (say "Ma-ree-ka"; woman), fairly sure]'
+    assert tag({**marika, "gender": "", "sure": False}) == '[voice: Marika (say "Ma-ree-ka"), not certain]'
     assert tag(None) == "" and describe(None) == ""
     # long-term memory stays with the person recognized for sure at the start of the conversation
     convs.start("d")
@@ -1284,6 +1287,12 @@ def test_people_and_voiceprints(client, monkeypatch):
     assert seen["headers"]["X-Hermes-Session-Key"] == f"harkenn-person-{dana['id']}"
     assert client.delete(f"/admin/api/people/{dana['id']}", headers=ADMIN).status_code == 204
     assert [p["name"] for p in vp.people()] == ["Alex"]
+    out = client.patch(f"/admin/api/people/{alex['id']}", headers=ADMIN,
+                       json={"name": "Alix", "phonetic": "AH-leeks", "gender": "non-binary"}).json()
+    assert [(p["name"], p["phonetic"], p["gender"]) for p in out["people"]] == [("Alix", "AH-leeks", "non-binary")]
+    out = client.patch(f"/admin/api/people/{alex['id']}", headers=ADMIN, json={"gender": ""}).json()
+    assert out["people"][0]["gender"] == "" and out["people"][0]["phonetic"] == "AH-leeks"  # only what's given
+    assert client.patch("/admin/api/people/nobody", headers=ADMIN, json={"name": "x"}).status_code == 404
 
 
 def sounds_wav(pcm):

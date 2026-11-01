@@ -781,8 +781,20 @@ function initPeople() {
     } }, "Record on");
     const buttons = [browser];
     if (ids.length) buttons.push(el("span", { class: "inline-form" }, onSpeaker, speakers));
+    const field = (key, label, attrs = {}) => el("label", {}, label, " ",
+      el("input", { value: p[key] || "", maxlength: key === "phonetic" ? 60 : 40, "data-key": key, ...attrs }));
+    const details = el("form", { class: "inline-form", onsubmit: async e => {
+      e.preventDefault();
+      const body = Object.fromEntries($$("input", details).map(i => [i.dataset.key, i.value]));
+      try { data = await api("PATCH", `/admin/api/people/${p.id}`, body); toast("Saved"); render(); }
+      catch (err) { toast(err.message, true); }
+    } },
+      field("name", "Name", { required: true }), field("phonetic", "Phonetic", { placeholder: "how to say it" }),
+      field("gender", "Gender identity", { list: "genders", placeholder: "optional" }),
+      el("button", { type: "submit", class: "secondary" }, "Save"));
     return el("section", { class: "card" },
-      el("h2", {}, p.name), el("p", { class: "hint" }, status),
+      el("h2", {}, p.name, p.phonetic ? el("small", { class: "hint" }, ` (say "${p.phonetic}")`) : ""),
+      details, el("p", { class: "hint" }, status),
       el("p", {}, "Read aloud: ", el("strong", {}, sentence)),
       el("div", { class: "buttons" }, ...buttons),
       el("p", { class: "hint" }, "One voiceprint works on every speaker: choosing a speaker only picks which " +
@@ -809,7 +821,8 @@ function initPeople() {
   form.addEventListener("submit", async e => {
     e.preventDefault();
     try {
-      await api("POST", "/admin/api/people", { name: form.elements.name.value, consent: form.elements.consent.checked });
+      await api("POST", "/admin/api/people", { name: form.elements.name.value, phonetic: form.elements.phonetic.value,
+        gender: form.elements.gender.value, consent: form.elements.consent.checked });
       form.reset(); await refresh();
     } catch (err) { toast(err.message, true); }
   });

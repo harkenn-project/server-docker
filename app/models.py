@@ -136,6 +136,12 @@ class VoiceSettingsIn(VoiceSettings):
     from_environment: dict[str, Any] | None = Field(None, description="read-only, ignored (sent back by the admin UI)")
 
 
+class PersonUpdate(Strict):
+    name: str | None = Field(None, min_length=1, max_length=40)
+    phonetic: str | None = Field(None, max_length=60)
+    gender: str | None = Field(None, max_length=40)
+
+
 class ScreenOverlayIn(Strict):
     description: str = Field("", max_length=300, description="what it shows, for the assistant")
     svg: str = Field(min_length=5, max_length=100_000, description="SVG with {{param}} placeholders")
@@ -184,6 +190,8 @@ class ChannelIn(Strict):
 
 class PersonIn(Strict):
     name: str = Field(min_length=1, max_length=40)
+    phonetic: str = Field("", max_length=60, description="how to say the name, e.g. Ma-ree-ka")
+    gender: str = Field("", max_length=40, description="gender identity, as they describe it")
     consent: bool = Field(description="they agreed to have a voiceprint kept")
 
     @field_validator("consent")

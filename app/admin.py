@@ -33,7 +33,7 @@ from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
 from .voice import voiceprint
 from .updates import CHANNEL_LABELS
 from .wakewords import WAKE_WORDS
-from .models import (AgentTokenIn, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -644,7 +644,8 @@ async def play_sound(device_id: str, body: PlaySoundIn, request: Request) -> dic
 def _people_out(c: Context) -> dict[str, Any]:
     return {"available": voiceprint.available(), "sentences": voiceprint.ENROLL_SENTENCES,
             "threshold": c.voice.settings().voiceprint_threshold,
-            "people": [{"id": p["id"], "name": p["name"], "created_at": p["created_at"], "samples": len(p["samples"])}
+            "people": [{"id": p["id"], "name": p["name"], "phonetic": p.get("phonetic", ""),
+                        "gender": p.get("gender", ""), "created_at": p["created_at"], "samples": len(p["samples"])}
                        for p in c.voice.voiceprints.people()]}
 
 
@@ -666,8 +667,16 @@ async def add_person(body: PersonIn, request: Request) -> dict[str, Any]:
     c = get_ctx(request)
     if not voiceprint.available():
         raise HTTPException(409, "voice recognition isn't available on this server")
-    p = c.voice.voiceprints.add_person(body.name.strip())
-    return {"id": p["id"], "name": p["name"], "samples": 0}
+    p = c.voice.voiceprints.add_person(body.name.strip(), body.phonetic.strip(), body.gender.strip())
+    return {"id": p["id"], "name": p["name"], "phonetic": p["phonetic"], "gender": p["gender"], "samples": 0}
+
+
+@api.patch("/people/{pid}")
+async def update_person(pid: str, body: PersonUpdate, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    _person_or_404(c, pid)
+    c.voice.voiceprints.update_person(pid, **{k: v.strip() for k, v in body.model_dump(exclude_none=True).items()})
+    return _people_out(c)
 
 
 @api.delete("/people/{pid}", status_code=204)
@@ -718,7 +727,7 @@ async def record_person_sample(pid: str, device_id: str, request: Request) -> di
         raise HTTPException(409, "that speaker is offline")
     sentence = voiceprint.ENROLL_SENTENCES[len(p["samples"]) % len(voiceprint.ENROLL_SENTENCES)]
     sample = c.voice.expect_sample(device_id)
-    prompt = f"{p['name']}, after the tone, please read the sentence shown on the People page, or say anything you like."
+    prompt = f"{voiceprint.spoken_name(p)}, after the tone, please read the sentence shown on the People page, or say anything you like."
     pcm = await c.voice.synthesize(prompt)
     await c.voice.say(device_id, prompt, listen=True, pcm=pcm)
     try:

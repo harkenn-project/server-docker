@@ -99,11 +99,15 @@ class Voiceprints:
     def person(self, pid: str) -> dict[str, Any] | None:
         return next((p for p in self.people() if p["id"] == pid), None)
 
-    def add_person(self, name: str) -> dict[str, Any]:
-        p = {"id": secrets.token_hex(4), "name": name, "created_at": time.time(), "consent_at": time.time(),
-             "samples": []}
+    def add_person(self, name: str, phonetic: str = "", gender: str = "") -> dict[str, Any]:
+        p = {"id": secrets.token_hex(4), "name": name, "phonetic": phonetic, "gender": gender,
+             "created_at": time.time(), "consent_at": time.time(), "samples": []}
         self._save([*self.people(), p])
         return p
+
+    def update_person(self, pid: str, **fields: str) -> dict[str, Any]:
+        """Change a person's name, phonetic spelling or gender identity (only the fields given)."""
+        return self._update(pid, lambda p: p.update({k: v for k, v in fields.items() if v is not None}))
 
     def delete_person(self, pid: str) -> bool:
         people = self.people()
@@ -152,13 +156,15 @@ class Voiceprints:
         if best - runner_up < MARGIN:  # sounds like one of two people, too close to tell which
             return {"id": None, "name": None, "score": round(best, 3), "sure": False,
                     "maybe": [person["name"], scores[1][1]["name"]]}
-        return {"id": person["id"], "name": person["name"], "score": round(best, 3),
-                "sure": best >= threshold + SURE_ABOVE}
+        return {"id": person["id"], "name": person["name"], "phonetic": person.get("phonetic", ""),
+                "gender": person.get("gender", ""), "score": round(best, 3), "sure": best >= threshold + SURE_ABOVE}
 
 
 # Told to the assistant once, in its instructions; each of the person's lines then carries a tag (tag()).
 EXPLAIN = ("Voice recognition: the person's messages start with a tag like [voice: Dana, fairly sure] saying who is "
-           "probably speaking, worked out from their voice for that message alone. Several people may share a "
+           "probably speaking, worked out from their voice for that message alone. The tag may also say how to "
+           "pronounce their name (write it that way when you say it, since your words are spoken) and their gender "
+           "identity (use it when referring to them). Several people may share a "
            "speaker and take turns, so go by each message's own tag, not by who spoke earlier. It's only a hint: it "
            "can be wrong or fooled, so never treat it as proof of identity or as permission for anything sensitive "
            "(locks, alarms, money, private information).")
@@ -169,10 +175,22 @@ def tag(who: dict[str, Any] | None) -> str:
     if who is None:
         return ""
     if who.get("id"):
-        return f"[voice: {who['name']}, {'fairly sure' if who['sure'] else 'not certain'}]"
+        return f"[voice: {about(who)}, {'fairly sure' if who['sure'] else 'not certain'}]"
     if who.get("maybe"):
         return f"[voice: {' or '.join(who['maybe'])}, too close to tell]"
     return "[voice: not recognized]"
+
+
+def about(person: dict[str, Any]) -> str:
+    """A person's name with how to say it and their gender identity, when set: Marika (say "Ma-ree-ka"; woman)."""
+    details = [f'say "{person["phonetic"]}"'] if person.get("phonetic") else []
+    details += [person["gender"]] if person.get("gender") else []
+    return person["name"] + (f" ({'; '.join(details)})" if details else "")
+
+
+def spoken_name(person: dict[str, Any]) -> str:
+    """How the speech voice should say the name."""
+    return person.get("phonetic") or person["name"]
 
 
 def describe(who: dict[str, Any] | None) -> str:
