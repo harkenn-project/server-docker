@@ -88,9 +88,11 @@ class Screen:
     created: float = field(default_factory=time.time)
 
     def message(self, base: str) -> dict[str, Any]:
-        """The `screen` message for the speaker."""
+        """The `screen` message for the speaker. The picture follows it on the socket (`bytes` long, in binary
+        frames): a speaker can't always spare the memory for a second secure connection to download it. `url` is
+        for older firmware."""
         return {"type": "screen", "screen": self.id, "url": f"{base}/api/v1/screens/{self.id}.kani",
-                "regions": self.regions, "dismiss": self.dismiss, "seconds": self.seconds}
+                "bytes": len(self.kani), "regions": self.regions, "dismiss": self.dismiss, "seconds": self.seconds}
 
 
 def split_marker(reply: str) -> tuple[str, dict[str, Any] | None, str]:

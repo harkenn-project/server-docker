@@ -1432,6 +1432,10 @@ def test_screen_from_the_assistant_and_taps(client, monkeypatch):
         shown = ws.receive_json()
         assert shown["type"] == "screen" and [r["label"] for r in shown["regions"]] == ["Red", "Blue"]
         assert shown["dismiss"] == "tap" and shown["seconds"] == 60
+        picture = b""
+        while len(picture) < shown["bytes"]:  # the picture follows on the socket
+            picture += ws.receive_bytes()
+        assert picture[:4] == b"KANI" and len(picture) == shown["bytes"]
         assert ws.receive_json()["reply"] == "Which one?"  # voice_result
         start, _ = receive_speech(ws)
         assert start["text"] == "Which one?"
@@ -1450,7 +1454,11 @@ def test_screen_from_the_assistant_and_taps(client, monkeypatch):
         ws.send_json({"type": "voice_start", "session": "s2"})
         ws.send_bytes(SPEECH * 5)
         ws.send_json({"type": "voice_end", "session": "s2"})
-        assert ws.receive_json()["type"] == "screen"
+        only = ws.receive_json()
+        assert only["type"] == "screen"
+        got = 0
+        while got < only["bytes"]:
+            got += len(ws.receive_bytes())
         assert ws.receive_json() == {"type": "voice_result", "session": "s2", "heard": "what time is it",
                                      "reply": ""}  # nothing to say: the speaker is done
     assert client.get("/api/v1/screens/not-a-screen.kani").status_code == 404

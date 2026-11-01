@@ -237,8 +237,8 @@ itself, so a speaker only downloads one picture and reports taps.
 
 ```
 speaker                                     Harkenn
-                                         <-  screen {screen, url, regions: [{label, x, y, w, h}], dismiss, seconds}
-GET url (a KANI image, maybe animated)   ->  (no token needed: the id is unguessable and expires)
+                                         <-  screen {screen, bytes, url, regions: [{label, x, y, w, h}], dismiss, seconds}
+                                         <-  binary frames: the picture (a KANI image, maybe animated), `bytes` long
                                          <-  voice_result, speak_start ...   (as usual; reply "" = only a screen)
 screen_tap {session, screen, label}      ->  (a labelled area was tapped: the person's next turn)
                                          <-  voice_result {session}, speak_start ...   (the assistant's answer)
@@ -246,6 +246,9 @@ screen_dismiss {screen}                  ->  (tapped outside the areas, when dis
                                          <-  screen_clear                  (hide it now)
 ```
 
+* The picture comes on the socket because a speaker can't always spare the memory for a second secure connection.
+  Speech and a screen's picture never interleave. `url` serves the same picture (no token needed: the id is
+  unguessable and expires); firmware 0.12.0-development.5 downloads it from there instead.
 * `screen` comes before the speech it goes with. The speaker shows it until a tap, `seconds` (5–600) or a new
   layout; the display stays on meanwhile. Coordinates are pixels on the 240x240 screen.
 * A `screen_tap` replaces whatever was going on (listening, speaking, waiting) like a new question. A label that

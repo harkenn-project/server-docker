@@ -41,6 +41,7 @@ BURST_S = 3.0                        # how far ahead of playback the speaker's b
 FOLLOW_UP_WINDOW_S = 120.0           # a reply must start within this long after the answer was sent
 WAIT_PING_S = 20.0                   # while an answer takes long, tell the speaker to keep waiting this often
 REPLY_ACK = "Thanks, I'll pass that on."
+SCREEN_CHUNK_BYTES = 4096            # a screen's picture goes to the speaker in frames of this size
 
 
 @dataclass
@@ -86,6 +87,7 @@ class VoiceService:
         self._samples: dict[str, asyncio.Future] = {}  # speaker -> an enrollment waiting for its next recording
         self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
         self._awaiting_reply: dict[str, float] = {}  # speaker -> when it was asked to listen for a reply (follow_up)
+        self._binary: dict[str, asyncio.Lock] = {}  # speaker -> held while sending speech or a screen in binary frames
 
     # settings
 
@@ -364,8 +366,15 @@ class VoiceService:
             self._log(device_id, "W", f"screen: {w}")
         self.ctx.screens.add(device_id, screen)
         base = self.ctx.hub.base(device_id) or self.ctx.public_url()
-        await self.ctx.hub.send(device_id, screen.message(base))
+        async with self._binary_lock(device_id):  # the picture's frames mustn't mix with speech
+            if await self.ctx.hub.send(device_id, screen.message(base)):
+                for i in range(0, len(screen.kani), SCREEN_CHUNK_BYTES):
+                    if not await self.ctx.hub.send_bytes(device_id, screen.kani[i:i + SCREEN_CHUNK_BYTES]):
+                        break
         return warnings
+
+    def _binary_lock(self, device_id: str) -> asyncio.Lock:
+        return self._binary.setdefault(device_id, asyncio.Lock())
 
     async def _identify(self, pcm: bytes, threshold: float) -> dict[str, Any] | None:
         if not voiceprint.available() or not any(p["samples"] for p in self.voiceprints.people()):
@@ -391,6 +400,11 @@ class VoiceService:
 
     async def _stream(self, device_id: str, pcm: bytes, text: str, session: str = "", listen: bool = False,
                       follow_up: bool = False) -> None:
+        async with self._binary_lock(device_id):
+            await self._stream_locked(device_id, pcm, text, session, listen, follow_up)
+
+    async def _stream_locked(self, device_id: str, pcm: bytes, text: str, session: str, listen: bool,
+                             follow_up: bool) -> None:
         hub = self.ctx.hub
         start = {"type": "speak_start", "session": session, "rate": RATE, "bytes": len(pcm), "text": text}
         if listen:
