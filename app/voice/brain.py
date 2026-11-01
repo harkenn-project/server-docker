@@ -21,6 +21,14 @@ import urllib.request
 from datetime import datetime
 from typing import Any
 
+LISTEN_MARK = "[[listen]]"
+LISTEN_RE = re.compile(r"\[\[\s*listen\s*\]\]", re.I)
+# Added to the instructions when the assistant decides whether the speaker waits for a reply (follow_up "assistant").
+LISTEN_PROMPT = (
+    f" When you want the person to answer you, for example after asking them a question, end your reply with "
+    f"{LISTEN_MARK} and the speaker will listen for their reply. Leave it off when nothing more is needed; it isn't "
+    f"spoken."
+)
 MAX_TURNS_PER_CONVERSATION = 20  # the oldest exchanges of a very long conversation are dropped
 MAX_REPLY_CHARS = 600
 
@@ -138,14 +146,26 @@ def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages
     return "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
 
 
+class Reply(str):
+    """What to say; `listen` is True when the assistant asked to hear the person's answer (LISTEN_MARK)."""
+    listen: bool = False
+
+    def __new__(cls, text: str, listen: bool = False) -> "Reply":
+        r = super().__new__(cls, text)
+        r.listen = listen
+        return r
+
+
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
-        conversations: Conversations) -> str:
+        conversations: Conversations) -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
-        return builtin_reply(text, now)
+        return Reply(builtin_reply(text, now))
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
+    if settings.get("follow_up") == "assistant":
+        system += LISTEN_PROMPT
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
@@ -157,6 +177,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
                                  {"X-Hermes-Session-Key": f"harkenn-{device_id}"})
     else:
         reply = chat_completions(url, settings, system, messages, timeout)
-    reply = speakable(reply)
-    conversations.add(device_id, text, reply)
-    return reply or "Sorry, I don't have an answer for that."
+    listen = bool(LISTEN_RE.search(reply))
+    reply = speakable(LISTEN_RE.sub("", reply))
+    conversations.add(device_id, text, reply + (f" {LISTEN_MARK}" if listen else ""))  # so it keeps doing it
+    return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply))

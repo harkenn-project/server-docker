@@ -262,7 +262,8 @@ class VoiceService:
             t3 = time.perf_counter()
             self._log(device_id, "I", f'heard "{heard}" ({t1 - t0:.1f} s), replied "{reply}" '
                                       f"({t2 - t1:.1f} s, speech {t3 - t2:.1f} s)")
-            listen = s.follow_up == "always" or (s.follow_up == "questions" and reply.rstrip().endswith("?"))
+            listen = (s.follow_up == "always" or (s.follow_up == "assistant" and reply.listen)
+                      or (s.follow_up == "questions" and reply.rstrip().endswith("?")))
             if listen:
                 self._awaiting_reply[device_id] = time.time()
             await self._stream(device_id, speech, reply, u.session, listen=listen, follow_up=listen)

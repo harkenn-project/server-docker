@@ -902,7 +902,13 @@ def test_follow_up_continues_the_conversation(client, monkeypatch):
     token = adopt(client)
     fake_voice(client)
     voice = client.app.state.ctx.voice
-    monkeypatch.setattr(brain, "post", lambda *a: {"choices": [{"message": {"content": "Sure. Anything else?"}}]})
+    seen = {}
+
+    def post(url, body, headers, timeout):
+        seen["system"] = body["messages"][0]["content"]
+        return {"choices": [{"message": {"content": "Sure. Anything else? [[listen]]"}}]}
+
+    monkeypatch.setattr(brain, "post", post)
     monkeypatch.setattr(service.VoiceService, "effective",
                         lambda self: self.settings().model_copy(update={"assistant_url": "http://llm/v1"}))
     with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
@@ -916,13 +922,15 @@ def test_follow_up_continues_the_conversation(client, monkeypatch):
             return receive_speech(ws)[0]
 
         start = ask("c1")
-        assert start["listen"] is True and start["follow_up"] is True  # always listen for a reply, by default
+        assert start["listen"] is True and start["follow_up"] is True  # the assistant asked to hear an answer
+        assert start["text"] == "Sure. Anything else?" and "[[listen]]" in seen["system"]
         ask("c2", follow_up=True)
         ask("c3")  # a tap: a new conversation
     convs = voice.conversations._convs[MAC]
     assert [len(c["turns"]) for c in convs] == [4, 2]
     login(client)
     s = client.get("/admin/api/voice", headers=ADMIN).json()
+    assert s["follow_up"] == "assistant"  # the default
     s["follow_up"] = "questions"
     assert client.put("/admin/api/voice", json=s, headers=ADMIN).status_code == 200
     with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
@@ -1091,3 +1099,22 @@ def test_sound_packs_voiced_custom_and_speakers(client):
                            json={"pack": "retro", "slot": "boot"}).json() == {"played": True}
         start, audio = receive_speech(ws)
         assert start["text"] == "" and len(audio) == len(client.get("/assets/sounds/retro/boot.pcm").content)
+
+
+def test_the_assistant_decides_when_to_listen(monkeypatch):
+    from datetime import datetime
+
+    from app.voice import brain
+
+    answers = iter(["Do you want the lights on? [[listen]]", "Done.", "OK [[ Listen ]] then."])
+    monkeypatch.setattr(brain, "post", lambda *a: {"choices": [{"message": {"content": next(answers)}}]})
+    conv = brain.Conversations()
+    kw = dict(device_id="d", speaker="Office", character="Janet", now=datetime(2026, 11, 1, 9), conversations=conv,
+              settings={"assistant_url": "http://llm/v1", "follow_up": "assistant"})
+    r = brain.ask("it's dark", **kw)
+    assert r == "Do you want the lights on?" and r.listen is True
+    assert conv.history("d")[-1]["content"].endswith("[[listen]]")  # kept in history, so it keeps using it
+    r = brain.ask("yes", **kw)
+    assert r == "Done." and r.listen is False
+    r = brain.ask("hm", **kw)
+    assert r == "OK then." and r.listen is True  # anywhere, any case, never spoken
