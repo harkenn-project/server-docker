@@ -15,6 +15,7 @@ from .firmware import FirmwareStore
 from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
+from .sounds import CLASSIC, SoundStore
 from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
 from .voice.service import VoiceService
@@ -34,10 +35,12 @@ class Context:
     firmware: FirmwareStore
     updates: UpdateChecker = field(init=False)
     voice: VoiceService = field(init=False)
+    sounds: SoundStore = field(init=False)
 
     def __post_init__(self) -> None:
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
+        self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
 
     def public_url(self) -> str:
         """The server's public address: set in the admin UI, else HARKENN_PUBLIC_URL."""
@@ -109,4 +112,7 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         "theme": theme,
         "layout": {"id": config.display.layout, "widgets": LAYOUTS[config.display.layout]["widgets"]},
         "character": character,
+        # The sound pack's clips (sounds.py); null = the speaker's own chimes.
+        "sounds": ctx.sounds.speaker_manifest(config.audio.sound_pack, base)
+        if config.audio.sound_pack != CLASSIC else None,
     }

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Sounds{% endblock %}
+{% block page %}sounds{% endblock %}
+{% block content %}
+<h1>Sounds</h1>
+<p class="hint">What a speaker plays when it starts up, wakes (wake word or tap), finishes listening, hits an error
+  and shuts down. Choose a pack for each speaker on its page. Speakers keep their pack's sounds, so they play
+  instantly, even before the speaker is online.</p>
+{% if devices %}
+<p class="inline-form">
+  <label>Try sounds on <select id="sound-device">
+    <option value="">this browser</option>
+    {% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}
+  </select></label>
+</p>
+{% endif %}
+<div id="packs"></div>
+
+<section class="card">
+  <h2>New sound pack</h2>
+  <form id="new-pack" class="form">
+    <label>Name <input name="name" maxlength="40" required placeholder="e.g. Janet"></label>
+    <label>Kind <select name="kind">
+      <option value="voiced">Voiced: a line for each sound, spoken by a voice</option>
+      <option value="custom">Custom: upload your own clips</option></select></label>
+    <div data-kind="voiced">
+      <label>Voice <select name="voice">
+        {% for value, label in piper_voices.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select></label>
+      {% for slot, label in sounds.slots.items() %}
+      <label>{{ label }} <input name="line_{{ slot }}" maxlength="120" placeholder="empty: silent"></label>
+      {% endfor %}
+    </div>
+    <div data-kind="custom" hidden>
+      <label>Start from <select name="copy_from">
+        {% for p in sounds.packs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select>
+        <small>Then replace any sound with your own (WAV, MP3, OGG and more; up to 5 seconds), or make it silent.</small></label>
+    </div>
+    <div class="buttons"><button type="submit">Make pack</button></div>
+  </form>
+</section>
+<script type="application/json" id="sounds-data">{{ sounds | tojson }}</script>
+<script type="application/json" id="voices-data">{{ piper_voices | tojson }}</script>
+{% endblock %}

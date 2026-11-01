@@ -937,3 +937,92 @@ def test_quiet_hours():
     assert not in_quiet_hours("22:00", "07:00", at(7)) and not in_quiet_hours("22:00", "07:00", at(12))
     assert in_quiet_hours("13:00", "14:00", at(13, 30)) and not in_quiet_hours("13:00", "14:00", at(14))
     assert not in_quiet_hours("", "07:00", at(3))
+
+
+def test_builtin_sound_packs_render_every_slot(tmp_path):
+    from app.sounds import MAX_CLIP_S, SLOTS, SYNTH_PACKS, SoundStore
+
+    store = SoundStore(tmp_path / "sounds", tmp_path / "cache")
+    assert [p["id"] for p in store.list()] == list(SYNTH_PACKS) and len(SYNTH_PACKS) == 7
+    for pid in SYNTH_PACKS:
+        for slot in SLOTS:
+            pcm = store.clip(pid, slot)
+            seconds = len(pcm) / 32000
+            assert 0.1 < seconds <= MAX_CLIP_S, (pid, slot, seconds)
+            peak = np.abs(np.frombuffer(pcm, dtype="<i2")).max()
+            assert 8000 < peak < 32767, (pid, slot, peak)  # audible, not clipped
+    assert store.clip("classic", "boot") == store.clip("classic", "boot")  # cached, deterministic
+    assert store.speaker_manifest("classic", "http://x") is None  # the speaker's own chimes
+
+
+def tone_wav(seconds=0.5, hz=440):
+    import wave
+
+    t = np.arange(int(22050 * seconds)) / 22050
+    pcm = (np.sin(2 * np.pi * hz * t) * 12000).astype("<i2")
+    pcm = np.concatenate([np.zeros(4000, "<i2"), pcm, np.zeros(4000, "<i2")])  # silence to trim
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(22050)
+        w.writeframes(pcm.tobytes())
+    return buf.getvalue()
+
+
+def test_sound_packs_voiced_custom_and_speakers(client):
+    device_token = adopt(client)
+    got = fake_voice(client)
+    tts = client.app.state.ctx.voice.tts
+    quiet = tts.synthesize
+    tts.synthesize = lambda text, **kw: (quiet(text, **kw), tone_wav()[44:])[1]  # audible, so it isn't trimmed away
+    login(client)
+    packs = client.get("/admin/api/sounds", headers=ADMIN).json()
+    assert [p["id"] for p in packs["packs"]][:2] == ["classic", "marimba"] and "wake" in packs["slots"]
+
+    r = client.post("/admin/api/sounds", headers=ADMIN, json={
+        "name": "Janet", "kind": "voiced", "voice": "en_US-hfc_female-medium",
+        "lines": {"boot": "Hello!", "wake": "Hi there!", "done": "", "error": "Oops!", "shutdown": "Bye!"}})
+    assert r.status_code == 201, r.text
+    janet = r.json()
+    assert janet["id"] == "janet" and janet["slots"] == {"boot": True, "wake": True, "done": False, "error": True,
+                                                         "shutdown": True}
+    assert got["tts"][1]["voice"] == "en_US-hfc_female-medium"
+    r = client.put("/admin/api/sounds/janet", headers=ADMIN, json={"lines": {"done": "Got it!"}})
+    assert r.json()["slots"]["done"] and got["tts"][0] == "Got it!"
+
+    custom = client.post("/admin/api/sounds", headers=ADMIN,
+                         json={"name": "My sounds", "kind": "custom", "copy_from": "glass"}).json()
+    assert custom["id"] == "my-sounds" and all(custom["slots"].values())
+    r = client.put("/admin/api/sounds/my-sounds/wake", headers=ADMIN, files={"file": ("ding.wav", tone_wav())})
+    assert r.status_code == 200, r.text
+    wav_bytes = client.get("/assets/sounds/my-sounds/wake.wav").content
+    assert wav_bytes[:4] == b"RIFF" and 0.45 < (len(wav_bytes) - 44) / 32000 < 0.62  # resampled, trimmed
+    bad = client.put("/admin/api/sounds/my-sounds/wake", headers=ADMIN, files={"file": ("x.wav", b"not audio")})
+    assert bad.status_code == 422
+    assert client.delete("/admin/api/sounds/my-sounds/error", headers=ADMIN).json()["slots"]["error"] is False
+    assert client.get("/assets/sounds/my-sounds/error.pcm").status_code == 404  # silent
+    assert client.put("/admin/api/sounds/glass/wake", headers=ADMIN,
+                      files={"file": ("d.wav", tone_wav())}).status_code == 404  # built in: read-only
+
+    # a speaker using the custom pack gets its clips, with silence as an empty URL
+    device = client.get(f"/admin/api/devices/{MAC}", headers=ADMIN).json()
+    device["config"]["audio"]["sound_pack"] = "my-sounds"
+    assert client.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                      json={"name": device["name"], "config": device["config"]}).status_code == 200
+    sounds = client.get("/api/v1/device/config", headers=bearer(device_token)).json()["sounds"]
+    assert sounds["pack"] == "my-sounds" and sounds["slots"]["error"] == {"url": "", "bytes": 0}
+    url = sounds["slots"]["wake"]["url"]
+    assert url.startswith("http://testserver/assets/sounds/my-sounds/wake.pcm?v=")
+    assert len(client.get(url).content) == sounds["slots"]["wake"]["bytes"]
+    assert client.delete("/admin/api/sounds/my-sounds", headers=ADMIN).status_code == 409  # in use
+    device["config"]["audio"]["sound_pack"] = "nope"
+    assert client.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                      json={"name": device["name"], "config": device["config"]}).status_code == 422
+
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        assert client.post(f"/admin/api/devices/{MAC}/sound", headers=ADMIN,
+                           json={"pack": "retro", "slot": "boot"}).json() == {"played": True}
+        start, audio = receive_speech(ws)
+        assert start["text"] == "" and len(audio) == len(client.get("/assets/sounds/retro/boot.pcm").content)

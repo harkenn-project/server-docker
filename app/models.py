@@ -71,6 +71,7 @@ class AudioConfig(Strict):
     volume: int = Field(70, ge=0, le=100)
     silence_s: int = Field(5, ge=1, le=30, description="stop listening after this long without speech")
     wake_word: str = Field("ok_nabu", max_length=64)
+    sound_pack: str = Field("classic", pattern=SLUG, description="sounds.py; classic = the speaker's own chimes")
 
 
 class AssistantConfig(Strict):
@@ -125,6 +126,35 @@ class VoiceSettings(Strict):
 
 class VoiceSettingsIn(VoiceSettings):
     from_environment: dict[str, Any] | None = Field(None, description="read-only, ignored (sent back by the admin UI)")
+
+
+class SoundPackIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
+    kind: Literal["voiced", "custom"]
+    voice: str = Field("", pattern=r"^[A-Za-z0-9._-]{0,80}$", description="voiced: the Piper voice")
+    lines: dict[str, str] = Field(default_factory=dict, description="voiced: slot -> text")
+    copy_from: str = Field("", pattern=r"^$|" + SLUG[1:], description="custom: start from this pack's clips")
+
+    @field_validator("lines")
+    @classmethod
+    def _lines(cls, v: dict[str, str]) -> dict[str, str]:
+        return {k: " ".join(t.split())[:120] for k, t in v.items()}
+
+
+class SoundPackUpdate(Strict):
+    name: str | None = Field(None, min_length=1, max_length=40)
+    voice: str | None = Field(None, pattern=r"^[A-Za-z0-9._-]{1,80}$")
+    lines: dict[str, str] | None = None
+
+    @field_validator("lines")
+    @classmethod
+    def _lines(cls, v: dict[str, str] | None) -> dict[str, str] | None:
+        return v and {k: " ".join(t.split())[:120] for k, t in v.items()}
+
+
+class PlaySoundIn(Strict):
+    pack: str = Field(pattern=SLUG)
+    slot: str = Field(pattern=r"^[a-z]{1,16}$")
 
 
 class AgentTokenIn(Strict):

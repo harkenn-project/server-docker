@@ -22,7 +22,8 @@ from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, de
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .mcp_server import Tokens
-from .models import (AgentTokenIn, ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .sounds import SLOT_LABELS, SLOTS, decode_upload, trim
+from .models import (AgentTokenIn, ApproveIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -55,6 +56,7 @@ def catalog(c: Context) -> dict[str, Any]:
         "states": list(STATES),
         "characters": [{"id": m["id"], "name": m["name"], "version": m["version"], "states": list(m["states"])}
                        for m in c.characters.list()],
+        "sound_packs": [{"id": p["id"], "name": p["name"]} for p in c.sounds.list()],
     }
 
 
@@ -229,6 +231,14 @@ async def agents_page(request: Request) -> Response:
     return _page(request, "agents.html", agents=_agents_out(get_ctx(request)))
 
 
+@pages.get("/sounds")
+async def sounds_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    return _page(request, "sounds.html", sounds=_sounds_out(c), piper_voices=PIPER_VOICES, devices=c.db.list_devices())
+
+
 @pages.get("/events")
 async def events(request: Request) -> Response:
     if not is_admin(request):
@@ -330,6 +340,8 @@ def _device_or_404(c: Context, device_id: str) -> dict[str, Any]:
 def _check_character(c: Context, config: DeviceConfig) -> None:
     if c.characters.get(config.character) is None:
         raise HTTPException(422, f"unknown character '{config.character}'")
+    if c.sounds.get(config.audio.sound_pack) is None:
+        raise HTTPException(422, f"unknown sound pack '{config.audio.sound_pack}'")
 
 
 async def push_config(c: Context, device_id: str) -> bool:
@@ -476,6 +488,129 @@ async def delete_agent_token(tid: str, request: Request) -> Response:
     if not Tokens(get_ctx(request)).delete(tid):
         raise HTTPException(404)
     return Response(status_code=204)
+
+
+def _sounds_out(c: Context) -> dict[str, Any]:
+    used: dict[str, list[str]] = {}
+    for d in c.db.list_devices():
+        pack = DeviceConfig.model_validate(d["config"]).audio.sound_pack
+        used.setdefault(pack, []).append(d["name"])
+    return {"slots": SLOT_LABELS, "packs": [dict(p, used_by=used.get(p["id"], [])) for p in c.sounds.list()]}
+
+
+async def _push_pack(c: Context, pid: str) -> None:
+    """Speakers using a pack that changed get their new clips."""
+    for d in c.db.list_devices():
+        if DeviceConfig.model_validate(d["config"]).audio.sound_pack == pid:
+            await push_config(c, d["id"])
+
+
+async def _speak_lines(c: Context, pid: str, voice: str, lines: dict[str, str]) -> None:
+    for slot, text in lines.items():
+        if slot not in SLOTS:
+            continue
+        pcm = b""
+        if text:
+            pcm = trim(await c.voice.synthesize(text, voice))
+        await run_in_threadpool(c.sounds.set_clip, pid, slot, pcm)
+
+
+@api.get("/sounds")
+async def list_sounds(request: Request) -> dict[str, Any]:
+    return _sounds_out(get_ctx(request))
+
+
+@api.post("/sounds", status_code=201)
+async def create_sound_pack(body: SoundPackIn, request: Request) -> dict[str, Any]:
+    """A voiced pack (text per slot, spoken by a Piper voice) or a custom one (uploads, copied from a pack)."""
+    c = get_ctx(request)
+    if body.kind == "voiced" and body.voice not in PIPER_VOICES:
+        raise HTTPException(422, "choose one of the voices")
+    try:
+        pack = c.sounds.create(body.name.strip(), body.kind, voice=body.voice, lines=body.lines,
+                               copy_from=body.copy_from if body.kind == "custom" else "")
+    except KeyError as e:
+        raise HTTPException(422, f"no sound pack '{body.copy_from}'") from e
+    if body.kind == "voiced":
+        try:
+            await _speak_lines(c, pack["id"], body.voice, pack["lines"])
+        except Exception as e:  # e.g. the voice couldn't be downloaded: keep the pack, report it
+            raise HTTPException(502, f"pack made, but the voice failed: {e}") from e
+    return c.sounds.get(pack["id"])
+
+
+@api.put("/sounds/{pid}")
+async def update_sound_pack(pid: str, body: SoundPackUpdate, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    pack = c.sounds.get(pid)
+    if pack is None or pack["kind"] == "builtin":
+        raise HTTPException(404)
+    if body.voice is not None and body.voice not in PIPER_VOICES:
+        raise HTTPException(422, "choose one of the voices")
+    c.sounds.update(pid, name=body.name and body.name.strip())
+    if pack["kind"] == "voiced" and (body.voice or body.lines is not None):
+        voice = body.voice or pack["voice"]
+        lines = {s: (body.lines or {}).get(s, pack["lines"].get(s, "")) for s in SLOTS}
+        changed = lines if body.voice and body.voice != pack["voice"] else             {s: t for s, t in lines.items() if t != pack["lines"].get(s, "")}
+        c.sounds.update(pid, voice=voice, lines=lines)
+        await _speak_lines(c, pid, voice, changed)
+    await _push_pack(c, pid)
+    return c.sounds.get(pid)
+
+
+@api.put("/sounds/{pid}/{slot}")
+async def upload_sound(pid: str, slot: str, file: UploadFile, request: Request) -> dict[str, Any]:
+    """A custom pack's clip for one slot: any common audio format, trimmed to at most 5 s."""
+    c = get_ctx(request)
+    pack = c.sounds.get(pid)
+    if pack is None or pack["kind"] != "custom" or slot not in SLOTS:
+        raise HTTPException(404)
+    data = await file.read(c.settings.max_upload_bytes + 1)
+    if len(data) > c.settings.max_upload_bytes:
+        raise HTTPException(413, "that file is too big")
+    try:
+        pcm = await run_in_threadpool(decode_upload, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    pack = await run_in_threadpool(c.sounds.set_clip, pid, slot, pcm)
+    await _push_pack(c, pid)
+    return pack
+
+
+@api.delete("/sounds/{pid}/{slot}")
+async def silence_sound(pid: str, slot: str, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    pack = c.sounds.get(pid)
+    if pack is None or pack["kind"] == "builtin" or slot not in SLOTS:
+        raise HTTPException(404)
+    pack = c.sounds.set_clip(pid, slot, b"")
+    await _push_pack(c, pid)
+    return pack
+
+
+@api.delete("/sounds/{pid}", status_code=204)
+async def delete_sound_pack(pid: str, request: Request) -> Response:
+    c = get_ctx(request)
+    if any(DeviceConfig.model_validate(d["config"]).audio.sound_pack == pid for d in c.db.list_devices()):
+        raise HTTPException(409, "a speaker uses this pack: choose another one for it first")
+    if not c.sounds.delete(pid):
+        raise HTTPException(404)
+    return Response(status_code=204)
+
+
+@api.post("/devices/{device_id}/sound")
+async def play_sound(device_id: str, body: PlaySoundIn, request: Request) -> dict[str, bool]:
+    """Play a pack's clip on a speaker, to try it."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    pcm = await run_in_threadpool(c.sounds.clip, body.pack, body.slot)
+    if pcm is None:
+        raise HTTPException(404)
+    if not c.hub.online(device_id):
+        raise HTTPException(409, "that speaker is offline")
+    if pcm:
+        await c.voice.say(device_id, "", pcm=pcm)
+    return {"played": bool(pcm)}
 
 
 @api.get("/server")

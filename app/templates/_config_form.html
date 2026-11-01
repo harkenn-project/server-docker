@@ -38,6 +38,11 @@
       <label>Volume <span class="range"><input type="range" min="0" max="100" data-path="config.audio.volume" data-type="int"><output></output></span></label>
       <label>Stop listening after this many seconds of silence <span class="range"><input type="range" min="1" max="30" data-path="config.audio.silence_s" data-type="int"><output></output></span></label>
       <label>Wake word <input data-path="config.audio.wake_word" maxlength="64"></label>
+      <label>Sounds
+        <select data-path="config.audio.sound_pack">
+          {% for p in catalog.sound_packs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+        </select>
+        <small>Starting up, waking, finishing listening, errors and shutting down. Hear them and make your own on the <a href="/admin/sounds">Sounds</a> page.</small></label>
     </fieldset>
     <fieldset><legend>Wi-Fi networks</legend>
       <p class="hint">The speaker adds these to its saved networks. It only drops the network it's on after it has connected to one of these.</p>

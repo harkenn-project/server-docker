@@ -19,6 +19,7 @@ from . import __version__
 from .assets import STATES
 from .context import Context, base_url, device_payload, get_ctx
 from .models import AdoptionRequestIn, LogBatch, LogLine, StatusIn
+from .sounds import wav
 from .themes import ALL_CHARACTER_SIZES
 
 log = logging.getLogger("harkenn.device")
@@ -285,6 +286,19 @@ def _asset(path, media_type: str, versioned: bool) -> FileResponse:
         raise HTTPException(404)
     cache = "public, max-age=31536000, immutable" if versioned else "no-cache"
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": cache})
+
+
+@assets_router.get("/assets/sounds/{pid}/{slot}.{fmt}")
+async def sound_clip(pid: str, slot: str, fmt: str, request: Request, v: int | None = None) -> Response:
+    """A sound pack's clip: raw 16 kHz 16-bit mono PCM for speakers, WAV for browsers. Silent slots are 404."""
+    if fmt not in ("pcm", "wav"):
+        raise HTTPException(404)
+    pcm = await run_in_threadpool(get_ctx(request).sounds.clip, pid, slot)
+    if not pcm:
+        raise HTTPException(404)
+    cache = "public, max-age=31536000, immutable" if v is not None else "no-cache"
+    return Response(pcm if fmt == "pcm" else wav(pcm), media_type="application/octet-stream" if fmt == "pcm"
+                    else "audio/wav", headers={"Cache-Control": cache})
 
 
 @assets_router.get("/assets/characters/{cid}/{state}.gif")

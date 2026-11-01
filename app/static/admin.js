@@ -578,6 +578,115 @@ function initAgents() {
   });
   show(jsonScript("agents-data"));
 }
+
+// sounds
+
+function initSounds() {
+  const root = $("#packs");
+  const voices = jsonScript("voices-data");
+  const deviceSelect = $("#sound-device");
+  let data = jsonScript("sounds-data");
+  let player = null;
+
+  async function play(pack, slot) {
+    const device = deviceSelect ? deviceSelect.value : "";
+    if (device) {
+      try { await api("POST", `/admin/api/devices/${device}/sound`, { pack: pack.id, slot }); }
+      catch (err) { toast(err.message, true); }
+      return;
+    }
+    if (player) player.pause();
+    player = new Audio(`/assets/sounds/${pack.id}/${slot}.wav?v=${pack.version}`);
+    player.play().catch(() => toast("Couldn't play that", true));
+  }
+
+  const refresh = async () => { data = await api("GET", "/admin/api/sounds"); render(); };
+
+  function slotRow(pack, slot, label) {
+    const has = pack.slots[slot];
+    const cells = [el("td", {}, label),
+      el("td", {}, has ? el("button", { type: "button", class: "secondary", onclick: () => play(pack, slot) }, "▶ Play")
+                       : el("span", { class: "hint" }, "silent"))];
+    if (pack.kind === "voiced") {
+      const input = el("input", { value: pack.lines[slot] || "", maxlength: 120, placeholder: "empty: silent" });
+      input.dataset.slot = slot;
+      cells.push(el("td", { class: "grow" }, input));
+    } else if (pack.kind === "custom") {
+      const file = el("input", { type: "file", accept: "audio/*", onchange: async () => {
+        if (!file.files.length) return;
+        const fd = new FormData();
+        fd.append("file", file.files[0]);
+        toast("Uploading…");
+        try { await api("PUT", `/admin/api/sounds/${pack.id}/${slot}`, fd); toast("Saved"); await refresh(); }
+        catch (err) { toast(err.message, true); }
+      } });
+      cells.push(el("td", {}, file), el("td", {}, has ? el("button", { type: "button", class: "link", onclick: async () => {
+        try { await api("DELETE", `/admin/api/sounds/${pack.id}/${slot}`); await refresh(); }
+        catch (err) { toast(err.message, true); }
+      } }, "Make silent") : ""));
+    }
+    return el("tr", {}, ...cells);
+  }
+
+  function packCard(pack) {
+    const rows = Object.entries(data.slots).map(([slot, label]) => slotRow(pack, slot, label));
+    const head = [el("h2", {}, pack.name)];
+    const kind = { builtin: "Built in", voiced: `Voiced · ${voices[pack.voice] || pack.voice}`, custom: "Custom" }[pack.kind];
+    head.push(el("p", { class: "hint" }, [pack.description, kind,
+      pack.used_by.length ? `Used by ${pack.used_by.join(", ")}` : ""].filter(Boolean).join(" · ")));
+    const card = el("section", { class: "card" }, ...head, el("table", {}, el("tbody", {}, ...rows)));
+    const buttons = [];
+    if (pack.kind === "voiced") {
+      const voice = el("select", {}, ...Object.entries(voices).map(([v, l]) => el("option", { value: v }, l)));
+      voice.value = pack.voice;
+      card.append(el("label", {}, "Voice ", voice));
+      buttons.push(el("button", { type: "button", onclick: async () => {
+        const lines = Object.fromEntries($$("input[data-slot]", card).map(i => [i.dataset.slot, i.value]));
+        toast("Speaking the lines…");
+        try { await api("PUT", `/admin/api/sounds/${pack.id}`, { voice: voice.value, lines }); toast("Saved"); await refresh(); }
+        catch (err) { toast(err.message, true); }
+      } }, "Save"));
+    }
+    if (pack.kind !== "builtin") {
+      buttons.push(el("button", { type: "button", class: "danger", onclick: async () => {
+        if (!confirm(`Delete the ${pack.name} sounds?`)) return;
+        try { await api("DELETE", `/admin/api/sounds/${pack.id}`); await refresh(); }
+        catch (err) { toast(err.message, true); }
+      } }, "Delete"));
+    }
+    if (buttons.length) card.append(el("div", { class: "buttons" }, ...buttons));
+    return card;
+  }
+
+  function render() {
+    root.replaceChildren(...data.packs.map(packCard));
+    const copy = $("select[name=copy_from]");
+    const keep = copy.value;
+    copy.replaceChildren(...data.packs.map(p => el("option", { value: p.id }, p.name)));
+    copy.value = keep || "classic";
+  }
+
+  const form = $("#new-pack");
+  const showKind = () => { for (const node of $$("[data-kind]", form)) node.hidden = node.dataset.kind !== form.elements.kind.value; };
+  form.elements.kind.addEventListener("change", showKind);
+  form.elements.voice.value = "en_US-hfc_female-medium";
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = form.elements;
+    const body = { name: f.name.value, kind: f.kind.value };
+    if (body.kind === "voiced") {
+      body.voice = f.voice.value;
+      body.lines = Object.fromEntries(Object.keys(data.slots).map(s => [s, f[`line_${s}`].value]));
+      toast("Speaking the lines… (a new voice downloads first)");
+    } else {
+      body.copy_from = f.copy_from.value;
+    }
+    try { await api("POST", "/admin/api/sounds", body); form.reset(); showKind(); toast("Made"); await refresh(); }
+    catch (err) { toast(err.message, true); }
+  });
+  showKind();
+  render();
+}
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
@@ -587,3 +696,4 @@ if (page === "firmware") initFirmware();
 if (page === "voice") initVoice();
 if (page === "server") initServer();
 if (page === "agents") initAgents();
+if (page === "sounds") initSounds();

@@ -12,6 +12,8 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   or ring them like a phone and talk to whoever answers.
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted. Four come
   built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
+- **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
+  down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
 - **Setup without fuss.** Speakers find the server on the network, show a 3-digit code, and you enter it in the admin
   page to adopt them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
 - **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it.
