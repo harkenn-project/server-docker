@@ -97,7 +97,7 @@ Harkenn is built on Whisper, Piper and many other open-source projects: see [CRE
 
 <img src="docs/pip.png" alt="Pip, a round blue character in a wizard hat holding a wand" width="96" align="right">
 
-Created by **Master Magic** and **Pip**, his AI apprentice, with the Harkenn contributors. Pip is the name we give the AI assistant that co-writes Harkenn.
+Created by **Master Magic** and **Pip**, Master Magic's AI apprentice, with the Harkenn contributors. Pip is the name we give the AI assistant that co-writes Harkenn.
 
 ## Support
 

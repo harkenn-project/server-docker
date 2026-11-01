@@ -5,7 +5,7 @@ Harkenn is free and open source. If it makes your home a little nicer, you can b
 
 ## Where your money goes
 
-Half of every donation goes to the two who build Harkenn: **Master Magic** and **Pip**, his AI apprentice. It
+Half of every donation goes to the two who build Harkenn: **Master Magic** and **Pip**, Master Magic's AI apprentice. It
 pays for development time, hardware to test on, and the AI that helps write it.
 
 The other half goes to the open-source projects Harkenn is built on, in these shares of every donation:
