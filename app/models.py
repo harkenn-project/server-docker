@@ -97,9 +97,11 @@ class VoiceSettings(Strict):
     tts_engine: Literal["builtin", "wyoming"] = "builtin"
     tts_voice: str = Field("en_US-ljspeech-high", pattern=r"^[A-Za-z0-9._-]{0,80}$")
     tts_address: str = Field("", max_length=200, description="Wyoming text-to-speech host:port")
-    assistant_url: str = Field("", max_length=300, description="OpenAI-compatible API base URL, e.g. http://ollama:11434/v1")
+    assistant_api: Literal["openai", "anthropic", "hermes"] = "openai"
+    assistant_url: str = Field("", max_length=300, description="API base URL, e.g. http://ollama:11434/v1")
     assistant_model: str = Field("", max_length=120)
     assistant_key: str = Field("", max_length=400)
+    assistant_timeout_s: int = Field(120, ge=5, le=600, description="how long an answer may take (agents use tools)")
     system_prompt: str = Field("", max_length=4000, description="empty = built-in prompt")
     keep_recordings: bool = Field(False, description="save what speakers hear, for troubleshooting")
 
@@ -107,6 +109,14 @@ class VoiceSettings(Strict):
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+
+class VoiceSettingsIn(VoiceSettings):
+    from_environment: dict[str, Any] | None = Field(None, description="read-only, ignored (sent back by the admin UI)")
+
+
+class AgentTokenIn(Strict):
+    name: str = Field(min_length=1, max_length=60, description="who the token is for, e.g. Hermes")
 
 
 class ServerSettingsIn(Strict):

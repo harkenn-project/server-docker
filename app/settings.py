@@ -22,6 +22,13 @@ class Settings:
     update_url: str = ""  # where latest.json + firmware are served raw (updates.py); empty = no update checks
     voice_warmup: bool = False  # load the voice models in the background at startup
     mdns: bool = False  # announce the server on the local network so speakers find it (discovery.py)
+    # The assistant, when it's set up outside the admin UI (e.g. a key from a Kubernetes secret). The admin UI's own
+    # values win; these fill in what it leaves empty.
+    assistant_api: str = ""
+    assistant_url: str = ""
+    assistant_model: str = ""
+    assistant_key: str = ""
+    mcp_token: str = ""  # an extra MCP access token (mcp.py), e.g. shared with an agent through a secret
 
     @property
     def db_path(self) -> Path:
@@ -72,4 +79,9 @@ def load_settings() -> Settings:
         update_url=env("UPDATE_URL", DEFAULT_UPDATE_URL).rstrip("/"),
         voice_warmup=env("VOICE_WARMUP", "true") == "true",
         mdns=env("MDNS", "true") == "true",
+        assistant_api=env("ASSISTANT_API"),
+        assistant_url=env("ASSISTANT_URL").rstrip("/"),
+        assistant_model=env("ASSISTANT_MODEL"),
+        assistant_key=env("ASSISTANT_KEY"),
+        mcp_token=env("MCP_TOKEN"),
     )

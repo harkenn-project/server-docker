@@ -204,7 +204,7 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         task = asyncio.create_task(c.updates.handle_boot_check(device_id))
         _background.add(task)
         task.add_done_callback(_background.discard)
-    elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop"):
+    elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer"):
         await c.voice.handle(device_id, msg)
     elif kind == "config_request":
         device = c.db.get_device(device_id)

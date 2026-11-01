@@ -4,8 +4,12 @@
 server does the thinking, on your own hardware. Nothing goes to the cloud unless you point it at a cloud assistant.
 
 - **Talk to it.** Tap a speaker (wake words are coming) and ask. Speech recognition (Whisper) and speech (Piper)
-  run inside the server; answers come from any OpenAI-compatible assistant you choose (Ollama, llama.cpp, LM Studio,
-  a cloud API), or from a few built-in replies when there isn't one.
+  run inside the server, and the server hears when you've finished talking. Answers come from the assistant you
+  choose: any OpenAI-compatible API (OpenAI, DeepSeek, OpenRouter, Gemini, Ollama, LM Studio, ...), Anthropic, or a
+  [Hermes Agent](https://hermes-agent.nousresearch.com) with its own memory and tools. Without one, a few built-in
+  replies.
+- **Agents can talk back.** A built-in [MCP server](docs/MCP.md) lets an AI agent announce things on the speakers,
+  or ring them like a phone and talk to whoever answers.
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted. Four come
   built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
 - **Setup without fuss.** Speakers find the server on the network, show a 3-digit code, and you enter it in the admin
@@ -58,6 +62,9 @@ Environment variables.
 | `HARKENN_UPDATE_URL` | the `releases` branch of speaker-firmware, raw | Where firmware releases (`latest.json`) are read from; empty turns update checks off |
 | `HARKENN_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
 | `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
+| `HARKENN_ASSISTANT_API` | `openai` | `openai`, `anthropic` or `hermes`: used with `HARKENN_ASSISTANT_URL` |
+| `HARKENN_ASSISTANT_URL`, `HARKENN_ASSISTANT_MODEL`, `HARKENN_ASSISTANT_KEY` | unset | The assistant, e.g. from a secret. The **Voice** page's own values win; these fill in what it leaves empty |
+| `HARKENN_MCP_TOKEN` | unset | An extra access token for the MCP server, besides those made on the **Agents** page |
 
 Voice settings (speech recognition model, voice, assistant) are on the admin UI's **Voice** page.
 
@@ -75,7 +82,8 @@ app/
   main.py        app factory
   device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
-  voice/         speech recognition, replies and speech (Whisper, Piper, Wyoming, OpenAI-compatible APIs)
+  voice/         speech recognition, end of speech (Silero), replies (brain.py), speech, ringing (calls.py)
+  mcp_server.py  the MCP server for agents (docs/MCP.md, docs/skills/)
   updates.py     firmware releases from Git; firmware.py checks and stores images
   discovery.py   mDNS announcement
   assets.py      character store; kani.py the speakers' animation format; starter.py draws the built-in characters

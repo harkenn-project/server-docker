@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.routing import Route
 
 from . import __version__
 from .admin import api as admin_api
@@ -23,6 +24,7 @@ from .discovery import Announcer
 from .device_api import router as device_router
 from .firmware import FirmwareStore
 from .hub import Hub
+from .mcp_server import build as build_mcp
 from .settings import Settings, load_settings
 from .starter import ensure_builtin_characters
 
@@ -48,13 +50,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             threading.Thread(target=app.state.ctx.voice.warm_up, name="voice-warmup", daemon=True).start()
         if settings.mdns:
             await app.state.announcer.start(app.state.ctx.public_url())
-        yield
+        async with app.state.mcp.session_manager.run():
+            yield
         await app.state.announcer.stop()
 
     app = FastAPI(title="Harkenn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
                             firmware=FirmwareStore(settings.firmware_dir))
     app.state.announcer = Announcer(settings)
+    app.state.mcp, mcp_endpoint = build_mcp(app.state.ctx)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="harkenn_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)
     app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
@@ -62,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(assets_router)
     app.include_router(admin_pages)
     app.include_router(admin_api)
+    app.router.routes.append(Route("/mcp", endpoint=mcp_endpoint))  # agents (docs/MCP.md)
 
     @app.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:

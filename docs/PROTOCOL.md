@@ -182,3 +182,24 @@ voice_end {session}                      ->           speech-to-text (Whisper), 
   UI's *Say it*, announcements).
 * A tap while listening ends the utterance; while waiting, it sends `voice_cancel`; while speaking, it stops playback
   and sends `speak_stop`.
+* `voice_wait {session}` arrives every 20 s while an answer takes long (an agent using tools). The speaker keeps
+  waiting another 60 s each time.
+* `speak_start {..., listen: true}`: someone asked a question (an agent, through `ring`). When the speech has played,
+  the speaker starts listening as if tapped. Harkenn passes what it hears to whoever asked, not to the assistant.
+
+## 6. Ringing (agents)
+
+An agent can ring speakers through the MCP server ([MCP.md](MCP.md)) to find out whether someone is there.
+
+```
+speaker                                     Harkenn
+                                         <-  ring {ring, seconds}     to one or more speakers at once
+(rings every 3 s, "Tap to answer")
+ring_answer {ring}                       ->  (a tap: the first one wins)
+                                         <-  ring_stop {ring}         to every speaker that rang
+                                         <-  speak_start ... (the agent's message, maybe with listen: true)
+```
+
+* A speaker that's in a conversation doesn't ring; the ring just goes unanswered there.
+* `ring_stop` also ends ringing on the other speakers. When `seconds` (5–30) is up, the speaker stops by itself.
+* Firmware before 0.9.0 ignores `ring`, `ring_stop` and `voice_wait`.

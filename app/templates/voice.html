@@ -33,12 +33,24 @@
     <label data-show="tts_engine=wyoming">Wyoming address <input name="tts_address" placeholder="piper.local:10200"></label>
   </fieldset>
   <fieldset><legend>Assistant</legend>
-    <p class="hint">Any OpenAI-compatible chat API: Ollama (<code>http://host:11434/v1</code>), llama.cpp, LM Studio, a
-      cloud service or Hermes. Leave the URL empty and speakers answer simple things themselves (time, date) and repeat
-      the rest back.</p>
-    <label>API URL <input name="assistant_url" placeholder="http://ollama:11434/v1"></label>
-    <label>Model <input name="assistant_model" placeholder="llama3.2"></label>
+    <p class="hint">A chat model or an agent answers what speakers hear. Leave the URL empty and speakers answer simple
+      things themselves (time, date) and repeat the rest back.</p>
+    <label>API <select name="assistant_api">
+      <option value="openai">OpenAI-compatible: OpenAI, DeepSeek, OpenRouter, Mistral, Groq, Gemini, Ollama, LM Studio, vLLM…</option>
+      <option value="anthropic">Anthropic</option>
+      <option value="hermes">Hermes Agent</option></select>
+      <small data-show="assistant_api=hermes">Each speaker is its own Hermes conversation, with Hermes' memory, tools and skills.
+        Use the gateway's API server, e.g. <code>http://hermes:8642/v1</code>, and its <code>API_SERVER_KEY</code>.</small></label>
+    <label>API URL <input name="assistant_url" placeholder="http://ollama:11434/v1">
+      <small>Examples: <code>https://api.deepseek.com/v1</code>, <code>https://openrouter.ai/api/v1</code>,
+        <code>https://generativelanguage.googleapis.com/v1beta/openai</code>, <code>http://host:11434/v1</code> (Ollama).
+        Anthropic: empty means <code>https://api.anthropic.com/v1</code>.</small></label>
+    <label>Model <input name="assistant_model" placeholder="e.g. deepseek-v4-flash, llama3.2">
+      <small>Empty: the server's default (Hermes: its configured model).</small></label>
     <label>API key <input name="assistant_key" type="password" autocomplete="off"></label>
+    <label>Answer within <input name="assistant_timeout_s" type="number" min="5" max="600"> seconds
+      <small>Agents that use tools (Home Assistant, the web) can take a while; the speaker keeps waiting.</small></label>
+    <p class="hint" id="assistant-env" hidden></p>
     <label>Instructions <textarea name="system_prompt" rows="5" placeholder="Empty: the built-in instructions"></textarea>
       <small>{character}, {speaker} and {now} are filled in.</small></label>
   </fieldset>

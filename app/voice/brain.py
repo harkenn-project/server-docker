@@ -1,5 +1,13 @@
-"""Replies: an OpenAI-compatible chat API when one is configured (Ollama, llama.cpp, LM Studio, a cloud API, Hermes,
-...), otherwise a few built-in answers so a speaker is useful out of the box.
+"""Replies: a chat model or agent when one is configured, otherwise a few built-in answers so a speaker is useful out
+of the box.
+
+Three kinds of API cover most of what's out there:
+
+    openai     OpenAI-compatible chat completions: OpenAI, DeepSeek, OpenRouter, Mistral, Groq, Gemini (its OpenAI
+               endpoint), Ollama, llama.cpp, LM Studio, vLLM, LocalAI, ... Harkenn keeps the recent turns.
+    anthropic  The Anthropic Messages API. Harkenn keeps the recent turns.
+    hermes     A Hermes Agent gateway (its Responses API). Each speaker is a named conversation that Hermes keeps,
+               with its own memory, tools and skills; Harkenn sends only what was just said.
 """
 from __future__ import annotations
 
@@ -76,24 +84,68 @@ def builtin_reply(text: str, now: datetime) -> str:
     return f"You said: {text}. No assistant is connected yet, so that's all I can do for now."
 
 
-def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
-        conversations: Conversations) -> str:
-    url = (settings.get("assistant_url") or "").rstrip("/")
-    if not url:
-        return builtin_reply(text, now)
-    prompt = (settings.get("system_prompt") or DEFAULT_PROMPT).format(
-        character=character, speaker=speaker, now=describe_time(now))
-    messages = [{"role": "system", "content": prompt}, *conversations.history(device_id),
-                {"role": "user", "content": text}]
-    body: dict[str, Any] = {"messages": messages, "max_tokens": 300}
+APIS = {"openai": "OpenAI-compatible (most APIs and local servers)", "anthropic": "Anthropic Messages API",
+        "hermes": "Hermes Agent (its own memory, tools and skills)"}
+DEFAULT_URLS = {"anthropic": "https://api.anthropic.com/v1"}
+MAX_TOKENS = 300
+
+
+def post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json", **headers})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def chat_completions(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
+                     timeout: float) -> str:
+    body: dict[str, Any] = {"messages": [{"role": "system", "content": system}, *messages], "max_tokens": MAX_TOKENS}
     if settings.get("assistant_model"):
         body["model"] = settings["assistant_model"]
-    headers = {"Content-Type": "application/json"}
+    key = settings.get("assistant_key")
+    data = post(f"{url}/chat/completions", body, {"Authorization": f"Bearer {key}"} if key else {}, timeout)
+    return data["choices"][0]["message"]["content"] or ""
+
+
+def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
+                       timeout: float) -> str:
+    body = {"model": settings.get("assistant_model") or "claude-haiku-5-5", "max_tokens": MAX_TOKENS,
+            "system": system, "messages": messages}
+    headers = {"x-api-key": settings.get("assistant_key") or "", "anthropic-version": "2023-06-01"}
+    data = post(f"{url}/messages", body, headers, timeout)
+    return "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
+
+
+def hermes_responses(url: str, settings: dict[str, Any], system: str, text: str, device_id: str,
+                     timeout: float) -> str:
+    conversation = f"harkenn-{device_id}"
+    body: dict[str, Any] = {"input": text, "instructions": system, "conversation": conversation, "store": True}
+    if settings.get("assistant_model"):
+        body["model"] = settings["assistant_model"]
+    headers = {"X-Hermes-Session-Key": conversation}
     if settings.get("assistant_key"):
         headers["Authorization"] = f"Bearer {settings['assistant_key']}"
-    req = urllib.request.Request(f"{url}/chat/completions", data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        data = json.loads(resp.read())
-    reply = speakable(data["choices"][0]["message"]["content"] or "")
-    conversations.add(device_id, text, reply)
+    data = post(f"{url}/responses", body, headers, timeout)
+    if isinstance(data.get("output_text"), str):
+        return data["output_text"]
+    return "".join(part.get("text", "") for item in data.get("output", []) if item.get("type") == "message"
+                   for part in item.get("content", []) if part.get("type") in ("output_text", "text"))
+
+
+def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
+        conversations: Conversations) -> str:
+    api = settings.get("assistant_api") or "openai"
+    url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
+    if not url:
+        return builtin_reply(text, now)
+    system = (settings.get("system_prompt") or DEFAULT_PROMPT).format(
+        character=character, speaker=speaker, now=describe_time(now))
+    timeout = float(settings.get("assistant_timeout_s") or 120)
+    if api == "hermes":  # Hermes keeps the conversation itself
+        reply = speakable(hermes_responses(url, settings, system, text, device_id, timeout))
+    else:
+        messages = [*conversations.history(device_id), {"role": "user", "content": text}]
+        call = anthropic_messages if api == "anthropic" else chat_completions
+        reply = speakable(call(url, settings, system, messages, timeout))
+        conversations.add(device_id, text, reply)
     return reply or "Sorry, I don't have an answer for that."

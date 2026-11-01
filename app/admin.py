@@ -21,8 +21,9 @@ from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, de
                       restore_secrets)
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
-from .models import (ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
-                     ServerSettingsIn, VoiceSettings)
+from .mcp_server import Tokens
+from .models import (AgentTokenIn, ApproveIn, CharacterIn, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+                     ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
 
@@ -219,6 +220,13 @@ async def server_page(request: Request) -> Response:
     if not is_admin(request):
         return _login_redirect(request)
     return _page(request, "server.html", server=_server_out(get_ctx(request)))
+
+
+@pages.get("/agents")
+async def agents_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "agents.html", agents=_agents_out(get_ctx(request)))
 
 
 @pages.get("/events")
@@ -446,6 +454,30 @@ def _server_out(c: Context) -> dict[str, Any]:
             "effective_public_url": c.public_url(), "mdns": c.settings.mdns}
 
 
+def _agents_out(c: Context) -> dict[str, Any]:
+    tokens = [{k: v for k, v in t.items() if k != "hash"} for t in Tokens(c).list()]
+    return {"mcp_url": f"{c.public_url()}/mcp", "tokens": tokens, "env_token": bool(c.settings.mcp_token)}
+
+
+@api.get("/agents")
+async def get_agents(request: Request) -> dict[str, Any]:
+    return _agents_out(get_ctx(request))
+
+
+@api.post("/agents/tokens", status_code=201)
+async def create_agent_token(body: AgentTokenIn, request: Request) -> dict[str, Any]:
+    """A new MCP token. The token itself is only in this response."""
+    entry, token = Tokens(get_ctx(request)).create(body.name.strip())
+    return {"id": entry["id"], "name": entry["name"], "token": token}
+
+
+@api.delete("/agents/tokens/{tid}", status_code=204)
+async def delete_agent_token(tid: str, request: Request) -> Response:
+    if not Tokens(get_ctx(request)).delete(tid):
+        raise HTTPException(404)
+    return Response(status_code=204)
+
+
 @api.get("/server")
 async def get_server(request: Request) -> dict[str, Any]:
     return _server_out(get_ctx(request))
@@ -467,6 +499,9 @@ def _voice_out(c: Context) -> dict[str, Any]:
     out = c.voice.settings().model_dump()
     if out["assistant_key"]:
         out["assistant_key"] = PASSWORD_MASK
+    env = c.settings
+    out["from_environment"] = {"assistant_url": env.assistant_url, "assistant_api": env.assistant_api,
+                               "assistant_model": env.assistant_model, "assistant_key": bool(env.assistant_key)}
     return out
 
 
@@ -476,8 +511,9 @@ async def get_voice(request: Request) -> dict[str, Any]:
 
 
 @api.put("/voice")
-async def put_voice(body: VoiceSettings, request: Request) -> dict[str, Any]:
+async def put_voice(body_in: VoiceSettingsIn, request: Request) -> dict[str, Any]:
     c = get_ctx(request)
+    body = VoiceSettings.model_validate(body_in.model_dump(exclude={"from_environment"}))
     if body.assistant_key == PASSWORD_MASK:
         body.assistant_key = c.voice.settings().assistant_key
     c.voice.save_settings(body)

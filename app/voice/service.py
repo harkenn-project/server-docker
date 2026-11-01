@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad
+from .calls import Rings
 from .engines import RATE, SpeechToText, TextToSpeech
 
 if TYPE_CHECKING:
@@ -36,6 +37,8 @@ MAX_UTTERANCE_BYTES = RATE * 2 * 30  # 30 s, the speakers' limit too
 MIN_UTTERANCE_BYTES = RATE * 2 // 4  # under a quarter second is a click, not speech
 CHUNK_BYTES = RATE * 2 // 10         # 100 ms per frame sent to the speaker
 BURST_S = 3.0                        # how far ahead of playback the speaker's buffer is kept
+WAIT_PING_S = 20.0                   # while an answer takes long, tell the speaker to keep waiting this often
+REPLY_ACK = "Thanks, I'll pass that on."
 
 
 @dataclass
@@ -75,6 +78,8 @@ class VoiceService:
         self._tasks: dict[str, asyncio.Task] = {}
         self._background: set[asyncio.Task] = set()
         self.speech_end = vad.SpeechEnd  # (silence_s) -> detector; replaced in tests
+        self.rings = Rings(ctx.hub)
+        self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
 
     # settings
 
@@ -85,6 +90,18 @@ class VoiceService:
         except ValidationError as e:
             log.warning("stored voice settings are invalid, using defaults: %s", e)
             return VoiceSettings()
+
+    def effective(self) -> VoiceSettings:
+        """The settings in use: the admin UI's, with the assistant filled in from HARKENN_ASSISTANT_* where empty."""
+        s, env = self.settings(), self.ctx.settings
+        if not s.assistant_url and env.assistant_url:
+            s.assistant_url = env.assistant_url
+            if env.assistant_api in ("openai", "anthropic", "hermes"):
+                s.assistant_api = env.assistant_api
+            s.assistant_model = s.assistant_model or env.assistant_model
+        if not s.assistant_key and env.assistant_key:
+            s.assistant_key = env.assistant_key
+        return s
 
     def save_settings(self, s: VoiceSettings) -> None:
         self.ctx.db.set_setting(SETTINGS_KEY, s.model_dump())
@@ -105,6 +122,10 @@ class VoiceService:
         elif kind in ("voice_cancel", "speak_stop"):
             self._utterances.pop(device_id, None)
             self._cancel(device_id)
+            if kind == "voice_cancel":
+                self._deliver_reply(device_id, "")
+        elif kind == "ring_answer":
+            self.rings.answered(device_id, str(msg.get("ring", "")))
 
     def audio(self, device_id: str, data: bytes) -> None:
         u = self._utterances.get(device_id)
@@ -127,6 +148,32 @@ class VoiceService:
     def disconnected(self, device_id: str) -> None:
         self._utterances.pop(device_id, None)
         self._cancel(device_id)
+        self._deliver_reply(device_id, "")
+
+    # replies to a question someone else asked through a speaker (an agent, via mcp_server.py)
+
+    def expect_reply(self, device_id: str) -> asyncio.Future:
+        """The next thing heard on this speaker goes to the returned future instead of the assistant."""
+        self._deliver_reply(device_id, "")
+        f: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._replies[device_id] = f
+        return f
+
+    async def wait_reply(self, f: asyncio.Future, device_id: str, timeout: float) -> str | None:
+        """What was said ("" = nothing understood), or None if the speaker never started listening in time."""
+        try:
+            return await asyncio.wait_for(asyncio.shield(f), timeout)
+        except asyncio.TimeoutError:
+            if self._replies.get(device_id) is f:
+                self._replies.pop(device_id)
+            return None
+
+    def _deliver_reply(self, device_id: str, heard: str) -> bool:
+        f = self._replies.pop(device_id, None)
+        if f is None or f.done():
+            return False
+        f.set_result(heard)
+        return True
 
     def _speech_end(self, device_id: str) -> vad.SpeechEnd | None:
         device = self.ctx.db.get_device(device_id) or {}
@@ -168,7 +215,7 @@ class VoiceService:
         self.ctx.hub.publish({"type": "recording", "id": device_id, "recording_id": rid})
 
     async def _respond(self, device_id: str, u: Utterance) -> None:
-        s = self.settings()
+        s = self.effective()
         send = self.ctx.hub.send
         pcm = bytes(u.audio)
         try:
@@ -180,16 +227,25 @@ class VoiceService:
                 heard = await run_in_threadpool(self.stt.transcribe, pcm, engine=s.stt_engine, model=s.stt_model,
                                                 address=s.stt_address, language=s.language)
             t1 = time.perf_counter()
+            if self._deliver_reply(device_id, heard):  # an answer to someone else's question: pass it on
+                self._log(device_id, "I", f'heard reply "{heard}" ({t1 - t0:.1f} s)')
+                await send(device_id, {"type": "voice_result", "session": u.session, "heard": heard,
+                                       "reply": REPLY_ACK if heard else ""})
+                if heard:
+                    await self._stream(device_id, await run_in_threadpool(
+                        self.tts.synthesize, REPLY_ACK, engine=s.tts_engine, voice=s.tts_voice,
+                        address=s.tts_address), REPLY_ACK, u.session)
+                return
             if not heard:
                 self._log(device_id, "I", f"heard nothing in {len(pcm) / (RATE * 2):.1f} s of audio")
                 await send(device_id, {"type": "voice_result", "session": u.session, "heard": "", "reply": ""})
                 return
             device = self.ctx.db.get_device(device_id) or {}
             character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
-            reply = await run_in_threadpool(
+            reply = await self._keep_waiting(device_id, u.session, run_in_threadpool(
                 brain.ask, heard, device_id=device_id, speaker=device.get("name", "speaker"),
                 character=character.get("name", "Kotodama"), now=u.local_time or datetime.now(),
-                settings=s.model_dump(), conversations=self.conversations)
+                settings=s.model_dump(), conversations=self.conversations))
             t2 = time.perf_counter()
             await send(device_id, {"type": "voice_result", "session": u.session, "heard": heard, "reply": reply})
             speech = await run_in_threadpool(self.tts.synthesize, reply, engine=s.tts_engine, voice=s.tts_voice,
@@ -205,10 +261,25 @@ class VoiceService:
             self._log(device_id, "E", f"voice pipeline failed: {e}")
             await send(device_id, {"type": "voice_error", "session": u.session, "message": str(e)[:200]})
 
-    async def _stream(self, device_id: str, pcm: bytes, text: str, session: str = "") -> None:
+    async def _keep_waiting(self, device_id: str, session: str, work) -> Any:
+        """Await `work`, telling the speaker every WAIT_PING_S that the answer is still coming (agents can take a
+        while), so it doesn't give up."""
+        task = asyncio.ensure_future(work)
+        try:
+            while True:
+                done, _ = await asyncio.wait({task}, timeout=WAIT_PING_S)
+                if done:
+                    return task.result()
+                await self.ctx.hub.send(device_id, {"type": "voice_wait", "session": session})
+        finally:
+            task.cancel()
+
+    async def _stream(self, device_id: str, pcm: bytes, text: str, session: str = "", listen: bool = False) -> None:
         hub = self.ctx.hub
-        if not await hub.send(device_id, {"type": "speak_start", "session": session, "rate": RATE,
-                                          "bytes": len(pcm), "text": text}):
+        start = {"type": "speak_start", "session": session, "rate": RATE, "bytes": len(pcm), "text": text}
+        if listen:
+            start["listen"] = True  # the speaker starts listening when it has finished speaking
+        if not await hub.send(device_id, start):
             return
         sent_at = time.monotonic()
         for i in range(0, len(pcm), CHUNK_BYTES):
@@ -233,9 +304,14 @@ class VoiceService:
         except Exception as e:  # not fatal: the first request will try again and report the error
             log.warning("couldn't prepare the voice models: %s", e)
 
-    async def say(self, device_id: str, text: str, voice: str = "") -> None:
-        """Speak `text` on a speaker (admin UI: test a voice, announcements)."""
+    async def synthesize(self, text: str, voice: str = "") -> bytes:
         s = self.settings()
-        pcm = await run_in_threadpool(self.tts.synthesize, text, engine=s.tts_engine, voice=voice or s.tts_voice,
-                                      address=s.tts_address)
-        self._start(device_id, self._stream(device_id, pcm, text))
+        return await run_in_threadpool(self.tts.synthesize, text, engine=s.tts_engine, voice=voice or s.tts_voice,
+                                       address=s.tts_address)
+
+    async def say(self, device_id: str, text: str, voice: str = "", listen: bool = False,
+                  pcm: bytes | None = None) -> None:
+        """Speak `text` on a speaker (admin UI: test a voice; agents: announcements, calls). With `listen`, the
+        speaker listens afterwards (pair with expect_reply)."""
+        pcm = pcm if pcm is not None else await self.synthesize(text, voice)
+        self._start(device_id, self._stream(device_id, pcm, text, listen=listen))

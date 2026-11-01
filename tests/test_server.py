@@ -740,3 +740,150 @@ def test_silero_ignores_silence_and_noise():
     assert not any(end.feed(bytes(3200)) for _ in range(20))
     assert not any(end.feed(noise[i:i + 3200]) for i in range(0, len(noise), 3200))
     assert not end.heard_speech
+
+
+def mcp_call(c, token, method, params=None, rid=1):
+    r = c.post("/mcp", headers={**bearer(token), "Accept": "application/json, text/event-stream",
+                                "MCP-Protocol-Version": "2025-06-18"},
+               json={"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "error" not in body, body
+    return body["result"]
+
+
+def mcp_tool(c, token, name, **args):
+    result = mcp_call(c, token, "tools/call", {"name": name, "arguments": args})
+    assert not result.get("isError"), result
+    return result["structuredContent"]
+
+
+def mcp_token(c):
+    login(c)
+    r = c.post("/admin/api/agents/tokens", json={"name": "Hermes"}, headers=ADMIN)
+    assert r.status_code == 201
+    return r.json()["token"]
+
+
+def test_mcp_needs_a_token(client):
+    token = mcp_token(client)
+    assert client.post("/mcp", json={}).status_code == 401
+    assert client.post("/mcp", json={}, headers=bearer("hk_wrong")).status_code == 401
+    init = mcp_call(client, token, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                  "clientInfo": {"name": "test", "version": "1"}})
+    assert init["serverInfo"]["name"] == "harkenn" and "presume no one heard" in init["instructions"].lower()
+    tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
+    assert set(tools) == {"list_speakers", "speak", "ring"}
+    assert "no one answers" in tools["ring"]["description"]
+    agents = client.get("/admin/api/agents", headers=ADMIN).json()
+    assert agents["mcp_url"] == "http://testserver/mcp" and agents["tokens"][0]["last_used"]
+    assert "hash" not in agents["tokens"][0]
+    assert client.delete(f"/admin/api/agents/tokens/{agents['tokens'][0]['id']}", headers=ADMIN).status_code == 204
+    assert client.post("/mcp", json={}, headers=bearer(token)).status_code == 401
+
+
+def test_mcp_speak_says_no_one_may_have_heard(client):
+    device_token = adopt(client)
+    got = fake_voice(client)
+    token = mcp_token(client)
+    assert mcp_tool(client, token, "list_speakers")["speakers"][0] == {
+        "id": MAC, "name": "Kitchen", "online": False, "state": "unknown", "mic_muted": False}
+    assert mcp_tool(client, token, "speak", text="Dinner is ready")["spoken_on"] == []  # offline
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        out = mcp_tool(client, token, "speak", text="Dinner is ready", speaker="kitchen")
+        assert out["spoken_on"] == ["Kitchen"] and "Presume no one heard" in out["note"]
+        start, _ = receive_speech(ws)
+        assert start["text"] == "Dinner is ready" and "listen" not in start
+    assert got["tts"][0] == "Dinner is ready"
+    assert "No speaker called" in mcp_tool(client, token, "speak", text="hi", speaker="garage")["note"]
+
+
+def test_mcp_ring_answer_and_reply(client):
+    import threading
+
+    device_token = adopt(client)
+    fake_voice(client, heard="yes please")
+    token = mcp_token(client)
+    result = {}
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        call = threading.Thread(target=lambda: result.update(mcp_tool(
+            client, token, "ring", seconds=10, message="Do you want tea?", wait_for_reply=True)))
+        call.start()
+        ring = ws.receive_json()
+        assert ring["type"] == "ring" and ring["seconds"] == 10
+        ws.send_json({"type": "ring_answer", "ring": ring["ring"]})
+        assert ws.receive_json() == {"type": "ring_stop", "ring": ring["ring"]}
+        start, _ = receive_speech(ws)
+        assert start["text"] == "Do you want tea?" and start["listen"] is True
+        ws.send_json({"type": "voice_start", "session": "r1"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "r1"})
+        assert ws.receive_json()["reply"] == "Thanks, I'll pass that on."  # the reply goes to the agent, not the brain
+        receive_speech(ws)
+        call.join(10)
+    assert result["answered"] is True and result["answered_on"] == "Kitchen" and result["reply"] == "yes please"
+
+
+def test_mcp_ring_unanswered(client, monkeypatch):
+    import app.voice.calls as calls
+
+    monkeypatch.setattr(calls, "MIN_RING_S", 0.2)
+    import app.mcp_server as m
+    monkeypatch.setattr(m, "MIN_RING_S", 0.2)
+    device_token = adopt(client)
+    token = mcp_token(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        out = mcp_tool(client, token, "ring", speaker="all", seconds=0)
+        assert ws.receive_json()["type"] == "ring"
+        assert ws.receive_json()["type"] == "ring_stop"
+    assert out["answered"] is False and "Presume no one is there" in out["note"]
+
+
+def test_assistant_apis(monkeypatch):
+    from datetime import datetime
+
+    from app.voice import brain
+
+    seen = {}
+
+    def post(url, body, headers, timeout):
+        seen.update(url=url, body=body, headers=headers)
+        if url.endswith("/responses"):
+            return {"output": [{"type": "message", "content": [{"type": "output_text", "text": "**Hi** there"}]}]}
+        if url.endswith("/messages"):
+            return {"content": [{"type": "text", "text": "Hello from Claude"}]}
+        return {"choices": [{"message": {"content": "Hello"}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    conv = brain.Conversations()
+    common = dict(device_id="d1", speaker="Kitchen", character="Janet", now=datetime(2026, 10, 31, 9),
+                  conversations=conv)
+    s = {"assistant_api": "hermes", "assistant_url": "http://hermes:8642/v1/", "assistant_key": "k"}
+    assert brain.ask("hi", settings=s, **common) == "Hi there"
+    assert seen["url"] == "http://hermes:8642/v1/responses" and seen["body"]["conversation"] == "harkenn-d1"
+    assert seen["body"]["input"] == "hi" and "Janet" in seen["body"]["instructions"]
+    assert seen["headers"]["Authorization"] == "Bearer k" and conv.history("d1") == []  # Hermes keeps it
+    assert brain.ask("hi", settings={"assistant_api": "anthropic", "assistant_key": "a"}, **common) == "Hello from Claude"
+    assert seen["url"] == "https://api.anthropic.com/v1/messages" and seen["headers"]["x-api-key"] == "a"
+    assert seen["body"]["system"].startswith("You are Janet")
+    s = {"assistant_api": "openai", "assistant_url": "https://api.deepseek.com/v1", "assistant_model": "deepseek-v4-flash"}
+    assert brain.ask("and you?", settings=s, **common) == "Hello"
+    assert seen["body"]["model"] == "deepseek-v4-flash" and seen["body"]["messages"][-1]["content"] == "and you?"
+    assert len(seen["body"]["messages"]) == 4  # system, the Anthropic turn kept in history, and this one
+
+
+def test_assistant_from_environment(tmp_path, prebuilt):
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        assistant_api="hermes", assistant_url="http://hermes:8642/v1", assistant_key="from-secret")
+    with TestClient(create_app(settings)) as c:
+        voice = c.app.state.ctx.voice
+        s = voice.effective()
+        assert (s.assistant_api, s.assistant_url, s.assistant_key) == ("hermes", "http://hermes:8642/v1", "from-secret")
+        assert voice.settings().assistant_key == ""  # not copied into the database
+        login(c)
+        out = c.get("/admin/api/voice", headers=ADMIN).json()
+        assert out["from_environment"]["assistant_key"] is True and out["assistant_key"] == ""

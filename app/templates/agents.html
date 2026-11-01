@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Agents{% endblock %}
+{% block page %}agents{% endblock %}
+{% block content %}
+<h1>Agents</h1>
+<section class="card">
+  <h2>MCP server</h2>
+  <p class="hint">AI agents (Hermes, Claude, anything that speaks MCP) can use the speakers: list them, say something
+    on one or all of them, or ring them like a phone and talk to whoever answers. Harkenn tells agents to presume no
+    one heard anything unless someone answered a ring.
+    <a href="https://github.com/harkenn-project/server-docker/blob/main/docs/MCP.md" target="_blank" rel="noopener">How it works</a></p>
+  <p>Address: <code id="mcp-url">{{ agents.mcp_url }}</code>
+    <small>(Streamable HTTP; agents in the same cluster or network can use this server's internal address instead)</small></p>
+  {% if agents.env_token %}<p class="hint">A token is also set by <code>HARKENN_MCP_TOKEN</code> in the server's environment.</p>{% endif %}
+</section>
+<section class="card">
+  <h2>Access tokens</h2>
+  <table class="table"><thead><tr><th>For</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+    <tbody id="token-rows"></tbody></table>
+  <form id="token-form" class="inline-form">
+    <label class="grow">For <input name="name" placeholder="Hermes" maxlength="60" required></label>
+    <button type="submit">New token</button>
+  </form>
+  <div id="new-token" hidden>
+    <p><strong>Copy this token now; it won't be shown again.</strong></p>
+    <p><code id="new-token-value"></code></p>
+    <p class="hint">Hermes Agent (<code>~/.hermes/config.yaml</code>):</p>
+    <pre id="hermes-config"></pre>
+  </div>
+</section>
+<script type="application/json" id="agents-data">{{ agents | tojson }}</script>
+{% endblock %}

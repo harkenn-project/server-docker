@@ -487,6 +487,15 @@ function initVoice() {
       if (input.type === "checkbox") input.checked = !!data[input.name];
       else input.value = data[input.name] ?? "";
     }
+    const env = data.from_environment || {};
+    const parts = [];
+    if (env.assistant_url) parts.push(`API ${env.assistant_api || "openai"} at ${env.assistant_url}` +
+                                      (env.assistant_model ? `, model ${env.assistant_model}` : ""));
+    if (env.assistant_key) parts.push("an API key");
+    const note = $("#assistant-env");
+    note.hidden = !parts.length;
+    note.textContent = parts.length ? `The server's environment provides ${parts.join(" and ")}; ` +
+      "it's used where the fields above are empty." : "";
     showFields();
   };
   const showFields = () => {
@@ -539,6 +548,36 @@ function initServer() {
   });
   fill(jsonScript("server-data"));
 }
+
+// agents
+
+function initAgents() {
+  const rows = $("#token-rows");
+  const show = data => {
+    rows.replaceChildren(...data.tokens.map(t => el("tr", {},
+      el("td", {}, t.name), el("td", {}, ago(t.created_at)), el("td", {}, ago(t.last_used)),
+      el("td", {}, el("button", { class: "danger", onclick: async () => {
+        if (!confirm(`Revoke the token for ${t.name}? Agents using it lose access.`)) return;
+        try { await api("DELETE", `/admin/api/agents/tokens/${t.id}`); show(await api("GET", "/admin/api/agents")); }
+        catch (err) { toast(err.message, true); }
+      } }, "Revoke")))));
+    if (!data.tokens.length) rows.append(el("tr", {}, el("td", { colspan: 4, class: "hint" }, "No tokens yet.")));
+  };
+  const form = $("#token-form");
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      const made = await api("POST", "/admin/api/agents/tokens", { name: form.elements.name.value });
+      $("#new-token-value").textContent = made.token;
+      $("#hermes-config").textContent = `mcp_servers:\n  harkenn:\n    url: "${$("#mcp-url").textContent}"\n` +
+        `    headers:\n      Authorization: "Bearer ${made.token}"\n    timeout: 120\n`;
+      $("#new-token").hidden = false;
+      form.reset();
+      show(await api("GET", "/admin/api/agents"));
+    } catch (err) { toast(err.message, true); }
+  });
+  show(jsonScript("agents-data"));
+}
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
@@ -547,3 +586,4 @@ if (page === "characters") initCharacters();
 if (page === "firmware") initFirmware();
 if (page === "voice") initVoice();
 if (page === "server") initServer();
+if (page === "agents") initAgents();
