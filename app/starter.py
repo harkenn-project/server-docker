@@ -24,14 +24,14 @@ from .assets import MASTER_SIZE, CharacterStore
 
 log = logging.getLogger("harkenn.starter")
 
-BUILTIN_VERSION = 3
+BUILTIN_VERSION = 4
 SS = 2  # supersampling
 W = MASTER_SIZE
 TAU = 2 * math.pi
 
 # frames, milliseconds per frame
 TIMING = {"idle": (72, 60), "listening": (40, 50), "thinking": (48, 60), "speaking": (32, 60),
-          "sleeping": (64, 80), "error": (36, 50), "muted": (48, 80)}
+          "sleeping": (64, 80), "error": (36, 50), "muted": (48, 80), "ringing": (24, 50)}
 
 INK = (28, 30, 52, 255)
 WHITE = (255, 255, 255, 255)
@@ -289,6 +289,43 @@ def muted_badge(c: Canvas, x, y, s, slash=(255, 90, 90, 255)):
     c.line([(x - s * 0.52, y - s * 0.52), (x + s * 0.52, y + s * 0.52)], slash, s * 0.13)
 
 
+GOLD = (255, 200, 70, 255)
+GOLD_DARK = (205, 140, 40, 255)
+
+
+def bell(c: Canvas, x, y, s, swing=0.0):
+    """A little bell hanging from (x, y), swung by `swing` radians, ringing (for the ringing state)."""
+    def rot(px, py):
+        ca, sa = math.cos(swing), math.sin(swing)
+        return x + px * ca - py * sa, y + px * sa + py * ca
+    dome = [rot(s * 0.55 * math.cos(a), s * 0.15 + s * 0.6 * (1 - math.sin(a)))
+            for a in [math.pi * k / 16 for k in range(17)]]
+    body = [rot(-s * 0.55, s * 0.75), *reversed(dome), rot(s * 0.55, s * 0.75), rot(s * 0.75, s * 1.05),
+            rot(-s * 0.75, s * 1.05)]
+    cx_, cy_ = rot(0, s * 1.18)
+    c.circle(cx_, cy_, s * 0.18, GOLD_DARK)  # clapper
+    c.polygon(body, GOLD)
+    c.line([rot(-s * 0.75, s * 1.05), rot(s * 0.75, s * 1.05)], GOLD_DARK, s * 0.12)
+    tx, ty = rot(0, s * 0.05)
+    c.circle(tx, ty, s * 0.14, GOLD_DARK)  # the loop it hangs from
+    hx, hy = rot(-s * 0.22, s * 0.45)
+    c.ellipse(hx, hy, s * 0.08, s * 0.18, fill=(255, 240, 190, 255))  # shine
+
+
+def ringing_bell(c: Canvas, i, n, x=176, y=30, s=27):
+    """The bell swinging back and forth, with ring marks flashing on each side as it strikes."""
+    swing = 0.45 * math.sin(i / n * TAU * 4)
+    bell(c, x, y, s, swing)
+    strike = abs(math.sin(i / n * TAU * 4))
+    for side in (-1, 1):
+        if strike > 0.6 and (side > 0) == (swing > 0):
+            for k in range(3):
+                a = math.radians(-35 + k * 35)
+                r0, r1 = s * 1.1, s * 1.55
+                c.line([(x + side * r0 * math.cos(a), y + s * 0.7 + r0 * math.sin(a)),
+                        (x + side * r1 * math.cos(a), y + s * 0.7 + r1 * math.sin(a))], GOLD, 2.6)
+
+
 def speech_pattern(i: int) -> float:
     return max(0.0, min(1.0, 0.5 + 0.5 * math.sin(i * 1.27) * math.cos(i * 0.61) + 0.25 * math.sin(i * 2.9)))
 
@@ -391,6 +428,15 @@ class Kotodama(Character):
                   mouth_kind="wavy", amount=i / n * 2, blush_alpha=60)
         sweat(c, cx + 66, cy - 42, 7, (i % 18) / 18)
 
+    def ringing(self, c, i, n):
+        hop = abs(osc(i, n, 2))
+        cx, cy = 120 + 3 * osc(i, n, 4), 136 - 8 * hop
+        sound_waves(c, i, n, cx, cy, 86, (255, 210, 110, 255))
+        self.body(c, cx, cy, 80, squash=-0.04 * hop + 0.03, sway=osc(i, n, 4))
+        self.face(c, cx, cy, eye_size=19, pupil=1.1, look=(0.6, -0.8), brow_angle=8, brow_lift=6,
+                  mouth_kind="o", amount=0.4 + 0.3 * hop, blush_alpha=190)
+        ringing_bell(c, i, n)
+
     def muted(self, c, i, n):
         b = osc(i, n)
         cx, cy = 120, 134 + b * 3
@@ -476,6 +522,14 @@ class Obake(Character):
         self.ghost(c, 120 + 4 * math.sin(i * 2.3) * (i < n // 2), cy, i / n * 3, alpha=flicker, arm_l=1, arm_r=1)
         self.face(c, 120, cy, eyes="x", mouth_kind="wavy", amount=i / n * 2)
         sweat(c, 186, 82, 7, (i % 18) / 18)
+
+    def ringing(self, c, i, n):
+        cy = 128 - 6 * abs(osc(i, n, 2))
+        sound_waves(c, i, n, 120, cy, 88, (255, 210, 110, 255))
+        wave = osc(i, n, 4)
+        self.ghost(c, 120, cy, i / n * 4, arm_l=0.8 + 0.2 * wave, arm_r=0.8 - 0.2 * wave)  # waving both arms
+        self.face(c, 120, cy, pupil=1.3, look=(0.6, -0.7), mouth_kind="o", amount=0.5)
+        ringing_bell(c, i, n)
 
     def muted(self, c, i, n):
         cy = 106 + 5 * osc(i, n)
@@ -568,6 +622,14 @@ class Neko(Character):
         self.face(c, 120 + shake, cy, eyes="x", mouth_kind="wavy", mouth_amount=i / n * 2)
         sweat(c, 188, 84, 7, (i % 18) / 18)
 
+    def ringing(self, c, i, n):
+        cy = 134 - 5 * abs(osc(i, n, 2))
+        sound_waves(c, i, n, 120, cy, 92, (255, 210, 110, 255))
+        twitch = 6 * osc(i, n, 6)
+        self.head(c, 120, cy, ear_l=-18 + twitch, ear_r=-18 - twitch, whisker=osc(i, n, 6))
+        self.face(c, 120, cy, pupil=1.5, look=(0.6, -0.8), mouth_amount=0.5)
+        ringing_bell(c, i, n)
+
     def muted(self, c, i, n):
         cy = 136 + 2 * osc(i, n)
         flick = 10 * pulse(i, 26, 5)  # one ear flicks
@@ -584,7 +646,7 @@ class Robo(Character):
     SCREEN = (18, 24, 40, 255)
     LED = {"idle": (90, 220, 255), "listening": (110, 255, 160), "thinking": (255, 210, 90),
            "speaking": (255, 120, 210), "sleeping": (80, 110, 200), "error": (255, 80, 80),
-           "muted": (255, 150, 80)}
+           "muted": (255, 150, 80), "ringing": (230, 120, 255)}
 
     def head(self, c, cx, cy, led, glow, antenna_tilt=0.0):
         # antenna
@@ -701,6 +763,16 @@ class Robo(Character):
         self.smile(c, 120 + glitch, cy, led, "zig")
         for k in range(3):
             sparkle(c, 60 + k * 50, 46 + 10 * k, 8 * pulse((i + k * 5) % 18, 0, 6), (255, 180, 80, 255))
+
+    def ringing(self, c, i, n):
+        led = self.LED["ringing"]
+        cy = 134 - 4 * abs(osc(i, n, 2))
+        sound_waves(c, i, n, 120, cy, 92, led + (255,))
+        flash = 1.0 if (i // 3) % 2 else 0.4
+        self.head(c, 120, cy, led, flash, antenna_tilt=0.6 * osc(i, n, 4))
+        self.eyes(c, 120, cy, led, kind="round", look=(0.5, -0.5), size=1.1)
+        self.smile(c, 120, cy, led, "smile")
+        ringing_bell(c, i, n)
 
     def muted(self, c, i, n):
         led = self.LED["muted"]
