@@ -6,8 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/data/models/huggingface
 
 WORKDIR /srv
-# cairo draws the assistant's SVG screens (cairosvg); DejaVu gives SVG text a font
-RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 fonts-dejavu-core  && rm -rf /var/lib/apt/lists/*
+# cairo draws the assistant's SVG screens (cairosvg); DejaVu gives SVG text a font. The font cache is built here:
+# the server can't write one at run time, and would rescan the fonts for every screen.
+RUN apt-get update && apt-get install -y --no-install-recommends libcairo2 fonts-dejavu-core fontconfig  && fc-cache -f && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
