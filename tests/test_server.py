@@ -1369,6 +1369,12 @@ def png_data_url(size=(64, 48), color=(200, 30, 30)):
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def struct_durations(data):
+    import struct
+    n = struct.unpack_from("<H", data, 10)[0]
+    return [struct.unpack_from("<H", data, 12 + 10 * i)[0] for i in range(n)]
+
+
 def test_screen_marker_is_taken_out_of_the_reply():
     from app.screens import split_marker
 
@@ -1408,6 +1414,19 @@ def test_screen_rendering_buttons_areas_and_pictures():
     screen, _ = screens.render({"image": "data:image/gif;base64," + base64.b64encode(gif.getvalue()).decode()},
                                theme)
     assert len(kani.decode(screen.kani)) == 2
+    # a long animation keeps MAX_FRAMES frames and its length
+    gif = io.BytesIO()
+    many = [Image.new("RGB", (40, 40), (i * 2, 0, 0)) for i in range(100)]
+    many[0].save(gif, "GIF", save_all=True, append_images=many[1:], duration=50, loop=0)
+    frames, durations = screens.decode_picture(gif.getvalue())
+    assert len(frames) == screens.MAX_FRAMES and abs(sum(durations) - 5000) <= 100
+    # frames as a list (SVG animation isn't played)
+    screen, warnings = screens.render({"image": [png_data_url(color=(255, 0, 0)), png_data_url(color=(0, 0, 255))],
+                                       "frame_ms": 300}, theme)
+    assert len(kani.decode(screen.kani)) == 2 and struct_durations(screen.kani) == [300, 300] and not warnings
+    assert screens.thin(list("abcdef"), [10] * 6, 3) == (["a", "c", "e"], [20, 20, 20])
+    assert screens.bare_picture("Here: https://x.org/dog.GIF?x=1. Enjoy") == {"image": "https://x.org/dog.GIF?x=1"}
+    assert screens.bare_picture("See https://x.org/page") is None
     with pytest.raises(screens.ScreenError):
         screens.render({"overlays": [{"type": "nope"}]}, theme)  # nothing usable
     assert 'href=""' in screens.safe_svg("<svg><image href='file:///etc/passwd'/></svg>")

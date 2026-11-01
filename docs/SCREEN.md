@@ -20,7 +20,8 @@ Everything inside is JSON, and every field is optional:
 
 | Field | |
 |---|---|
-| `image` | A picture URL (`https://…` or `data:`; PNG, JPEG, WebP, or GIF, which stays animated), or an SVG document the assistant writes itself (`<svg viewBox='0 0 240 240'>…</svg>`). |
+| `image` | A picture URL (`https://…` or `data:`; PNG, JPEG, WebP, or GIF, which stays animated), or an SVG document the assistant writes itself (`<svg viewBox='0 0 240 240'>…</svg>`). SVG animation isn't played: a list of SVGs or URLs (up to 24) is played as frames instead. |
+| `frame_ms` | How long each frame of such a list shows: 150 ms by default. |
 | `fit` | `cover` (default: fills the screen) or `contain`. |
 | `background` | A color behind everything; the speaker's theme background by default. |
 | `overlays` | Drawn on top, in order. See below. |
@@ -66,7 +67,9 @@ The assistant would use it as `{"type": "weather_card", "temp": "18", "summary":
 
 ## Limits and safety
 
-* Harkenn fetches picture URLs itself, up to 5 MB, and shows animations of up to 48 frames.
+* Harkenn fetches picture URLs itself, up to 5 MB. Longer animations keep 48 frames spread over their length, and
+  fewer still when the speaker couldn't hold them all; they play for as long as the original.
+* A picture link in a reply without a marker is shown anyway.
 * SVGs can't reference outside files or addresses: only inline `data:` pictures and their own `#ids`.
 * An overlay that can't be drawn is skipped and noted in the speaker's log; the rest of the screen still shows.
-* Allowing screens raises the assistant's answer limit to 1500 tokens, so it has room for an SVG.
+* Allowing screens raises the assistant's answer limit to 3000 tokens, so it has room for SVGs.

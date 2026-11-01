@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from xml.sax.saxutils import escape
 
-from PIL import Image, ImageDraw, ImageFont, ImageSequence
+from PIL import Image, ImageDraw, ImageFont
 
 from . import kani
 
@@ -34,7 +34,9 @@ log = logging.getLogger("harkenn.screens")
 SIZE = 240                     # the speakers' round screen, in pixels
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 MAX_PIXELS = 25_000_000        # pictures bigger than this aren't decoded
-MAX_FRAMES = 48
+MAX_FRAMES = 48               # a longer animation keeps every nth frame
+MAX_IMAGE_FRAMES = 24         # an "image" given as a list of frames
+DEFAULT_FRAME_MS = 150
 MAX_KANI_BYTES = 2 * 1024 * 1024  # a longer animation is shown as its first frame
 MAX_OVERLAYS = 24
 DEFAULT_SECONDS, MAX_SECONDS = 60, 600
@@ -59,7 +61,8 @@ marker anywhere in your reply (it is never spoken):
 All fields are optional.
 - "image": a picture URL (https://..., PNG, JPEG, WebP or GIF, which stays animated), or an SVG document \
 ("<svg viewBox='0 0 240 240' ...>...</svg>") you write yourself for diagrams, charts, icons and the like. "fit": \
-"cover" (default, fills the screen) or "contain".
+"cover" (default, fills the screen) or "contain". SVG animation (<animate>, CSS) is NOT played: to animate a \
+drawing, give "image" a list of SVG frames (up to 24) and "frame_ms" (default 150); they loop. Keep frames small.
 - "overlays", drawn on top in order. Each has "type" and optional "x", "y", "w", "h" (pixels):
   {"type": "button", "label": "Yes", "style": "primary"|"secondary"|"danger"}: without x/y, buttons are laid out \
 for you near the bottom (up to 4).
@@ -93,6 +96,15 @@ class Screen:
         for older firmware."""
         return {"type": "screen", "screen": self.id, "url": f"{base}/api/v1/screens/{self.id}.kani",
                 "bytes": len(self.kani), "regions": self.regions, "dismiss": self.dismiss, "seconds": self.seconds}
+
+
+PICTURE_URL_RE = re.compile(r"https?://[^\s\"'<>()\[\]]+?\.(?:png|jpe?g|gif|webp)(?:\?[^\s\"'<>()\[\]]*)?", re.I)
+
+
+def bare_picture(reply: str) -> dict[str, Any] | None:
+    """A picture link in a reply without a screen marker (the assistant forgot it): show the picture."""
+    m = PICTURE_URL_RE.search(reply)
+    return {"image": m.group(0).rstrip(".,;:!?")} if m else None  # not the end of the sentence
 
 
 def split_marker(reply: str) -> tuple[str, dict[str, Any] | None, str]:
@@ -181,19 +193,36 @@ def render_svg(svg: str, w: int, h: int) -> Image.Image:
     return Image.open(io.BytesIO(png)).convert("RGBA")
 
 
+def pick(count: int, keep: int) -> list[int]:
+    """Evenly spread indexes: which of `count` frames to keep when only `keep` fit."""
+    if count <= keep:
+        return list(range(count))
+    return [int(i * count / keep) for i in range(keep)]
+
+
+def thin(frames: list[Image.Image], durations: list[int], keep: int) -> tuple[list[Image.Image], list[int]]:
+    """Keep `keep` frames spread over the animation, each lasting as long as the frames it stands for."""
+    idx = pick(len(frames), keep)
+    ends = idx[1:] + [len(frames)]
+    return [frames[i] for i in idx], [sum(durations[i:j]) for i, j in zip(idx, ends)]
+
+
 def decode_picture(data: bytes) -> tuple[list[Image.Image], list[int]]:
+    """A picture's frames (a long animation keeps MAX_FRAMES of them, spread over its length) and their times."""
     try:
         im = Image.open(io.BytesIO(data))
     except Exception as e:
         raise ScreenError(f"not a picture: {e}") from e
     if im.width * im.height > MAX_PIXELS:
         raise ScreenError("picture is too large")
+    count = getattr(im, "n_frames", 1)
+    idx = pick(count, MAX_FRAMES)
+    ends = idx[1:] + [count]
     frames, durations = [], []
-    for frame in ImageSequence.Iterator(im):
-        frames.append(frame.convert("RGBA"))
-        durations.append(max(40, int(frame.info.get("duration") or 100)))
-        if len(frames) >= MAX_FRAMES:
-            break
+    for i, end in zip(idx, ends):
+        im.seek(i)
+        frames.append(im.convert("RGBA"))
+        durations.append(max(40, int(im.info.get("duration") or 100)) * (end - i))
     return frames, durations
 
 
@@ -364,7 +393,30 @@ def render(spec: dict[str, Any], theme: dict[str, str], custom: dict[str, dict[s
     warnings: list[str] = []
     frames, durations = [Image.new("RGBA", (SIZE, SIZE), background)], [1000]
     image = spec.get("image")
-    if isinstance(image, str) and image.strip():
+    if isinstance(image, list):  # frames, drawn one by one
+        try:
+            frame_ms = max(40, min(5000, int(spec.get("frame_ms") or DEFAULT_FRAME_MS)))
+        except (TypeError, ValueError):
+            frame_ms = DEFAULT_FRAME_MS
+        sources = [str(x) for x in image[:MAX_IMAGE_FRAMES] if isinstance(x, str) and x.strip()]
+        if len(image) > MAX_IMAGE_FRAMES:
+            warnings.append(f"image: only the first {MAX_IMAGE_FRAMES} frames are used")
+        pics, durations = [], []
+        for n, source in enumerate(sources):
+            try:
+                pics.append(picture(source, SIZE, SIZE, str(spec.get("fit", "cover")), background)[0][0])
+                durations.append(frame_ms)
+            except Exception as e:
+                warnings.append(f"image frame {n + 1}: {e}")
+        if pics:
+            frames = []
+            for p in pics:
+                f = Image.new("RGBA", (SIZE, SIZE), background)
+                f.alpha_composite(p)
+                frames.append(f)
+        else:
+            durations = [1000]
+    elif isinstance(image, str) and image.strip():
         try:
             pics, durations = picture(image, SIZE, SIZE, str(spec.get("fit", "cover")), background)
             frames = []
@@ -385,9 +437,10 @@ def render(spec: dict[str, Any], theme: dict[str, str], custom: dict[str, dict[s
         f.alpha_composite(drawn.layer)
     bg_hex = "%02x%02x%02x" % background[:3]
     data = kani.encode(frames, durations, bg_hex)
-    if len(data) > MAX_KANI_BYTES and len(frames) > 1:
-        data = kani.encode(frames[:1], [1000], bg_hex)
-        warnings.append("animation too large: showing its first frame")
+    while len(data) > MAX_KANI_BYTES and len(frames) > 1:  # too big for the speaker: fewer frames, same length
+        frames, durations = thin(frames, durations, max(1, len(frames) * MAX_KANI_BYTES // len(data) * 9 // 10))
+        data = kani.encode(frames, durations, bg_hex)
+        warnings.append(f"animation too large: shortened to {len(frames)} frames")
     dismiss = "none" if spec.get("dismiss") == "none" else "tap"
     try:
         seconds = int(spec.get("seconds") or DEFAULT_SECONDS)

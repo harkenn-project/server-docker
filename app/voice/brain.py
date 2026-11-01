@@ -132,7 +132,7 @@ APIS = {"openai": "OpenAI-compatible (most APIs and local servers)", "anthropic"
         "hermes": "Hermes Agent (its own memory, tools and skills)"}
 DEFAULT_URLS = {"anthropic": "https://api.anthropic.com/v1"}
 MAX_TOKENS = 300
-MAX_TOKENS_WITH_SCREEN = 1500  # room for an SVG
+MAX_TOKENS_WITH_SCREEN = 3000  # room for an SVG, or a few as animation frames
 
 
 def post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
@@ -216,6 +216,8 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         reply = chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
     # the screen first: speakable() would mangle its JSON. It isn't kept in the history (an SVG would fill it up).
     reply, screen, screen_error = screens.split_marker(reply) if screen_prompt else (reply, None, "")
+    if screen_prompt and screen is None and not screen_error:
+        screen = screens.bare_picture(reply)
     # the marker, or a question at the end (in case the assistant forgot it)
     listen = bool(LISTEN_RE.search(reply)) or speakable(LISTEN_RE.sub("", reply)).rstrip().endswith("?")
     reply = speakable(LISTEN_RE.sub("", reply))
