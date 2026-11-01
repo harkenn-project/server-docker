@@ -18,7 +18,6 @@ import json
 import logging
 import re
 import secrets
-import textwrap
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -278,20 +277,46 @@ def auto_buttons(count: int) -> list[tuple[int, int, int, int]]:
 
 
 def wrap(text: str, f, width: int) -> list[str]:
-    avg = max(1, f.getlength("abcdefghijklmnopqrstuvwxyz") / 26)
+    """Lines that fit `width` pixels in font `f`, broken between words (a word too long for a line on its own is
+    broken where it must)."""
     lines: list[str] = []
     for para in text.split("\n"):
-        lines += textwrap.wrap(para, max(4, int(width / avg))) or [""]
+        line = ""
+        for word in para.split():
+            candidate = f"{line} {word}".strip()
+            if f.getlength(candidate) <= width:
+                line = candidate
+                continue
+            if line:
+                lines.append(line)
+            while f.getlength(word) > width and len(word) > 1:  # a very long word: break it
+                cut = len(word)
+                while cut > 1 and f.getlength(word[:cut]) > width:
+                    cut -= 1
+                lines.append(word[:cut])
+                word = word[cut:]
+            line = word
+        lines.append(line)
     return lines
 
 
 def draw_text(layer: Image.Image, text: str, b: tuple[int, int, int, int], size: int, fg, bg, align: str) -> None:
     d = ImageDraw.Draw(layer)
     x, y, w, h = b
-    f = font(size)
-    lines = wrap(text, f, w - 8)
-    line_h = int(size * 1.25)
-    lines = lines[:max(1, h // line_h)]
+    # smaller type until it fits the box (down to the small size); after that it's cut short with "..."
+    while True:
+        f = font(size)
+        lines = wrap(text, f, w - 8)
+        line_h = int(size * 1.25)
+        if line_h * len(lines) <= h or size <= FONT_SIZES["sm"]:
+            break
+        size = max(FONT_SIZES["sm"], size - 2)
+    fit_lines = max(1, h // line_h)
+    if len(lines) > fit_lines:
+        lines = lines[:fit_lines]
+        while lines[-1] and f.getlength(lines[-1] + "...") > w - 8:
+            lines[-1] = lines[-1][:-1]
+        lines[-1] = lines[-1].rstrip() + "..."
     if bg is not None:
         d.rounded_rectangle((x, y, x + w - 1, y + h - 1), radius=min(12, h // 2), fill=bg)
     top = y + (h - line_h * len(lines)) // 2

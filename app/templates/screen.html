@@ -43,8 +43,13 @@
     <h3 id="overlay-title">New overlay</h3>
     <label>Name <input name="name" pattern="[a-z0-9][a-z0-9_]{0,31}" required placeholder="weather_card"></label>
     <label>Description <input name="description" maxlength="300" placeholder="Today's weather: temp (°C), summary"></label>
-    <label>Default box: x <input name="x" type="number" value="40" min="-240" max="240"> y <input name="y" type="number" value="40" min="-240" max="240">
-      w <input name="w" type="number" value="160" min="8" max="240"> h <input name="h" type="number" value="80" min="8" max="240"></label>
+    <p class="field-title">Default box, in pixels</p>
+    <div class="inline-form box-fields">
+      <label>x <input name="x" type="number" value="40" min="-240" max="240"></label>
+      <label>y <input name="y" type="number" value="40" min="-240" max="240"></label>
+      <label>width <input name="w" type="number" value="160" min="8" max="240"></label>
+      <label>height <input name="h" type="number" value="80" min="8" max="240"></label>
+    </div>
     <label>SVG <textarea name="svg" rows="8" spellcheck="false" required placeholder="<svg viewBox='0 0 160 80' xmlns='http://www.w3.org/2000/svg'>…{{ '{{' }}temp{{ '}}' }}…</svg>"></textarea></label>
     <div class="buttons"><button type="submit">Save overlay</button>
       <button type="button" class="link" id="overlay-new">New</button></div>

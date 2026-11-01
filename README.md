@@ -3,6 +3,12 @@
 *Harken: to listen.* Harkenn is a private voice assistant for your home. Small speakers listen and answer; this
 server does the thinking, on your own hardware. Nothing goes to the cloud unless you point it at a cloud assistant.
 
+<p align="center">
+  <a href="docs/media/demo.mp4"><img src="docs/media/demo-poster.jpg" width="240"
+    alt="A Harkenn speaker on a shelf, its round screen showing the Kotodama character listening (click to play the video)"></a>
+  <br><em>A speaker introducing itself (1:39, with sound): wake word, listening, thinking, answering.</em>
+</p>
+
 - **Talk to it.** Say the wake word (Okay Nabu, Hey Jarvis, Hey Mycroft, Alexa, or your own model), or tap the
   speaker, and ask. The wake word is heard on the speaker itself: nothing leaves it until then. Speech recognition
   (Whisper) and speech (Piper) run inside the server, which hears when you've finished talking.
@@ -33,6 +39,16 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   follows a release channel of your choice: stable, beta, alpha or development.
 
 The speaker firmware is in [speaker-firmware](https://github.com/harkenn-project/speaker-firmware).
+
+## Screenshots
+
+The admin pages, from a demo server with made-up speakers and people.
+
+| | |
+|---|---|
+| [<img src="docs/media/admin-speakers.png" alt="The Speakers page: three speakers online, with Wi-Fi signal, battery and firmware">](docs/media/admin-speakers.png) **Speakers** at a glance | [<img src="docs/media/admin-speaker.png" alt="A speaker's page: live status and its configuration, with a preview of its screen">](docs/media/admin-speaker.png) **A speaker**: live status, screen, sound and wake word |
+| [<img src="docs/media/admin-voice.png" alt="The Voice page: speech recognition, voice and assistant settings">](docs/media/admin-voice.png) **Voice**: speech, the voice, and your assistant | [<img src="docs/media/admin-screen.png" alt="The Screen page: a preview of a screen asking 'Turn on the porch light?' with Yes and No buttons">](docs/media/admin-screen.png) **Screen**: try what the assistant can show |
+| [<img src="docs/media/admin-characters.png" alt="The Characters page: the built-in Kotodama and Obake characters in every state">](docs/media/admin-characters.png) **Characters**, built in or your own | [<img src="docs/media/admin-people.png" alt="The People page: a person with a name, phonetic spelling, gender identity and voice samples">](docs/media/admin-people.png) **People** and their voiceprints (opt-in) |
 
 ## Docs
 

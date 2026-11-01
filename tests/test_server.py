@@ -1427,6 +1427,17 @@ def test_screen_rendering_buttons_areas_and_pictures():
     assert screens.thin(list("abcdef"), [10] * 6, 3) == (["a", "c", "e"], [20, 20, 20])
     assert screens.bare_picture("Here: https://x.org/dog.GIF?x=1. Enjoy") == {"image": "https://x.org/dog.GIF?x=1"}
     assert screens.bare_picture("See https://x.org/page") is None
+    # text is wrapped by its real width and shrinks to fit its box rather than losing words
+    f = screens.font(28)
+    lines = screens.wrap("Turn on the porch light?", f, 172)
+    assert " ".join(lines) == "Turn on the porch light?" and all(f.getlength(x) <= 172 for x in lines)
+    small = screens.font(18)
+    parts = screens.wrap("Supercalifragilistic", small, 50)
+    assert "".join(parts) == "Supercalifragilistic" and len(parts) > 1 and all(small.getlength(x) <= 50 for x in parts)
+    layer = Image.new("RGBA", (240, 240))
+    screens.draw_text(layer, "Turn on the porch light, please, right now?", (30, 40, 180, 70), 28,
+                      (255, 255, 255, 255), None, "center")
+    assert layer.getbbox()
     with pytest.raises(screens.ScreenError):
         screens.render({"overlays": [{"type": "nope"}]}, theme)  # nothing usable
     assert 'href=""' in screens.safe_svg("<svg><image href='file:///etc/passwd'/></svg>")
