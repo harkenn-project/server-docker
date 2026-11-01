@@ -15,6 +15,7 @@ from .firmware import FirmwareStore
 from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
+from .screens import Screens
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
 from .themes import LAYOUTS, character_sizes, resolve_theme
@@ -38,8 +39,10 @@ class Context:
     voice: VoiceService = field(init=False)
     sounds: SoundStore = field(init=False)
     wakewords: WakeWords = field(init=False)
+    screens: Screens = field(init=False)
 
     def __post_init__(self) -> None:
+        self.screens = Screens(self.db)
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
@@ -95,6 +98,11 @@ def restore_secrets(new: DeviceConfig, old: dict[str, Any]) -> DeviceConfig:
                 raise ValueError(f"Enter the password for Wi-Fi network '{network.ssid}'")
             network.password = stored[network.ssid]
     return new
+
+
+def device_theme(device: dict[str, Any]) -> dict[str, str]:
+    config = DeviceConfig.model_validate(device["config"])
+    return resolve_theme(config.display.theme, config.display.colors.model_dump())
 
 
 def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None) -> dict[str, Any]:

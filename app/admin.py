@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hmac
+import io
 import json
+import re
 import secrets
 import shutil
 import time
@@ -13,20 +16,24 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
+import numpy as np
+from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
+from . import kani
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
-from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, get_ctx, mask_secrets,
+from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, get_ctx, mask_secrets,
                       restore_secrets)
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .mcp_server import Tokens
+from . import screens
 from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
 from .voice import voiceprint
 from .updates import CHANNEL_LABELS
 from .wakewords import WAKE_WORDS
-from .models import (AgentTokenIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .models import (AgentTokenIn, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -249,6 +256,15 @@ async def people_page(request: Request) -> Response:
         return _login_redirect(request)
     c = get_ctx(request)
     return _page(request, "people.html", people=_people_out(c), devices=c.db.list_devices())
+
+
+@pages.get("/screen")
+async def screen_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    return _page(request, "screen.html", overlays=c.screens.custom(), devices=c.db.list_devices(),
+                 enabled=c.voice.settings().screen, prompt=c.screens.prompt())
 
 
 @pages.get("/events")
@@ -887,3 +903,57 @@ async def upload_state(cid: str, state: str, file: UploadFile, request: Request)
         if device["config"].get("character") == cid:
             await push_config(c, device["id"])
     return meta
+
+
+# screen: the assistant's pictures and buttons (screens.py)
+
+@api.get("/screen")
+async def get_screen(request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    return {"overlays": c.screens.custom(), "prompt": c.screens.prompt()}
+
+
+@api.put("/screen/overlays/{name}")
+async def put_screen_overlay(name: str, body: ScreenOverlayIn, request: Request) -> dict[str, Any]:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_]{0,31}", name):
+        raise HTTPException(422, "names are lowercase letters, digits and _")
+    try:
+        get_ctx(request).screens.save_custom(name, body.model_dump())
+    except screens.ScreenError as e:
+        raise HTTPException(422, str(e)) from e
+    return await get_screen(request)
+
+
+@api.delete("/screen/overlays/{name}", status_code=204)
+async def delete_screen_overlay(name: str, request: Request) -> Response:
+    if not get_ctx(request).screens.delete_custom(name):
+        raise HTTPException(404, "unknown overlay")
+    return Response(status_code=204)
+
+
+@api.post("/screen/preview")
+async def preview_screen(body: ScreenSpecIn, request: Request, device: str = "") -> dict[str, Any]:
+    """Draws a screen as a speaker would show it: a PNG of its first frame, its tappable areas, and any problems."""
+    c = get_ctx(request)
+    d = c.db.get_device(device) if device else None
+    theme = device_theme(d) if d else device_theme({"config": default_config(c).model_dump()})
+    try:
+        screen, warnings = await run_in_threadpool(c.screens.render, body.spec, theme)
+    except screens.ScreenError as e:
+        raise HTTPException(422, str(e)) from e
+    first = kani.decode(screen.kani)[0]
+    rgb = np.stack([(first >> 11 & 0x1F) * 255 // 31, (first >> 5 & 0x3F) * 255 // 63, (first & 0x1F) * 255 // 31],
+                   axis=-1).astype(np.uint8).reshape(screens.SIZE, screens.SIZE, 3)
+    buf = io.BytesIO()
+    Image.fromarray(rgb).save(buf, "PNG")
+    return {"png": base64.b64encode(buf.getvalue()).decode(), "regions": screen.regions, "warnings": warnings,
+            "bytes": len(screen.kani)}
+
+
+@api.post("/devices/{device_id}/screen")
+async def show_screen(device_id: str, body: ScreenSpecIn, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    if not c.hub.online(device_id):
+        raise HTTPException(409, "speaker is offline")
+    return {"sent": True, "warnings": await c.voice.show_screen(device_id, body.spec)}

@@ -21,6 +21,8 @@ import urllib.request
 from datetime import datetime
 from typing import Any
 
+from .. import screens
+
 LISTEN_MARK = "[[listen]]"
 LISTEN_RE = re.compile(r"\[\[\s*listen\s*\]\]", re.I)
 # Added to the instructions when the assistant decides whether the speaker waits for a reply (follow_up "assistant").
@@ -119,6 +121,7 @@ APIS = {"openai": "OpenAI-compatible (most APIs and local servers)", "anthropic"
         "hermes": "Hermes Agent (its own memory, tools and skills)"}
 DEFAULT_URLS = {"anthropic": "https://api.anthropic.com/v1"}
 MAX_TOKENS = 300
+MAX_TOKENS_WITH_SCREEN = 1500  # room for an SVG
 
 
 def post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
@@ -129,8 +132,8 @@ def post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
 
 
 def chat_completions(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
-                     timeout: float, headers: dict[str, str] | None = None) -> str:
-    body: dict[str, Any] = {"messages": [{"role": "system", "content": system}, *messages], "max_tokens": MAX_TOKENS}
+                     timeout: float, headers: dict[str, str] | None = None, max_tokens: int = MAX_TOKENS) -> str:
+    body: dict[str, Any] = {"messages": [{"role": "system", "content": system}, *messages], "max_tokens": max_tokens}
     if settings.get("assistant_model"):
         body["model"] = settings["assistant_model"]
     headers = dict(headers or {})
@@ -141,8 +144,8 @@ def chat_completions(url: str, settings: dict[str, Any], system: str, messages: 
 
 
 def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
-                       timeout: float) -> str:
-    body = {"model": settings.get("assistant_model") or "claude-haiku-5-5", "max_tokens": MAX_TOKENS,
+                       timeout: float, max_tokens: int = MAX_TOKENS) -> str:
+    body = {"model": settings.get("assistant_model") or "claude-haiku-5-5", "max_tokens": max_tokens,
             "system": system, "messages": messages}
     headers = {"x-api-key": settings.get("assistant_key") or "", "anthropic-version": "2023-06-01"}
     data = post(f"{url}/messages", body, headers, timeout)
@@ -150,12 +153,18 @@ def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages
 
 
 class Reply(str):
-    """What to say; `listen` is True when the assistant asked to hear the person's answer (LISTEN_MARK)."""
+    """What to say; `listen` is True when the assistant asked to hear the person's answer (LISTEN_MARK), `screen` is
+    what it wants shown on the speaker's screen (screens.py), if anything."""
     listen: bool = False
+    screen: dict[str, Any] | None = None
+    screen_error: str = ""
 
-    def __new__(cls, text: str, listen: bool = False) -> "Reply":
+    def __new__(cls, text: str, listen: bool = False, screen: dict[str, Any] | None = None,
+                screen_error: str = "") -> "Reply":
         r = super().__new__(cls, text)
         r.listen = listen
+        r.screen = screen
+        r.screen_error = screen_error
         return r
 
 
@@ -167,29 +176,34 @@ def request_context(speaker: str, device_id: str, who: str = "") -> str:
 
 
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
-        conversations: Conversations, context: str = "", memory_key: str = "") -> Reply:
+        conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "") -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
         return Reply(builtin_reply(text, now))
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    system += context
+    system += context + screen_prompt
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT  # last, so it isn't lost under everything else
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
     messages = [*history, {"role": "user", "content": text}]
+    tokens = MAX_TOKENS_WITH_SCREEN if screen_prompt else MAX_TOKENS
     if api == "anthropic":
-        reply = anthropic_messages(url, settings, system, messages, timeout)
+        reply = anthropic_messages(url, settings, system, messages, timeout, tokens)
     elif api == "hermes":  # stateless: Hermes sees only this history; its long-term memory is scoped to the speaker
         reply = chat_completions(url, settings, system, messages, timeout,
-                                 {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"})
+                                 {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"}, tokens)
     else:
-        reply = chat_completions(url, settings, system, messages, timeout)
+        reply = chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
+    # the screen first: speakable() would mangle its JSON. It isn't kept in the history (an SVG would fill it up).
+    reply, screen, screen_error = screens.split_marker(reply) if screen_prompt else (reply, None, "")
     # the marker, or a question at the end (in case the assistant forgot it)
     listen = bool(LISTEN_RE.search(reply)) or speakable(LISTEN_RE.sub("", reply)).rstrip().endswith("?")
     reply = speakable(LISTEN_RE.sub("", reply))
     conversations.add(device_id, text, reply + (f" {LISTEN_MARK}" if listen else ""))  # so it keeps doing it
-    return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply))
+    if not reply and screen:
+        return Reply("", listen, screen, screen_error)  # just the screen
+    return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply), screen, screen_error)

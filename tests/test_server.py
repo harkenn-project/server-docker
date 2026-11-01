@@ -1335,3 +1335,128 @@ def test_custom_wake_word(client):
     client.put(f"/admin/api/devices/{MAC}", headers=ADMIN, json={"name": device["name"], "config": device["config"]})
     assert client.delete("/admin/api/wakewords/hi_janet", headers=ADMIN).status_code == 204
     assert client.delete("/admin/api/wakewords/hey_jarvis", headers=ADMIN).status_code == 404  # built in
+
+
+def png_data_url(size=(64, 48), color=(200, 30, 30)):
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "PNG")
+    import base64
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_screen_marker_is_taken_out_of_the_reply():
+    from app.screens import split_marker
+
+    text, spec, err = split_marker('Here it is. [[screen {"overlays": [{"type": "button", "label": "OK"}]}]] Enjoy!')
+    assert text == "Here it is.  Enjoy!" and spec == {"overlays": [{"type": "button", "label": "OK"}]} and not err
+    text, spec, err = split_marker('Look [[screen {"image": "<svg>[[x]]</svg>"}]]')  # brackets inside strings
+    assert text == "Look " and spec == {"image": "<svg>[[x]]</svg>"}
+    text, spec, err = split_marker("Oops [[screen {not json}]] after")
+    assert text == "Oops  after" and spec is None and "invalid" in err
+    assert split_marker("No screen here.") == ("No screen here.", None, "")
+
+
+def test_screen_rendering_buttons_areas_and_pictures():
+    from app import screens
+
+    theme = {"background": "#0b1020", "surface": "#1a2240", "primary": "#7aa2ff", "accent": "#ff7ab6",
+             "text": "#e8ecff", "muted": "#8a93b8"}
+    screen, warnings = screens.render({
+        "image": png_data_url(),
+        "overlays": [{"type": "text", "text": "Lights?", "y": 40, "h": 30},
+                     {"type": "button", "label": "Yes"}, {"type": "button", "label": "No", "style": "secondary"},
+                     {"type": "area", "label": "Lamp", "x": 100, "y": 60, "w": 40, "h": 40},
+                     {"type": "button"}, {"type": "sparkles"}],
+        "seconds": 9999, "dismiss": "none"}, theme)
+    assert [r["label"] for r in screen.regions] == ["Yes", "No", "Lamp"]
+    yes, no = screen.regions[:2]
+    assert yes["y"] == no["y"] and yes["x"] < no["x"]  # laid out side by side
+    assert len(warnings) == 2  # the button without a label, the unknown overlay
+    assert screen.seconds == screens.MAX_SECONDS and screen.dismiss == "none"
+    frame = kani.decode(screen.kani)[0].reshape(240, 240)
+    assert frame[120, 5] >> 11 > 20  # the red picture covers the screen
+    # an animated GIF stays animated
+    gif = io.BytesIO()
+    frames = [Image.new("RGB", (40, 40), c) for c in ((255, 0, 0), (0, 0, 255))]
+    frames[0].save(gif, "GIF", save_all=True, append_images=frames[1:], duration=200, loop=0)
+    import base64
+    screen, _ = screens.render({"image": "data:image/gif;base64," + base64.b64encode(gif.getvalue()).decode()},
+                               theme)
+    assert len(kani.decode(screen.kani)) == 2
+    with pytest.raises(screens.ScreenError):
+        screens.render({"overlays": [{"type": "nope"}]}, theme)  # nothing usable
+    assert 'href=""' in screens.safe_svg("<svg><image href='file:///etc/passwd'/></svg>")
+    assert "data:" in screens.safe_svg("<svg><image href='data:image/png;base64,AA'/></svg>")
+
+
+def test_screen_from_the_assistant_and_taps(client, monkeypatch):
+    from app.voice import brain, service
+
+    token = adopt(client)
+    fake_voice(client)
+    seen = []
+    answers = iter([
+        'Which one? [[screen {"overlays": [{"type": "button", "label": "Red"}, {"type": "button", "label": "Blue"}]}]]',
+        "Blue it is.",
+        '[[screen {"overlays": [{"type": "text", "text": "Only a screen"}]}]]',
+    ])
+
+    def post(url, body, headers, timeout):
+        seen.append(body)
+        return {"choices": [{"message": {"content": next(answers)}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    monkeypatch.setattr(service.VoiceService, "effective",
+                        lambda self: self.settings().model_copy(update={"assistant_url": "http://llm/v1"}))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "s1"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "s1"})
+        shown = ws.receive_json()
+        assert shown["type"] == "screen" and [r["label"] for r in shown["regions"]] == ["Red", "Blue"]
+        assert shown["dismiss"] == "tap" and shown["seconds"] == 60
+        assert ws.receive_json()["reply"] == "Which one?"  # voice_result
+        start, _ = receive_speech(ws)
+        assert start["text"] == "Which one?"
+        assert "[[screen" in seen[0]["messages"][0]["content"] and seen[0]["max_tokens"] > 300
+        r = client.get(shown["url"].replace("http://testserver", ""))
+        assert r.status_code == 200 and r.content[:4] == b"KANI"
+        # a label that isn't on the screen: nothing happens
+        ws.send_json({"type": "screen_tap", "session": "t0", "screen": shown["screen"], "label": "Green"})
+        assert ws.receive_json() == {"type": "voice_result", "session": "t0", "heard": "", "reply": ""}
+        ws.send_json({"type": "screen_tap", "session": "t1", "screen": shown["screen"], "label": "Blue"})
+        result = ws.receive_json()
+        assert result["session"] == "t1" and result["reply"] == "Blue it is."
+        assert seen[1]["messages"][-1]["content"] == '(tapped "Blue" on the screen)'
+        assert seen[1]["messages"][-2]["content"] == "Which one? [[listen]]"  # same conversation, no screen marker
+        receive_speech(ws)
+        ws.send_json({"type": "voice_start", "session": "s2"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "s2"})
+        assert ws.receive_json()["type"] == "screen"
+        assert ws.receive_json() == {"type": "voice_result", "session": "s2", "heard": "what time is it",
+                                     "reply": ""}  # nothing to say: the speaker is done
+    assert client.get("/api/v1/screens/not-a-screen.kani").status_code == 404
+
+
+def test_screen_admin_preview_and_custom_overlays(client):
+    login(client)
+    assert client.get("/admin/screen").status_code == 200
+    spec = {"image": png_data_url(), "overlays": [{"type": "button", "label": "OK"}]}
+    out = client.post("/admin/api/screen/preview", json={"spec": spec}, headers=ADMIN).json()
+    assert out["regions"][0]["label"] == "OK" and not out["warnings"]
+    assert Image.open(io.BytesIO(__import__("base64").b64decode(out["png"]))).size == (240, 240)
+    r = client.put("/admin/api/screen/overlays/weather", headers=ADMIN, json={
+        "description": "Today's weather", "svg": "<svg viewBox='0 0 100 50'><text>{{temp}} {{ sky }}</text></svg>",
+        "x": 20, "y": 20, "w": 200, "h": 100})
+    assert r.status_code == 200, r.text
+    assert r.json()["overlays"]["weather"]["params"] == ["temp", "sky"]
+    assert '"type": "weather", "temp", "sky": ...' in r.json()["prompt"]
+    assert client.put("/admin/api/screen/overlays/button", headers=ADMIN,
+                      json={"svg": "<svg></svg>"}).status_code == 422  # a built-in name
+    assert client.put("/admin/api/screen/overlays/x", headers=ADMIN, json={"svg": "not svg"}).status_code == 422
+    assert client.post(f"/admin/api/devices/{MAC}/screen", json={"spec": spec}, headers=ADMIN).status_code == 404
+    assert client.delete("/admin/api/screen/overlays/weather", headers=ADMIN).status_code == 204
+    from app.screens import fill_template
+    assert fill_template("<text>{{a}}</text>", {"a": "<b>&"}) == "<text>&lt;b&gt;&amp;</text>"

@@ -229,3 +229,25 @@ ring_answer {ring}                       ->  (a tap: the first one wins)
 * A speaker that's in a conversation doesn't ring; the ring just goes unanswered there.
 * `ring_stop` also ends ringing on the other speakers. When `seconds` (5–30) is up, the speaker stops by itself.
 * Firmware before 0.9.0 ignores `ring`, `ring_stop` and `voice_wait`.
+
+## 7. The assistant's screen
+
+The assistant can show something along with an answer ([SCREEN.md](SCREEN.md)). Harkenn draws the whole screen
+itself, so a speaker only downloads one picture and reports taps.
+
+```
+speaker                                     Harkenn
+                                         <-  screen {screen, url, regions: [{label, x, y, w, h}], dismiss, seconds}
+GET url (a KANI image, maybe animated)   ->  (no token needed: the id is unguessable and expires)
+                                         <-  voice_result, speak_start ...   (as usual; reply "" = only a screen)
+screen_tap {session, screen, label}      ->  (a labelled area was tapped: the person's next turn)
+                                         <-  voice_result {session}, speak_start ...   (the assistant's answer)
+screen_dismiss {screen}                  ->  (tapped outside the areas, when dismiss is "tap")
+                                         <-  screen_clear                  (hide it now)
+```
+
+* `screen` comes before the speech it goes with. The speaker shows it until a tap, `seconds` (5–600) or a new
+  layout; the display stays on meanwhile. Coordinates are pixels on the 240x240 screen.
+* A `screen_tap` replaces whatever was going on (listening, speaking, waiting) like a new question. A label that
+  isn't on the screen the speaker was sent gets an empty `voice_result`.
+* Firmware before 0.12.0 ignores these messages.

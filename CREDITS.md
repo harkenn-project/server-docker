@@ -30,7 +30,8 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [Pydantic](https://github.com/pydantic/pydantic) | Settings and request validation | MIT |
 | [Jinja](https://github.com/pallets/jinja) and [ItsDangerous](https://github.com/pallets/itsdangerous) (Pallets) | Admin pages, signed sessions | BSD-3-Clause |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Uploads | Apache-2.0 |
-| [Pillow](https://github.com/python-pillow/Pillow) | Drawing and converting character animations | MIT-CMU |
+| [Pillow](https://github.com/python-pillow/Pillow) | Drawing and converting character animations and screens | MIT-CMU |
+| [CairoSVG](https://github.com/Kozea/CairoSVG) (Kozea) and [cairo](https://www.cairographics.org/) | Drawing the assistant's SVG screens | LGPL-3.0 / LGPL-2.1 |
 | [NumPy](https://numpy.org) | Animation encoding, audio resampling | BSD-3-Clause |
 | [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) | Announcing the server on the network (mDNS) | LGPL-2.1-or-later |
 | [SQLite](https://sqlite.org) | Database | public domain |

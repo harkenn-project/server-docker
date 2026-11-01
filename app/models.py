@@ -122,6 +122,7 @@ class VoiceSettings(Strict):
     context_conversations: int = Field(5, ge=0, le=50, description="the assistant sees this many recent conversations")
     context_minutes: int = Field(60, ge=1, le=1440, description="...from at most this many minutes ago")
     voiceprint_threshold: float = Field(0.7, ge=0.4, le=0.95, description="how alike a voice must be to count as a match")
+    screen: bool = Field(True, description="the assistant may show pictures and buttons on the speakers' screens")
     system_prompt: str = Field("", max_length=4000, description="empty = built-in prompt")
     keep_recordings: bool = Field(False, description="save what speakers hear, for troubleshooting")
 
@@ -133,6 +134,19 @@ class VoiceSettings(Strict):
 
 class VoiceSettingsIn(VoiceSettings):
     from_environment: dict[str, Any] | None = Field(None, description="read-only, ignored (sent back by the admin UI)")
+
+
+class ScreenOverlayIn(Strict):
+    description: str = Field("", max_length=300, description="what it shows, for the assistant")
+    svg: str = Field(min_length=5, max_length=100_000, description="SVG with {{param}} placeholders")
+    x: int = Field(0, ge=-240, le=240)
+    y: int = Field(0, ge=-240, le=240)
+    w: int = Field(240, ge=8, le=240)
+    h: int = Field(240, ge=8, le=240)
+
+
+class ScreenSpecIn(Strict):
+    spec: dict[str, Any] = Field(description="a screen, as the assistant would write it (screens.py)")
 
 
 class SoundPackIn(Strict):

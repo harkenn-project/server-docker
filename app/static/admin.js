@@ -827,6 +827,83 @@ function initPeople() {
   });
   render();
 }
+// screen
+
+function initScreen() {
+  const spec = $("#screen-spec"), device = $("#screen-device"), info = $("#screen-info");
+  const parse = () => {
+    try { return JSON.parse(spec.value); } catch (err) { toast(`That isn't valid JSON: ${err.message}`, true); return null; }
+  };
+  async function preview() {
+    const s = parse();
+    if (!s) return;
+    try {
+      const out = await api("POST", `/admin/api/screen/preview?device=${encodeURIComponent(device.value)}`, { spec: s });
+      $("#screen-png").src = `data:image/png;base64,${out.png}`;
+      $("#screen-regions").replaceChildren(...out.regions.map(r => el("div", { class: "region", title: r.label,
+        style: { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` } }, r.label)));
+      info.textContent = `${bytes(out.bytes)} for the speaker. Tappable: ${out.regions.map(r => r.label).join(", ") || "nothing"}.` +
+        (out.warnings.length ? `
+Problems: ${out.warnings.join("; ")}` : "");
+    } catch (err) { toast(err.message, true); }
+  }
+  $("#screen-preview-btn").addEventListener("click", preview);
+  $("#screen-show").addEventListener("click", async () => {
+    const s = parse();
+    if (!s) return;
+    if (!device.value) { toast("Pick a speaker first", true); return; }
+    try {
+      const out = await api("POST", `/admin/api/devices/${device.value}/screen`, { spec: s });
+      toast(out.warnings.length ? `Sent, with problems: ${out.warnings.join("; ")}` : "Sent", !!out.warnings.length);
+    } catch (err) { toast(err.message, true); }
+  });
+
+  const form = $("#overlay-form");
+  const list = $("#overlays");
+  const fill = (name, o) => {
+    form.elements.name.value = name;
+    for (const k of ["description", "svg", "x", "y", "w", "h"]) form.elements[k].value = o[k] ?? "";
+    $("#overlay-title").textContent = `Edit ${name}`;
+    form.scrollIntoView({ behavior: "smooth" });
+  };
+  const show = overlays => {
+    const names = Object.keys(overlays);
+    list.replaceChildren(...names.map(name => {
+      const o = overlays[name];
+      return el("div", { class: "row" },
+        el("code", {}, name), " ", el("span", { class: "hint" }, o.description || ""), " ",
+        el("small", { class: "hint" }, o.params.length ? `(${o.params.join(", ")})` : ""), " ",
+        el("button", { type: "button", class: "secondary", onclick: () => fill(name, o) }, "Edit"), " ",
+        el("button", { type: "button", class: "secondary", onclick: () => {
+          const params = Object.fromEntries(o.params.map(p => [p, p]));
+          spec.value = JSON.stringify({ overlays: [{ type: name, ...params }] }, null, 2);
+          preview();
+        } }, "Try"), " ",
+        el("button", { type: "button", class: "danger", onclick: async () => {
+          if (!confirm(`Delete the overlay ${name}?`)) return;
+          try { await api("DELETE", `/admin/api/screen/overlays/${name}`); await refresh(); }
+          catch (err) { toast(err.message, true); }
+        } }, "Delete"));
+    }));
+    if (!names.length) list.append(el("p", { class: "hint" }, "None yet."));
+  };
+  async function refresh() {
+    const data = await api("GET", "/admin/api/screen");
+    show(data.overlays);
+    $("#screen-prompt").textContent = data.prompt;
+  }
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = form.elements;
+    const body = { description: f.description.value, svg: f.svg.value, x: +f.x.value, y: +f.y.value, w: +f.w.value, h: +f.h.value };
+    try { await api("PUT", `/admin/api/screen/overlays/${f.name.value}`, body); toast("Saved"); await refresh(); }
+    catch (err) { toast(err.message, true); }
+  });
+  $("#overlay-new").addEventListener("click", () => { form.reset(); $("#overlay-title").textContent = "New overlay"; });
+  show(jsonScript("overlays-data"));
+  preview();
+}
+
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
@@ -838,3 +915,4 @@ if (page === "server") initServer();
 if (page === "agents") initAgents();
 if (page === "sounds") initSounds();
 if (page === "people") initPeople();
+if (page === "screen") initScreen();

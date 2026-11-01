@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Screen{% endblock %}
+{% block page %}screen{% endblock %}
+{% block content %}
+<h1>Screen</h1>
+<p class="hint">Along with its answer, the assistant can show something on the speaker's screen: a picture (a link,
+  or an SVG it writes itself), with buttons, text and your own overlays on top. Tapping a button sends its label back
+  to the assistant as your next turn; tapping anywhere else closes the screen.
+  {% if not enabled %}<strong>It's switched off on the <a href="/admin/voice">Voice</a> page.</strong>{% endif %}
+  <a href="https://github.com/harkenn-project/server-docker/blob/main/docs/SCREEN.md" target="_blank" rel="noopener">How it works</a></p>
+
+<section class="card">
+  <h2>Try it</h2>
+  <p class="hint">A screen as the assistant writes it (the JSON inside <code>[[screen …]]</code>).</p>
+  <div class="screen-try">
+    <div class="screen-preview"><img id="screen-png" alt="" width="240" height="240"><div id="screen-regions"></div></div>
+    <div class="grow">
+      <textarea id="screen-spec" rows="12" spellcheck="false">{
+  "image": "<svg viewBox='0 0 240 240' xmlns='http://www.w3.org/2000/svg'><circle cx='120' cy='120' r='120' fill='#1a2240'/><circle cx='120' cy='88' r='36' fill='#ffd166'/></svg>",
+  "overlays": [
+    {"type": "text", "text": "Turn on the porch light?", "y": 132, "h": 26, "size": "md"},
+    {"type": "button", "label": "Yes", "style": "primary"},
+    {"type": "button", "label": "No", "style": "secondary"}
+  ]
+}</textarea>
+      <div class="buttons">
+        <button type="button" id="screen-preview-btn" class="secondary">Preview</button>
+        <select id="screen-device"><option value="">Speaker…</option>
+          {% for d in devices %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select>
+        <button type="button" id="screen-show">Show on speaker</button>
+      </div>
+      <p class="hint" id="screen-info"></p>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Custom overlays</h2>
+  <p class="hint">Your own pieces the assistant can place on a screen by name: an SVG with <code>{{ '{{' }}name{{ '}}' }}</code>
+    placeholders it fills in (as text). The description tells the assistant what it's for.</p>
+  <div id="overlays"></div>
+  <form id="overlay-form" class="form">
+    <h3 id="overlay-title">New overlay</h3>
+    <label>Name <input name="name" pattern="[a-z0-9][a-z0-9_]{0,31}" required placeholder="weather_card"></label>
+    <label>Description <input name="description" maxlength="300" placeholder="Today's weather: temp (°C), summary"></label>
+    <label>Default box: x <input name="x" type="number" value="40" min="-240" max="240"> y <input name="y" type="number" value="40" min="-240" max="240">
+      w <input name="w" type="number" value="160" min="8" max="240"> h <input name="h" type="number" value="80" min="8" max="240"></label>
+    <label>SVG <textarea name="svg" rows="8" spellcheck="false" required placeholder="<svg viewBox='0 0 160 80' xmlns='http://www.w3.org/2000/svg'>…{{ '{{' }}temp{{ '}}' }}…</svg>"></textarea></label>
+    <div class="buttons"><button type="submit">Save overlay</button>
+      <button type="button" class="link" id="overlay-new">New</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>What the assistant is told</h2>
+  <pre id="screen-prompt" class="wrap">{{ prompt }}</pre>
+</section>
+<script type="application/json" id="overlays-data">{{ overlays | tojson }}</script>
+{% endblock %}

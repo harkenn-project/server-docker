@@ -205,7 +205,8 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         task = asyncio.create_task(c.updates.handle_boot_check(device_id))
         _background.add(task)
         task.add_done_callback(_background.discard)
-    elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer"):
+    elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer", "screen_tap",
+                  "screen_dismiss"):
         await c.voice.handle(device_id, msg)
     elif kind == "config_request":
         device = c.db.get_device(device_id)
@@ -334,3 +335,12 @@ async def character_animation(cid: str, state: str, request: Request, size: int 
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     return _asset(path, "application/octet-stream", v is not None)
+
+
+@assets_router.get("/api/v1/screens/{sid}.kani")
+async def screen_image(sid: str, request: Request) -> Response:
+    """A screen the assistant drew (screens.py). Its id is unguessable and it expires."""
+    screen = get_ctx(request).screens.get(sid)
+    if screen is None:
+        raise HTTPException(404)
+    return Response(screen.kani, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})

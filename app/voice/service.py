@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
+from .. import screens
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad, voiceprint
 from .calls import Rings
@@ -137,6 +138,17 @@ class VoiceService:
                 self._deliver_reply(device_id, "")
         elif kind == "ring_answer":
             self.rings.answered(device_id, str(msg.get("ring", "")))
+        elif kind == "screen_tap":
+            self._utterances.pop(device_id, None)
+            label = self.ctx.screens.tapped(device_id, str(msg.get("screen", "")), str(msg.get("label", "")))
+            session = str(msg.get("session", ""))[:32]
+            if label is None:  # an old screen, or a label that isn't on it
+                await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": "",
+                                                    "reply": ""})
+                return
+            self._start(device_id, self._respond_tap(device_id, session, label))
+        elif kind == "screen_dismiss":
+            self._log(device_id, "I", "screen dismissed")
 
     def audio(self, device_id: str, data: bytes) -> None:
         u = self._utterances.get(device_id)
@@ -268,35 +280,91 @@ class VoiceService:
                 self._log(device_id, "I", f"heard nothing in {len(pcm) / (RATE * 2):.1f} s of audio")
                 await send(device_id, {"type": "voice_result", "session": u.session, "heard": "", "reply": ""})
                 return
-            device = self.ctx.db.get_device(device_id) or {}
-            character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
-            speaker = device.get("name", "speaker")
-            reply = await self._keep_waiting(device_id, u.session, run_in_threadpool(
-                brain.ask, heard, device_id=device_id, speaker=speaker,
-                character=character.get("name", "Kotodama"), now=u.local_time or datetime.now(),
-                settings=s.model_dump(), conversations=self.conversations,
-                context=brain.request_context(speaker, device_id, voiceprint.describe(who)),
-                memory_key=f"harkenn-person-{who['id']}" if who and who.get("sure") else ""))
-            t2 = time.perf_counter()
-            await send(device_id, {"type": "voice_result", "session": u.session, "heard": heard, "reply": reply})
-            speech = await run_in_threadpool(self.tts.synthesize, reply, engine=s.tts_engine, voice=s.tts_voice,
-                                             address=s.tts_address)
-            t3 = time.perf_counter()
             if who:
                 self._log(device_id, "I", f"voice: {who.get('name') or 'not recognized'} ({who['score']:.2f})")
-            self._log(device_id, "I", f'heard "{heard}" ({t1 - t0:.1f} s), replied "{reply}" '
-                                      f"({t2 - t1:.1f} s, speech {t3 - t2:.1f} s)")
-            listen = (s.follow_up == "always" or (s.follow_up == "assistant" and reply.listen)
-                      or (s.follow_up == "questions" and reply.rstrip().endswith("?")))
-            if listen:
-                self._awaiting_reply[device_id] = time.time()
-            await self._stream(device_id, speech, reply, u.session, listen=listen, follow_up=listen)
+            await self._answer(device_id, u.session, heard, s, who=who, local_time=u.local_time,
+                               heard_note=f"({t1 - t0:.1f} s)")
         except asyncio.CancelledError:
             raise
         except Exception as e:
             log.exception("voice pipeline failed for %s", device_id)
             self._log(device_id, "E", f"voice pipeline failed: {e}")
             await send(device_id, {"type": "voice_error", "session": u.session, "message": str(e)[:200]})
+
+    async def _respond_tap(self, device_id: str, session: str, label: str) -> None:
+        """Someone tapped a labelled part of the screen: an answer to an agent's question, or the person's next turn
+        in the conversation."""
+        self._awaiting_reply.pop(device_id, None)
+        send = self.ctx.hub.send
+        text = f'(tapped "{label}" on the screen)'
+        try:
+            if self._deliver_reply(device_id, text):
+                self._log(device_id, "I", f'screen: tapped "{label}" (passed on)')
+                await send(device_id, {"type": "voice_result", "session": session, "heard": label,
+                                       "reply": REPLY_ACK})
+                await self._stream(device_id, await self.synthesize(REPLY_ACK), REPLY_ACK, session)
+                return
+            await self._answer(device_id, session, text, self.effective())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.exception("screen tap failed for %s", device_id)
+            self._log(device_id, "E", f"screen tap failed: {e}")
+            await send(device_id, {"type": "voice_error", "session": session, "message": str(e)[:200]})
+
+    async def _answer(self, device_id: str, session: str, heard: str, s: VoiceSettings, who: dict | None = None,
+                      local_time: datetime | None = None, heard_note: str = "") -> None:
+        """Ask the assistant, then say its answer (and show its screen) on the speaker."""
+        send = self.ctx.hub.send
+        device = self.ctx.db.get_device(device_id) or {}
+        character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
+        speaker = device.get("name", "speaker")
+        t1 = time.perf_counter()
+        reply = await self._keep_waiting(device_id, session, run_in_threadpool(
+            brain.ask, heard, device_id=device_id, speaker=speaker,
+            character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
+            settings=s.model_dump(), conversations=self.conversations,
+            context=brain.request_context(speaker, device_id, voiceprint.describe(who)),
+            memory_key=f"harkenn-person-{who['id']}" if who and who.get("sure") else "",
+            screen_prompt=self.ctx.screens.prompt() if s.screen else ""))
+        t2 = time.perf_counter()
+        if reply.screen_error:
+            self._log(device_id, "W", f"screen: {reply.screen_error}")
+        # Draw the screen while the speech is synthesized; it goes out before the speech, so it shows as the answer
+        # starts. With only a screen (no words), the speaker learns it's done from the empty reply in voice_result.
+        speech, _ = await asyncio.gather(
+            run_in_threadpool(self.tts.synthesize, reply, engine=s.tts_engine, voice=s.tts_voice,
+                              address=s.tts_address) if reply else asyncio.sleep(0, b""),
+            self.show_screen(device_id, reply.screen) if reply.screen else asyncio.sleep(0))
+        t3 = time.perf_counter()
+        await send(device_id, {"type": "voice_result", "session": session, "heard": heard, "reply": reply})
+        self._log(device_id, "I", f'heard "{heard}" {heard_note}, replied "{reply}"'
+                                  f'{" + screen" if reply.screen else ""} ({t2 - t1:.1f} s, speech {t3 - t2:.1f} s)')
+        if not reply:
+            return
+        listen = (s.follow_up == "always" or (s.follow_up == "assistant" and reply.listen)
+                  or (s.follow_up == "questions" and reply.rstrip().endswith("?")))
+        if listen:
+            self._awaiting_reply[device_id] = time.time()
+        await self._stream(device_id, speech, reply, session, listen=listen, follow_up=listen)
+
+    async def show_screen(self, device_id: str, spec: dict[str, Any]) -> list[str]:
+        """Draw a screen and send it to the speaker. Returns the problems found (skipped overlays, ...)."""
+        from ..context import device_theme
+        device = self.ctx.db.get_device(device_id)
+        if not device:
+            return ["unknown speaker"]
+        try:
+            screen, warnings = await run_in_threadpool(self.ctx.screens.render, spec, device_theme(device))
+        except screens.ScreenError as e:
+            self._log(device_id, "W", f"screen: {e}")
+            return [str(e)]
+        for w in warnings:
+            self._log(device_id, "W", f"screen: {w}")
+        self.ctx.screens.add(device_id, screen)
+        base = self.ctx.hub.base(device_id) or self.ctx.public_url()
+        await self.ctx.hub.send(device_id, screen.message(base))
+        return warnings
 
     async def _identify(self, pcm: bytes, threshold: float) -> dict[str, Any] | None:
         if not voiceprint.available() or not any(p["samples"] for p in self.voiceprints.people()):
