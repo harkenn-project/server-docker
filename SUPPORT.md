@@ -15,12 +15,13 @@ The other half goes to the open-source projects Harkenn is built on, in these sh
 | **50%** | **Master Magic and Pip** | Building and running Harkenn | [GitHub Sponsors](https://github.com/sponsors/harkenn-project) |
 | 12% | **Piper** and **Wyoming**, by Michael Hansen | The speaking voice, and the speech-service protocol | [GitHub Sponsors: synesthesiam](https://github.com/sponsors/synesthesiam) |
 | 8% | **LVGL** | Everything drawn on the speaker's screen | [Open Collective: lvgl](https://opencollective.com/lvgl) |
-| 5% | **Let's Encrypt** (ISRG) | Free certificates that secure speakers on https | [letsencrypt.org/donate](https://letsencrypt.org/donate/) |
-| 5% | **LovyanGFX** | Display and touch drivers | [GitHub Sponsors: lovyan03](https://github.com/sponsors/lovyan03) |
+| 4% | **Let's Encrypt** (ISRG) | Free certificates that secure speakers on https | [letsencrypt.org/donate](https://letsencrypt.org/donate/) |
+| 4% | **LovyanGFX** | Display and touch drivers | [GitHub Sponsors: lovyan03](https://github.com/sponsors/lovyan03) |
 | 4% | **ArduinoJson** | Every message the speaker sends and receives | [GitHub Sponsors: bblanchon](https://github.com/sponsors/bblanchon) |
 | 4% | **FastAPI** | The server's web framework | [GitHub Sponsors: tiangolo](https://github.com/sponsors/tiangolo) |
 | 3% | **Pillow** | Drawing the characters | [GitHub Sponsors: python-pillow](https://github.com/sponsors/python-pillow) |
 | 3% | **NumPy** | Animation encoding and audio | [Open Collective: numpy](https://opencollective.com/numpy) |
+| 2% | **CairoSVG** (CourtBouillon) | Drawing the pictures and charts the assistant shows on screens | [Open Collective: courtbouillon](https://opencollective.com/courtbouillon) |
 | 2% | **Uvicorn** (Encode) | The web server | [GitHub Sponsors: encode](https://github.com/sponsors/encode) |
 | 2% | **Starlette** and **python-multipart** (Kludex) | Web plumbing and uploads | [GitHub Sponsors: Kludex](https://github.com/sponsors/Kludex) |
 | 1% | **Jinja** and **ItsDangerous** (Pallets) | Admin pages and sign-in | [palletsprojects.com/donate](https://palletsprojects.com/donate) |
@@ -38,10 +39,12 @@ libraries underneath.
 
 ## Projects we thank without a share
 
-Some projects Harkenn depends on don't accept donations, so they get our thanks instead: **Whisper** (OpenAI),
-**faster-whisper** (SYSTRAN), **CTranslate2** (OpenNMT), **espeak-ng**, **ONNX Runtime**, **Hugging Face Hub**,
-**PyAV**, **python-zeroconf**, **arduinoWebSockets**, **the Arduino core for ESP32** and **ESP-IDF** (Espressif),
-**xiaozhi-esp32** and **SQLite**. The **Open Home Foundation**, which stewards Piper and Wyoming, asks individuals to
+Some projects Harkenn depends on don't accept donations, or offer no way to that we could find, so they get our
+thanks instead: **Whisper** (OpenAI), **faster-whisper** (SYSTRAN), **CTranslate2** (OpenNMT), **espeak-ng**,
+**ONNX Runtime**, **Hugging Face Hub**, **PyAV**, **python-zeroconf**, **Silero VAD**, **sherpa-onnx** (k2-fsa) and
+**WeSpeaker**, **microWakeWord** (Kevin Ahrendt) and ESPHome's wake word models, **TensorFlow Lite Micro** (Google)
+and **esp-nn** (Espressif), the **MCP Python SDK**, **cairo**, **Fontconfig**, the **DejaVu** and **Aileron** fonts,
+**arduinoWebSockets**, **the Arduino core for ESP32** and **ESP-IDF** (Espressif), **xiaozhi-esp32** and **SQLite**. The **Open Home Foundation**, which stewards Piper and Wyoming, asks individuals to
 support maintainers directly, which is why Piper's share goes to its creator. Full credits are in
 [CREDITS.md](CREDITS.md).
 

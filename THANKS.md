@@ -29,12 +29,13 @@ Each project's share is paid once a year, or as soon as it reaches US$100.
 |---|---:|---:|
 | Piper and Wyoming (Michael Hansen) | 12% | US$0.00 |
 | LVGL | 8% | US$0.00 |
-| Let's Encrypt | 5% | US$0.00 |
-| LovyanGFX | 5% | US$0.00 |
+| Let's Encrypt | 4% | US$0.00 |
+| LovyanGFX | 4% | US$0.00 |
 | ArduinoJson | 4% | US$0.00 |
 | FastAPI | 4% | US$0.00 |
 | Pillow | 3% | US$0.00 |
 | NumPy | 3% | US$0.00 |
+| CairoSVG (CourtBouillon) | 2% | US$0.00 |
 | Uvicorn (Encode) | 2% | US$0.00 |
 | Starlette and python-multipart (Kludex) | 2% | US$0.00 |
 | Jinja and ItsDangerous (Pallets) | 1% | US$0.00 |
