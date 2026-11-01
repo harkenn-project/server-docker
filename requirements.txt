@@ -9,3 +9,4 @@ faster-whisper>=1.1
 piper-tts>=1.3
 zeroconf>=0.130
 mcp>=2.3,<3
+sherpa-onnx>=2,<3

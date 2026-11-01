@@ -7,7 +7,7 @@ Three kinds of API cover most of what's out there:
                endpoint), Ollama, llama.cpp, LM Studio, vLLM, LocalAI, ...
     anthropic  The Anthropic Messages API.
     hermes     A Hermes Agent gateway: its (stateless) chat completions, with its tools, skills and long-term memory
-               (scoped to the speaker by X-Hermes-Session-Key).
+               (scoped by X-Hermes-Session-Key to the person, when voiceprints recognize them, else the speaker).
 
 Harkenn keeps the history for all of them, so it stays small: a conversation is one tap or wake word plus the replies
 that follow it, and the assistant sees only the last few conversations from the last hour or so (both adjustable).
@@ -156,8 +156,15 @@ class Reply(str):
         return r
 
 
+def request_context(speaker: str, device_id: str, who: str = "") -> str:
+    """What the assistant is told about where a request comes from (and, with voiceprints, who it's probably from)."""
+    out = (f"\n\nThis request comes from the speaker named \"{speaker}\" (Harkenn speaker id {device_id}: use it "
+           f"with Harkenn's tools to reach this speaker).")
+    return out + (f" {who}" if who else "")
+
+
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
-        conversations: Conversations) -> Reply:
+        conversations: Conversations, context: str = "", memory_key: str = "") -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
@@ -166,6 +173,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         character=character, speaker=speaker, now=describe_time(now))
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT
+    system += context
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
@@ -174,7 +182,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         reply = anthropic_messages(url, settings, system, messages, timeout)
     elif api == "hermes":  # stateless: Hermes sees only this history; its long-term memory is scoped to the speaker
         reply = chat_completions(url, settings, system, messages, timeout,
-                                 {"X-Hermes-Session-Key": f"harkenn-{device_id}"})
+                                 {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"})
     else:
         reply = chat_completions(url, settings, system, messages, timeout)
     listen = bool(LISTEN_RE.search(reply))

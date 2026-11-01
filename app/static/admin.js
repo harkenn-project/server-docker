@@ -696,6 +696,105 @@ function initSounds() {
   showKind();
   render();
 }
+
+// people (voiceprints)
+
+// Records from the browser's microphone until the button is pressed again (or 10 s), then resolves to a Blob.
+function recordClip(button) {
+  return new Promise(async (resolve, reject) => {
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { reject(new Error("The browser didn't allow the microphone")); return; }
+    const rec = new MediaRecorder(stream);
+    const chunks = [];
+    const label = button.textContent;
+    rec.ondataavailable = e => chunks.push(e.data);
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      button.textContent = label;
+      button.onclick = null;
+      resolve(new Blob(chunks, { type: rec.mimeType }));
+    };
+    button.textContent = "⏹ Stop";
+    button.onclick = () => rec.state === "recording" && rec.stop();
+    rec.start();
+    setTimeout(() => rec.state === "recording" && rec.stop(), 10000);
+  });
+}
+
+function initPeople() {
+  const root = $("#people");
+  const names = jsonScript("devices-data"), ids = jsonScript("device-ids");
+  let data = jsonScript("people-data");
+  const refresh = async () => { data = await api("GET", "/admin/api/people"); render(); };
+  const upload = (url, blob) => { const fd = new FormData(); fd.append("file", blob, "voice.webm"); return api("POST", url, fd); };
+
+  function card(p) {
+    const sentence = data.sentences[p.samples % data.sentences.length];
+    const status = p.samples ? `${p.samples} sample${p.samples === 1 ? "" : "s"}` +
+      (p.samples < 3 ? " · add a few more for better recognition" : " · ready") : "no voice samples yet";
+    const browser = el("button", { type: "button", class: "secondary" }, "🎙 Record in this browser");
+    browser.addEventListener("click", async () => {
+      if (browser.onclick) return;  // recording: the stop handler takes this click
+      try {
+        const blob = await recordClip(browser);
+        toast("Learning the voice…");
+        await upload(`/admin/api/people/${p.id}/samples`, blob);
+        toast("Added"); await refresh();
+      } catch (err) { toast(err.message, true); }
+    });
+    const speakers = el("select", {}, ...ids.map((id, k) => el("option", { value: id }, names[k])));
+    const onSpeaker = el("button", { type: "button", class: "secondary", onclick: async () => {
+      toast(`Listen to the speaker, then read the sentence after the tone`);
+      try { await api("POST", `/admin/api/people/${p.id}/record/${speakers.value}`); toast("Added"); await refresh(); }
+      catch (err) { toast(err.message, true); }
+    } }, "Record on");
+    const buttons = [browser];
+    if (ids.length) buttons.push(el("span", { class: "inline-form" }, onSpeaker, speakers));
+    return el("section", { class: "card" },
+      el("h2", {}, p.name), el("p", { class: "hint" }, status),
+      el("p", {}, "Read aloud: ", el("strong", {}, sentence)),
+      el("div", { class: "buttons" }, ...buttons),
+      el("div", { class: "buttons" },
+        p.samples ? el("button", { type: "button", class: "link", onclick: async () => {
+          if (!confirm(`Forget ${p.name}'s voice samples and start again?`)) return;
+          try { await api("DELETE", `/admin/api/people/${p.id}/samples`); await refresh(); }
+          catch (err) { toast(err.message, true); }
+        } }, "Start over") : "",
+        el("button", { type: "button", class: "danger", onclick: async () => {
+          if (!confirm(`Delete ${p.name} and their voiceprint?`)) return;
+          try { await api("DELETE", `/admin/api/people/${p.id}`); await refresh(); }
+          catch (err) { toast(err.message, true); }
+        } }, "Delete")));
+  }
+
+  function render() {
+    root.replaceChildren(...data.people.map(card));
+    if (!data.people.length) root.append(el("p", { class: "hint" }, "No one yet."));
+  }
+
+  const form = $("#new-person");
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      await api("POST", "/admin/api/people", { name: form.elements.name.value, consent: form.elements.consent.checked });
+      form.reset(); await refresh();
+    } catch (err) { toast(err.message, true); }
+  });
+
+  const check = $("#identify");
+  check.addEventListener("click", async () => {
+    if (check.onclick) return;
+    try {
+      const blob = await recordClip(check);
+      const { who } = await upload("/admin/api/people/identify", blob);
+      $("#identify-result").textContent = !who ? "Too short to tell, or no one has voice samples yet." :
+        who.id ? `Probably ${who.name} (${who.sure ? "fairly sure" : "not certain"}, ${who.score.toFixed(2)})` :
+        `Not recognized (closest match ${who.score.toFixed(2)})`;
+    } catch (err) { toast(err.message, true); }
+  });
+  render();
+}
 const page = document.body.dataset.page;
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
@@ -706,3 +805,4 @@ if (page === "voice") initVoice();
 if (page === "server") initServer();
 if (page === "agents") initAgents();
 if (page === "sounds") initSounds();
+if (page === "people") initPeople();

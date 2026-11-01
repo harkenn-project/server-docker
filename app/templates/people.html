@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}People{% endblock %}
+{% block page %}people{% endblock %}
+{% block content %}
+<h1>People</h1>
+<p class="hint">With people's agreement, Harkenn can learn their voices and tell the assistant who is probably
+  talking, so it can answer them personally. It's a hint, not a lock: a recording or a similar voice can fool it, and
+  short commands are hard to tell apart, so the assistant is told never to treat it as proof of identity.
+  Only voiceprints (numbers, not recordings) are kept, on this server; deleting a person deletes theirs.</p>
+{% if not people.available %}
+<p class="hint error">Voice recognition isn't available on this server (sherpa-onnx is missing, or
+  <code>HARKENN_VOICEPRINTS=false</code>).</p>
+{% endif %}
+<div id="people"></div>
+
+<section class="card">
+  <h2>Add a person</h2>
+  <form id="new-person" class="form">
+    <label>Name <input name="name" maxlength="40" required placeholder="e.g. Dana"></label>
+    <label class="inline"><input type="checkbox" name="consent" required> They agree to Harkenn keeping a voiceprint
+      of their voice on this server (ask each person yourself; for a child, their parent or guardian).</label>
+    <div class="buttons"><button type="submit">Add</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Try it</h2>
+  <p class="hint">Record a sentence in this browser and see who Harkenn thinks it is. Matching needs a voice to be at
+    least {{ "%.2f"|format(people.threshold) }} alike (set on the <a href="/admin/voice">Voice</a> page).</p>
+  <div class="buttons"><button type="button" class="secondary" id="identify">🎙 Record and check</button></div>
+  <p id="identify-result" class="hint"></p>
+</section>
+<script type="application/json" id="people-data">{{ people | tojson }}</script>
+<script type="application/json" id="devices-data">{{ devices | map(attribute="name") | list | tojson }}</script>
+<script type="application/json" id="device-ids">{{ devices | map(attribute="id") | list | tojson }}</script>
+{% endblock %}

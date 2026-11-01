@@ -15,7 +15,10 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) (Microsoft) | Runs the Piper voices | MIT |
 | [Wyoming protocol](https://github.com/OHF-Voice/wyoming) (Open Home Foundation) | Talking to external speech services; Harkenn has its own small client | protocol |
 | [Hugging Face Hub](https://github.com/huggingface/huggingface_hub) | Downloading models | Apache-2.0 |
-| [PyAV](https://github.com/PyAV-Org/PyAV) | Audio decoding for faster-whisper (bundles FFmpeg, LGPL) | BSD-3-Clause |
+| [PyAV](https://github.com/PyAV-Org/PyAV) | Audio decoding for faster-whisper, sound uploads and browser recordings (bundles FFmpeg, LGPL) | BSD-3-Clause |
+| [Silero VAD](https://github.com/snakers4/silero-vad) | Hearing when someone has finished talking (the model bundled with faster-whisper) | MIT |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (k2-fsa) | Computing voiceprints | Apache-2.0 |
+| [WeSpeaker](https://github.com/wenet-e2e/wespeaker) ResNet34 model | Voiceprints; trained on [VoxCeleb](https://www.robots.ox.ac.uk/~vgg/data/voxceleb/) (CC BY 4.0). Downloaded when first used | Apache-2.0 |
 
 ## Server
 

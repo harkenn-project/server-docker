@@ -120,6 +120,7 @@ class VoiceSettings(Strict):
                                  "after a question, or never")
     context_conversations: int = Field(5, ge=0, le=50, description="the assistant sees this many recent conversations")
     context_minutes: int = Field(60, ge=1, le=1440, description="...from at most this many minutes ago")
+    voiceprint_threshold: float = Field(0.7, ge=0.4, le=0.95, description="how alike a voice must be to count as a match")
     system_prompt: str = Field("", max_length=4000, description="empty = built-in prompt")
     keep_recordings: bool = Field(False, description="save what speakers hear, for troubleshooting")
 
@@ -164,6 +165,18 @@ class PlaySoundIn(Strict):
 
 class ChannelIn(Strict):
     channel: Literal["stable", "beta", "alpha", "development"]
+
+
+class PersonIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
+    consent: bool = Field(description="they agreed to have a voiceprint kept")
+
+    @field_validator("consent")
+    @classmethod
+    def _consent(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("a voiceprint needs the person's agreement")
+        return v
 
 
 class AgentTokenIn(Strict):

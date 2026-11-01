@@ -1157,3 +1157,118 @@ def test_release_channels(git_client):
     images["0.7.0"] = fake_firmware("0.7.0")
     assert c.post("/admin/api/firmware/check", headers=ADMIN).json()["release"] == "v0.7.0"  # the release wins
     assert c.put("/admin/api/firmware/channel", json={"channel": "nightly"}, headers=ADMIN).status_code == 422
+
+
+def fake_voiceprints(c):
+    """A stand-in for the voiceprint model: the voice is the tone's pitch."""
+    vp = c.app.state.ctx.voice.voiceprints
+
+    def embed(pcm):
+        x = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype="<i2").astype(np.float32)
+        peak = int(np.argmax(np.abs(np.fft.rfft(x[:16000], 16000))))  # Hz
+        e = np.full(256, 0.02, dtype=np.float32)
+        e[(peak // 20) % 256] = 1.0
+        return e / np.linalg.norm(e)
+
+    vp.embed = embed
+    return vp
+
+
+def tone_pcm(hz, seconds=2.0):
+    t = np.arange(int(16000 * seconds)) / 16000
+    return (np.sin(2 * np.pi * hz * t) * 12000).astype("<i2").tobytes()
+
+
+def test_request_context_and_voiceprint_hint(monkeypatch):
+    from datetime import datetime
+
+    from app.voice import brain
+    from app.voice.voiceprint import describe
+
+    seen = {}
+    monkeypatch.setattr(brain, "post", lambda url, body, headers, t: seen.update(body=body, headers=headers) or
+                        {"choices": [{"message": {"content": "Hi Dana"}}]})
+    who = {"id": "p1", "name": "Dana", "score": 0.83, "sure": True}
+    context = brain.request_context("Office", "907069f466b0", describe(who))
+    brain.ask("hi", device_id="907069f466b0", speaker="Office", character="Janet", now=datetime(2026, 11, 1, 9),
+              settings={"assistant_api": "hermes", "assistant_url": "http://h/v1"}, conversations=brain.Conversations(),
+              context=context, memory_key="harkenn-person-p1")
+    system = seen["body"]["messages"][0]["content"]
+    assert 'speaker named "Office"' in system and "907069f466b0" in system
+    assert "probably" not in system and "is Dana (fairly sure)" in system and "never treat it as proof" in system
+    assert seen["headers"]["X-Hermes-Session-Key"] == "harkenn-person-p1"  # memory follows the person
+    assert "didn't recognize" in describe({"id": None, "score": 0.4, "sure": False}) and describe(None) == ""
+
+
+def test_people_and_voiceprints(client, monkeypatch):
+    import threading
+
+    from app.voice import brain, service
+
+    device_token = adopt(client)
+    fake_voice(client)
+    vp = fake_voiceprints(client)
+    login(client)
+    assert client.post("/admin/api/people", json={"name": "Dana", "consent": False},
+                       headers=ADMIN).status_code == 422  # no voiceprint without agreement
+    dana = client.post("/admin/api/people", json={"name": "Dana", "consent": True}, headers=ADMIN).json()
+    alex = client.post("/admin/api/people", json={"name": "Alex", "consent": True}, headers=ADMIN).json()
+
+    def sample(pid, hz, seconds=2.0):
+        return client.post(f"/admin/api/people/{pid}/samples", headers=ADMIN,
+                           files={"file": ("v.wav", sounds_wav(tone_pcm(hz, seconds)))})
+
+    assert sample(dana["id"], 440).json()["samples"] == 1
+    assert sample(dana["id"], 445).json()["samples"] == 2
+    assert sample(alex["id"], 900).json()["samples"] == 1
+    assert sample(alex["id"], 900, 0.5).status_code == 422  # too short to learn from
+    out = client.post("/admin/api/people/identify", headers=ADMIN,
+                      files={"file": ("v.wav", sounds_wav(tone_pcm(441)))}).json()["who"]
+    assert out["name"] == "Dana" and out["sure"]
+    out = client.post("/admin/api/people/identify", headers=ADMIN,
+                      files={"file": ("v.wav", sounds_wav(tone_pcm(3000)))}).json()["who"]
+    assert out["id"] is None  # nobody's voice
+    people = client.get("/admin/api/people", headers=ADMIN).json()
+    assert [(p["name"], p["samples"]) for p in people["people"]] == [("Dana", 2), ("Alex", 1)]
+
+    # recording on the speaker: it asks, listens, and the recording becomes a sample (not a question)
+    result = {}
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        rec = threading.Thread(target=lambda: result.update(client.post(
+            f"/admin/api/people/{alex['id']}/record/{MAC}", headers=ADMIN).json()))
+        rec.start()
+        start, _ = receive_speech(ws)
+        assert "Alex" in start["text"] and start["listen"] is True and "follow_up" not in start
+        ws.send_json({"type": "voice_start", "session": "e1"})
+        ws.send_bytes(tone_pcm(905))
+        ws.send_json({"type": "voice_end", "session": "e1"})
+        assert ws.receive_json()["reply"] == "Thanks!"
+        receive_speech(ws)
+        rec.join(10)
+    assert result["samples"] == 2
+
+    # a question: the assistant hears which speaker, and who's probably talking
+    seen = {}
+    monkeypatch.setattr(brain, "post", lambda url, body, headers, t: seen.update(body=body, headers=headers) or
+                        {"choices": [{"message": {"content": "Sure."}}]})
+    monkeypatch.setattr(service.VoiceService, "effective", lambda self: self.settings().model_copy(
+        update={"assistant_url": "http://h/v1", "assistant_api": "hermes"}))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "q1"})
+        ws.send_bytes(tone_pcm(440))
+        ws.send_json({"type": "voice_end", "session": "q1"})
+        ws.receive_json()
+        receive_speech(ws)
+    system = seen["body"]["messages"][0]["content"]
+    assert 'speaker named "Kitchen"' in system and "is Dana" in system
+    assert seen["headers"]["X-Hermes-Session-Key"] == f"harkenn-person-{dana['id']}"
+    assert client.delete(f"/admin/api/people/{dana['id']}", headers=ADMIN).status_code == 204
+    assert [p["name"] for p in vp.people()] == ["Alex"]
+
+
+def sounds_wav(pcm):
+    from app.sounds import wav
+
+    return wav(pcm)

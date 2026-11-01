@@ -166,6 +166,14 @@ def trim(pcm: bytes, threshold: float = 0.01) -> bytes:
 
 def decode_upload(data: bytes) -> bytes:
     """Any audio file PyAV can read -> 16 kHz mono PCM, trimmed and normalized."""
+    pcm = trim(decode_audio(data))
+    if not pcm:
+        raise ValueError("that clip is silent")
+    return pcm
+
+
+def decode_audio(data: bytes, max_s: float = 30) -> bytes:
+    """Any audio file PyAV can read (WAV, MP3, OGG, a browser's WebM recording...) -> 16 kHz mono PCM."""
     import av
 
     try:
@@ -176,16 +184,13 @@ def decode_upload(data: bytes) -> bytes:
             for frame in f.decode(stream):
                 for r in resampler.resample(frame):
                     out += bytes(r.planes[0])[: r.samples * 2]
-                if len(out) > RATE * 2 * 30:
+                if len(out) > RATE * 2 * max_s:
                     break
             for r in resampler.resample(None):
                 out += bytes(r.planes[0])[: r.samples * 2]
     except (StopIteration, av.FFmpegError, ValueError) as e:
         raise ValueError("couldn't read that as audio") from e
-    pcm = trim(bytes(out))
-    if not pcm:
-        raise ValueError("that clip is silent")
-    return pcm
+    return bytes(out)
 
 
 def wav(pcm: bytes) -> bytes:

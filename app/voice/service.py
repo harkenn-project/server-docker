@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from ..models import DeviceConfig, VoiceSettings
-from . import brain, vad
+from . import brain, vad, voiceprint
 from .calls import Rings
 from .engines import RATE, SpeechToText, TextToSpeech
 
@@ -81,6 +81,8 @@ class VoiceService:
         self._background: set[asyncio.Task] = set()
         self.speech_end = vad.SpeechEnd  # (silence_s) -> detector; replaced in tests
         self.rings = Rings(ctx.hub)
+        self.voiceprints = voiceprint.Voiceprints(models, ctx.db)
+        self._samples: dict[str, asyncio.Future] = {}  # speaker -> an enrollment waiting for its next recording
         self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
         self._awaiting_reply: dict[str, float] = {}  # speaker -> when it was asked to listen for a reply (follow_up)
 
@@ -168,6 +170,15 @@ class VoiceService:
         self._replies[device_id] = f
         return f
 
+    def expect_sample(self, device_id: str) -> asyncio.Future:
+        """The next recording on this speaker goes to the returned future (voiceprint enrollment), as raw PCM."""
+        old = self._samples.pop(device_id, None)
+        if old and not old.done():
+            old.set_result(b"")
+        f: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._samples[device_id] = f
+        return f
+
     async def wait_reply(self, f: asyncio.Future, device_id: str, timeout: float) -> str | None:
         """What was said ("" = nothing understood), or None if the speaker never started listening in time."""
         try:
@@ -230,11 +241,19 @@ class VoiceService:
         try:
             if s.keep_recordings and pcm:
                 await run_in_threadpool(self._keep, device_id, pcm)
+            sample = self._samples.pop(device_id, None)
+            if sample is not None and not sample.done():  # a voiceprint recording, not a question
+                sample.set_result(pcm)
+                await send(device_id, {"type": "voice_result", "session": u.session, "heard": "", "reply": "Thanks!"})
+                await self._stream(device_id, await self.synthesize("Thanks!"), "Thanks!", u.session)
+                return
             t0 = time.perf_counter()
-            heard = ""
+            heard, who = "", None
             if len(pcm) >= MIN_UTTERANCE_BYTES:
-                heard = await run_in_threadpool(self.stt.transcribe, pcm, engine=s.stt_engine, model=s.stt_model,
-                                                address=s.stt_address, language=s.language)
+                # who is talking, at the same time as what they said
+                transcribe = run_in_threadpool(self.stt.transcribe, pcm, engine=s.stt_engine, model=s.stt_model,
+                                               address=s.stt_address, language=s.language)
+                heard, who = await asyncio.gather(transcribe, self._identify(pcm, s.voiceprint_threshold))
             t1 = time.perf_counter()
             if self._deliver_reply(device_id, heard):  # an answer to someone else's question: pass it on
                 self._log(device_id, "I", f'heard reply "{heard}" ({t1 - t0:.1f} s)')
@@ -251,15 +270,20 @@ class VoiceService:
                 return
             device = self.ctx.db.get_device(device_id) or {}
             character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
+            speaker = device.get("name", "speaker")
             reply = await self._keep_waiting(device_id, u.session, run_in_threadpool(
-                brain.ask, heard, device_id=device_id, speaker=device.get("name", "speaker"),
+                brain.ask, heard, device_id=device_id, speaker=speaker,
                 character=character.get("name", "Kotodama"), now=u.local_time or datetime.now(),
-                settings=s.model_dump(), conversations=self.conversations))
+                settings=s.model_dump(), conversations=self.conversations,
+                context=brain.request_context(speaker, device_id, voiceprint.describe(who)),
+                memory_key=f"harkenn-person-{who['id']}" if who and who.get("sure") else ""))
             t2 = time.perf_counter()
             await send(device_id, {"type": "voice_result", "session": u.session, "heard": heard, "reply": reply})
             speech = await run_in_threadpool(self.tts.synthesize, reply, engine=s.tts_engine, voice=s.tts_voice,
                                              address=s.tts_address)
             t3 = time.perf_counter()
+            if who:
+                self._log(device_id, "I", f"voice: {who.get('name') or 'not recognized'} ({who['score']:.2f})")
             self._log(device_id, "I", f'heard "{heard}" ({t1 - t0:.1f} s), replied "{reply}" '
                                       f"({t2 - t1:.1f} s, speech {t3 - t2:.1f} s)")
             listen = (s.follow_up == "always" or (s.follow_up == "assistant" and reply.listen)
@@ -273,6 +297,15 @@ class VoiceService:
             log.exception("voice pipeline failed for %s", device_id)
             self._log(device_id, "E", f"voice pipeline failed: {e}")
             await send(device_id, {"type": "voice_error", "session": u.session, "message": str(e)[:200]})
+
+    async def _identify(self, pcm: bytes, threshold: float) -> dict[str, Any] | None:
+        if not voiceprint.available() or not any(p["samples"] for p in self.voiceprints.people()):
+            return None
+        try:
+            return await run_in_threadpool(self.voiceprints.identify, pcm, threshold)
+        except Exception as e:  # never lose the question over this
+            log.warning("voice recognition failed: %s", e)
+            return None
 
     async def _keep_waiting(self, device_id: str, session: str, work) -> Any:
         """Await `work`, telling the speaker every WAIT_PING_S that the answer is still coming (agents can take a
@@ -311,6 +344,8 @@ class VoiceService:
         s = self.settings()
         try:
             vad.load()
+            if voiceprint.available():
+                self.voiceprints.warm_up()
             if s.tts_engine == "builtin":
                 self.tts.synthesize("Ready.", engine="builtin", voice=s.tts_voice, address="")
             if s.stt_engine == "builtin":

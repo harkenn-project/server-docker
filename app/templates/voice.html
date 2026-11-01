@@ -66,6 +66,9 @@
     <label>The assistant remembers the last <input name="context_conversations" type="number" min="0" max="50">
       conversations from the last <input name="context_minutes" type="number" min="1" max="1440"> minutes
       <small>0 conversations: every question stands alone. Replies within a conversation always count as one.</small></label>
+    <label>Voice recognition match <input name="voiceprint_threshold" type="number" min="0.4" max="0.95" step="0.01">
+      <small>How alike a voice must be to the voiceprints on the <a href="/admin/people">People</a> page to count as
+        that person (0.70 by default). Higher means fewer wrong guesses but more "not recognized".</small></label>
   </fieldset>
   <fieldset><legend>Privacy</legend>
     <label class="inline"><input type="checkbox" name="keep_recordings"> Keep what speakers hear (Recordings on each speaker's page), for troubleshooting</label>

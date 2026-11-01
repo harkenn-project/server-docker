@@ -10,6 +10,9 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   replies.
 - **Agents can talk back.** A built-in [MCP server](docs/MCP.md) lets an AI agent announce things on the speakers,
   or ring them like a phone and talk to whoever answers.
+- **Knows who's talking (opt-in).** With each person's agreement, Harkenn learns their voice on the **People** page
+  and tells the assistant who is probably speaking, and from which speaker. It's a hint for personal answers, never
+  a lock: the assistant is told it can be wrong or fooled.
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted. Four come
   built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts

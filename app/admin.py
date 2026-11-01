@@ -22,9 +22,10 @@ from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, de
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .mcp_server import Tokens
-from .sounds import SLOT_LABELS, SLOTS, decode_upload, trim
+from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
+from .voice import voiceprint
 from .updates import CHANNEL_LABELS
-from .models import (AgentTokenIn, ApproveIn, ChannelIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .models import (AgentTokenIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -238,6 +239,14 @@ async def sounds_page(request: Request) -> Response:
         return _login_redirect(request)
     c = get_ctx(request)
     return _page(request, "sounds.html", sounds=_sounds_out(c), piper_voices=PIPER_VOICES, devices=c.db.list_devices())
+
+
+@pages.get("/people")
+async def people_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    return _page(request, "people.html", people=_people_out(c), devices=c.db.list_devices())
 
 
 @pages.get("/events")
@@ -612,6 +621,109 @@ async def play_sound(device_id: str, body: PlaySoundIn, request: Request) -> dic
     if pcm:
         await c.voice.say(device_id, "", pcm=pcm)
     return {"played": bool(pcm)}
+
+
+def _people_out(c: Context) -> dict[str, Any]:
+    return {"available": voiceprint.available(), "sentences": voiceprint.ENROLL_SENTENCES,
+            "threshold": c.voice.settings().voiceprint_threshold,
+            "people": [{"id": p["id"], "name": p["name"], "created_at": p["created_at"], "samples": len(p["samples"])}
+                       for p in c.voice.voiceprints.people()]}
+
+
+def _person_or_404(c: Context, pid: str) -> dict[str, Any]:
+    p = c.voice.voiceprints.person(pid)
+    if p is None:
+        raise HTTPException(404)
+    return p
+
+
+@api.get("/people")
+async def list_people(request: Request) -> dict[str, Any]:
+    return _people_out(get_ctx(request))
+
+
+@api.post("/people", status_code=201)
+async def add_person(body: PersonIn, request: Request) -> dict[str, Any]:
+    """Someone who agreed to have a voiceprint kept. Then add samples (say a few sentences)."""
+    c = get_ctx(request)
+    if not voiceprint.available():
+        raise HTTPException(409, "voice recognition isn't available on this server")
+    p = c.voice.voiceprints.add_person(body.name.strip())
+    return {"id": p["id"], "name": p["name"], "samples": 0}
+
+
+@api.delete("/people/{pid}", status_code=204)
+async def delete_person(pid: str, request: Request) -> Response:
+    if not get_ctx(request).voice.voiceprints.delete_person(pid):
+        raise HTTPException(404)
+    return Response(status_code=204)
+
+
+@api.delete("/people/{pid}/samples")
+async def clear_person_samples(pid: str, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    _person_or_404(c, pid)
+    p = c.voice.voiceprints.clear_samples(pid)
+    return {"id": pid, "samples": len(p["samples"])}
+
+
+async def _enroll(c: Context, pid: str, pcm: bytes) -> dict[str, Any]:
+    try:
+        p = await run_in_threadpool(c.voice.voiceprints.add_sample, pid, pcm)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"id": pid, "samples": len(p["samples"])}
+
+
+@api.post("/people/{pid}/samples")
+async def add_person_sample(pid: str, file: UploadFile, request: Request) -> dict[str, Any]:
+    """A recording made in the browser (any format PyAV reads)."""
+    c = get_ctx(request)
+    _person_or_404(c, pid)
+    data = await file.read(c.settings.max_upload_bytes + 1)
+    if len(data) > c.settings.max_upload_bytes:
+        raise HTTPException(413, "that recording is too big")
+    try:
+        pcm = await run_in_threadpool(decode_audio, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return await _enroll(c, pid, trim(pcm, 0.005)[: 30 * 32000] or pcm)
+
+
+@api.post("/people/{pid}/record/{device_id}")
+async def record_person_sample(pid: str, device_id: str, request: Request) -> dict[str, Any]:
+    """Record a sample on a speaker: it asks the person to read a sentence, then listens."""
+    c = get_ctx(request)
+    p = _person_or_404(c, pid)
+    _device_or_404(c, device_id)
+    if not c.hub.online(device_id):
+        raise HTTPException(409, "that speaker is offline")
+    sentence = voiceprint.ENROLL_SENTENCES[len(p["samples"]) % len(voiceprint.ENROLL_SENTENCES)]
+    sample = c.voice.expect_sample(device_id)
+    prompt = f"{p['name']}, after the tone, please read the sentence shown on the People page, or say anything you like."
+    pcm = await c.voice.synthesize(prompt)
+    await c.voice.say(device_id, prompt, listen=True, pcm=pcm)
+    try:
+        recorded = await asyncio.wait_for(sample, len(pcm) / 32000 + 45)
+    except asyncio.TimeoutError:
+        raise HTTPException(408, "nothing was recorded") from None
+    if not recorded:
+        raise HTTPException(422, "nothing was recorded")
+    out = await _enroll(c, pid, recorded)
+    return {**out, "sentence": sentence}
+
+
+@api.post("/people/identify")
+async def identify_voice(file: UploadFile, request: Request) -> dict[str, Any]:
+    """Try recognition on a recording made in the browser."""
+    c = get_ctx(request)
+    data = await file.read(c.settings.max_upload_bytes + 1)
+    try:
+        pcm = await run_in_threadpool(decode_audio, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    who = await run_in_threadpool(c.voice.voiceprints.identify, pcm, c.voice.settings().voiceprint_threshold)
+    return {"who": who}
 
 
 @api.get("/server")
