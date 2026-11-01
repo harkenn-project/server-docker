@@ -28,6 +28,11 @@ DEFAULT_PROMPT = (
     "Your words are spoken aloud: answer in one to three short sentences, with no lists, markdown, emoji or URLs. "
     "It is {now} where the speaker is."
 )
+# An agent has its own identity (Hermes: SOUL.md): only say how it's being reached, and how to talk.
+AGENT_PROMPT = (
+    "Someone is talking to you through a smart speaker called {speaker}. Your words are spoken aloud: answer in one "
+    "to three short sentences, with no lists, markdown, emoji or URLs. It is {now} where the speaker is."
+)
 
 
 class Conversations:
@@ -138,7 +143,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
         return builtin_reply(text, now)
-    system = (settings.get("system_prompt") or DEFAULT_PROMPT).format(
+    system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
     timeout = float(settings.get("assistant_timeout_s") or 120)
     if api == "hermes":  # Hermes keeps the conversation itself

@@ -864,7 +864,8 @@ def test_assistant_apis(monkeypatch):
     s = {"assistant_api": "hermes", "assistant_url": "http://hermes:8642/v1/", "assistant_key": "k"}
     assert brain.ask("hi", settings=s, **common) == "Hi there"
     assert seen["url"] == "http://hermes:8642/v1/responses" and seen["body"]["conversation"] == "harkenn-d1"
-    assert seen["body"]["input"] == "hi" and "Janet" in seen["body"]["instructions"]
+    assert seen["body"]["input"] == "hi" and "Kitchen" in seen["body"]["instructions"]
+    assert "Janet" not in seen["body"]["instructions"]  # Hermes has its own persona
     assert seen["headers"]["Authorization"] == "Bearer k" and conv.history("d1") == []  # Hermes keeps it
     assert brain.ask("hi", settings={"assistant_api": "anthropic", "assistant_key": "a"}, **common) == "Hello from Claude"
     assert seen["url"] == "https://api.anthropic.com/v1/messages" and seen["headers"]["x-api-key"] == "a"
