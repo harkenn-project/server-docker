@@ -25,9 +25,12 @@ LISTEN_MARK = "[[listen]]"
 LISTEN_RE = re.compile(r"\[\[\s*listen\s*\]\]", re.I)
 # Added to the instructions when the assistant decides whether the speaker waits for a reply (follow_up "assistant").
 LISTEN_PROMPT = (
-    f" When you want the person to answer you, for example after asking them a question, end your reply with "
-    f"{LISTEN_MARK} and the speaker will listen for their reply. Leave it off when nothing more is needed; it isn't "
-    f"spoken."
+    f"\n\nListening for a reply: after you speak, the speaker stops listening unless you end your reply with "
+    f"{LISTEN_MARK}. The person can't answer you without it. So end with {LISTEN_MARK} whenever you expect an "
+    f"answer: when you ask a question, offer choices, ask them to confirm something, or need more detail to help. "
+    f"Leave it off only when you're done and nothing more is needed. {LISTEN_MARK} is never spoken aloud.\n"
+    f"Examples: \"Sure, which room? {LISTEN_MARK}\" / \"Do you want me to turn it off? {LISTEN_MARK}\" / "
+    f"\"Done, the porch light is on.\""
 )
 MAX_TURNS_PER_CONVERSATION = 20  # the oldest exchanges of a very long conversation are dropped
 MAX_REPLY_CHARS = 600
@@ -171,9 +174,9 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         return Reply(builtin_reply(text, now))
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    if settings.get("follow_up") == "assistant":
-        system += LISTEN_PROMPT
     system += context
+    if settings.get("follow_up") == "assistant":
+        system += LISTEN_PROMPT  # last, so it isn't lost under everything else
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
@@ -185,7 +188,8 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
                                  {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"})
     else:
         reply = chat_completions(url, settings, system, messages, timeout)
-    listen = bool(LISTEN_RE.search(reply))
+    # the marker, or a question at the end (in case the assistant forgot it)
+    listen = bool(LISTEN_RE.search(reply)) or speakable(LISTEN_RE.sub("", reply)).rstrip().endswith("?")
     reply = speakable(LISTEN_RE.sub("", reply))
     conversations.add(device_id, text, reply + (f" {LISTEN_MARK}" if listen else ""))  # so it keeps doing it
     return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply))

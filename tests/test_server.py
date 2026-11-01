@@ -1108,7 +1108,7 @@ def test_the_assistant_decides_when_to_listen(monkeypatch):
 
     from app.voice import brain
 
-    answers = iter(["Do you want the lights on? [[listen]]", "Done.", "OK [[ Listen ]] then."])
+    answers = iter(["Do you want the lights on? [[listen]]", "Done.", "OK [[ Listen ]] then.", "Which room?"])
     monkeypatch.setattr(brain, "post", lambda *a: {"choices": [{"message": {"content": next(answers)}}]})
     conv = brain.Conversations()
     kw = dict(device_id="d", speaker="Office", character="Janet", now=datetime(2026, 11, 1, 9), conversations=conv,
@@ -1120,6 +1120,8 @@ def test_the_assistant_decides_when_to_listen(monkeypatch):
     assert r == "Done." and r.listen is False
     r = brain.ask("hm", **kw)
     assert r == "OK then." and r.listen is True  # anywhere, any case, never spoken
+    r = brain.ask("lights", **kw)
+    assert r == "Which room?" and r.listen is True  # a question without the marker still listens
 
 
 def test_version_order_is_semver():

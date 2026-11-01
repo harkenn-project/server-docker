@@ -755,6 +755,8 @@ function initPeople() {
       el("h2", {}, p.name), el("p", { class: "hint" }, status),
       el("p", {}, "Read aloud: ", el("strong", {}, sentence)),
       el("div", { class: "buttons" }, ...buttons),
+      el("p", { class: "hint" }, "One voiceprint works on every speaker: choosing a speaker only picks which " +
+        "microphone records you. Recording on the speakers you use most helps."),
       el("div", { class: "buttons" },
         p.samples ? el("button", { type: "button", class: "link", onclick: async () => {
           if (!confirm(`Forget ${p.name}'s voice samples and start again?`)) return;
