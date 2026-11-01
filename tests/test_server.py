@@ -787,7 +787,8 @@ def test_mcp_speak_says_no_one_may_have_heard(client):
     got = fake_voice(client)
     token = mcp_token(client)
     assert mcp_tool(client, token, "list_speakers")["speakers"][0] == {
-        "id": MAC, "name": "Kitchen", "online": False, "state": "unknown", "mic_muted": False}
+        "id": MAC, "name": "Kitchen", "online": False, "state": "unknown", "mic_muted": False,
+        "agents": "ring_and_speak"}
     assert mcp_tool(client, token, "speak", text="Dinner is ready")["spoken_on"] == []  # offline
     with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
         ws.receive_json()
@@ -888,3 +889,51 @@ def test_assistant_from_environment(tmp_path, prebuilt):
         login(c)
         out = c.get("/admin/api/voice", headers=ADMIN).json()
         assert out["from_environment"]["assistant_key"] is True and out["assistant_key"] == ""
+
+
+def set_agents(c, **agents):
+    db = c.app.state.ctx.db
+    device = db.get_device(MAC)
+    device["config"]["agents"] = {"access": "ring_and_speak", "quiet_from": "", "quiet_to": "", **agents}
+    db.update_device(MAC, name=device["name"], config=device["config"])
+
+
+def test_mcp_respects_do_not_disturb(client, monkeypatch):
+    import app.mcp_server as m
+
+    device_token = adopt(client)
+    fake_voice(client)
+    token = mcp_token(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        set_agents(client, access="do_not_disturb")
+        assert mcp_tool(client, token, "list_speakers")["speakers"][0]["agents"] == "do_not_disturb"
+        out = mcp_tool(client, token, "speak", text="hello", speaker="Kitchen")
+        assert out["spoken_on"] == [] and "do not disturb" in out["skipped"][0] and "Respect it" in out["note"]
+        out = mcp_tool(client, token, "ring", speaker="all")
+        assert out["answered"] is False and "Respect it" in out["note"]
+        set_agents(client, access="speak_only")
+        out = mcp_tool(client, token, "ring")
+        assert out["answered"] is False and "speak only" in out["note"]
+        assert mcp_tool(client, token, "speak", text="hello")["spoken_on"] == ["Kitchen"]
+        receive_speech(ws)
+        set_agents(client, quiet_from="00:00", quiet_to="23:59")  # quiet hours now
+        assert mcp_tool(client, token, "list_speakers")["speakers"][0]["agents"] == "do_not_disturb"
+        set_agents(client)
+        monkeypatch.setattr(m, "MAX_RINGS_PER_HOUR", 0)
+        assert "the limit" in mcp_tool(client, token, "ring")["note"]  # nothing was sent to the speaker
+    # the setting is the server's alone, but it's part of the speaker's saved config
+    login(client)
+    assert client.get(f"/admin/api/devices/{MAC}", headers=ADMIN).json()["config"]["agents"]["access"] == "ring_and_speak"
+
+
+def test_quiet_hours():
+    from datetime import datetime
+
+    from app.mcp_server import in_quiet_hours
+
+    at = lambda h, mi=0: datetime(2026, 11, 1, h, mi)
+    assert in_quiet_hours("22:00", "07:00", at(23)) and in_quiet_hours("22:00", "07:00", at(6, 59))
+    assert not in_quiet_hours("22:00", "07:00", at(7)) and not in_quiet_hours("22:00", "07:00", at(12))
+    assert in_quiet_hours("13:00", "14:00", at(13, 30)) and not in_quiet_hours("13:00", "14:00", at(14))
+    assert not in_quiet_hours("", "07:00", at(3))

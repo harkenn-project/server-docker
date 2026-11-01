@@ -21,6 +21,9 @@ Harkenn runs the smart speakers in this home. Its MCP server, `harkenn`, has thr
   answered, and on which speaker.
 - If `ring` comes back unanswered, presume no one is home or no one could come to a speaker. Don't ring again straight
   away. Tell the user, or try another way to reach them.
+- Some speakers are set to **do not disturb**, or to speak only, by the people who live here (`agents` in
+  `list_speakers`). Respect it: never try to get around it, and don't ring other speakers to reach someone who asked
+  not to be disturbed.
 
 ## Asking a question
 

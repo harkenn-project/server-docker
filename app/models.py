@@ -77,6 +77,17 @@ class AssistantConfig(Strict):
     url: str = Field("", max_length=256, description="Hermes endpoint; empty until Hermes exists")
 
 
+HHMM = r"^$|^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class AgentsConfig(Strict):
+    """What AI agents may do on this speaker through the MCP server (mcp_server.py). Enforced by the server; the
+    speaker never sees it."""
+    access: Literal["ring_and_speak", "speak_only", "do_not_disturb"] = "ring_and_speak"
+    quiet_from: str = Field("", pattern=HHMM, description="start of quiet hours (do not disturb), server time")
+    quiet_to: str = Field("", pattern=HHMM, description="end of quiet hours")
+
+
 class DeviceConfig(Strict):
     character: str = Field("default", pattern=SLUG)
     display: DisplayConfig = Field(default_factory=DisplayConfig)
@@ -84,6 +95,7 @@ class DeviceConfig(Strict):
     wifi: list[WifiNetwork] = Field(default_factory=list, max_length=8)
     timezone: str = Field("MST7MDT,M3.2.0,M11.1.0", min_length=3, max_length=64, description="POSIX TZ string")
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
     log_level: Literal["error", "warn", "info", "debug"] = "info"
 
 

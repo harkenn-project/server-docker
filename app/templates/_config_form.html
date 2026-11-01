@@ -44,6 +44,19 @@
       <div class="wifi-list"></div>
       <button type="button" class="secondary add-wifi">Add network</button>
     </fieldset>
+    <fieldset><legend>Agents</legend>
+      <p class="hint">What AI agents may do on this speaker through Harkenn's MCP server (the <a href="/admin/agents">Agents</a> page).</p>
+      <label>Agents may
+        <select data-path="config.agents.access">
+          <option value="ring_and_speak">Ring it and speak on it</option>
+          <option value="speak_only">Speak on it, but not ring it</option>
+          <option value="do_not_disturb">Nothing: do not disturb</option>
+        </select>
+      </label>
+      <label>Quiet hours (do not disturb) from <input type="time" data-path="config.agents.quiet_from"> to
+        <input type="time" data-path="config.agents.quiet_to">
+        <small>In the server's time zone. Leave empty for none.</small></label>
+    </fieldset>
     <fieldset><legend>Assistant</legend>
       <label>Hermes URL <input data-path="config.assistant.url" maxlength="256" placeholder="not configured yet"></label>
       <label>Log level

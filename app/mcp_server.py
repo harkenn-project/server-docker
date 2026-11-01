@@ -13,6 +13,8 @@ import hmac
 import logging
 import secrets
 import time
+from collections import deque
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver import MCPServer
@@ -20,6 +22,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.responses import JSONResponse
 
 from . import __version__
+from .models import AgentsConfig
 from .voice.calls import MAX_RING_S, MIN_RING_S
 from .voice.engines import RATE
 
@@ -30,6 +33,7 @@ log = logging.getLogger("harkenn.mcp")
 
 TOKENS_KEY = "mcp_tokens"
 MAX_TEXT = 600
+MAX_RINGS_PER_HOUR = 6  # per speaker: ringing is loud, and an agent shouldn't be able to keep it up
 REPLY_LISTEN_S = 45  # after the question has been spoken: time to start talking, plus the speaker's own limit
 
 NOT_HEARD = ("Presume no one heard this: Harkenn can't tell whether anyone is near a speaker. If it matters that "
@@ -37,7 +41,9 @@ NOT_HEARD = ("Presume no one heard this: Harkenn can't tell whether anyone is ne
 
 INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk to the people here.
 
-- list_speakers: the speakers, where they are (their names are usually rooms), and whether each is online.
+- list_speakers: the speakers, where they are (their names are usually rooms), whether each is online, and what
+  you may do there (agents: ring_and_speak, speak_only or do_not_disturb). Respect do not disturb: never try to get
+  around it.
 - speak: say something aloud on one speaker or all of them. Use it for announcements that don't need a response.
   {NOT_HEARD}
 - ring: ring one speaker or all of them for up to {MAX_RING_S} seconds, like a phone. Someone taps a speaker to
@@ -101,11 +107,30 @@ class Tokens:
         return False
 
 
+def in_quiet_hours(start: str, end: str, now: datetime) -> bool:
+    if not start or not end or start == end:
+        return False
+    t = now.strftime("%H:%M")
+    return start <= t < end if start < end else t >= start or t < end  # e.g. 22:00-07:00 spans midnight
+
+
+def agent_access(config: dict[str, Any], now: datetime) -> str:
+    """What agents may do on a speaker now: ring_and_speak, speak_only or do_not_disturb (quiet hours included)."""
+    a = AgentsConfig.model_validate(config.get("agents") or {})
+    return "do_not_disturb" if in_quiet_hours(a.quiet_from, a.quiet_to, now) else a.access
+
+
 def _speakers(ctx: Context) -> list[dict[str, Any]]:
+    now = datetime.now()
     return [{"id": d["id"], "name": d["name"], "online": ctx.hub.online(d["id"]),
              "state": (d.get("status") or {}).get("state", "unknown"),
-             "mic_muted": bool((d.get("status") or {}).get("muted"))}
+             "mic_muted": bool((d.get("status") or {}).get("muted")),
+             "agents": agent_access(d.get("config") or {}, now)}
             for d in ctx.db.list_devices()]
+
+
+DND_NOTE = ("Do not disturb is set for agents on {names}, by the people who live here. Respect it: don't try to reach "
+            "them some other way through Harkenn.")
 
 
 def _targets(ctx: Context, speaker: str) -> tuple[list[dict[str, Any]], str | None]:
@@ -127,6 +152,7 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
     server = MCPServer(name="harkenn", title="Harkenn speakers", version=__version__, instructions=INSTRUCTIONS,
                        website_url="https://github.com/harkenn-project/server-docker")
     voice = ctx.voice
+    rings_by_speaker: dict[str, deque] = {}  # speaker -> when agents rang it (MAX_RINGS_PER_HOUR)
 
     def log_tool(message: str) -> None:
         log.info("mcp: %s", message)
@@ -152,8 +178,11 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
             return {"spoken_on": [], "note": error}
         spoken, skipped = [], []
         pcm = None
+        dnd = [s["name"] for s in chosen if s["agents"] == "do_not_disturb"]
         for s in chosen:
-            if not s["online"]:
+            if s["agents"] == "do_not_disturb":
+                skipped.append(f'{s["name"]} (do not disturb)')
+            elif not s["online"]:
                 skipped.append(f'{s["name"]} (offline)')
             elif s["state"] in ("listening", "thinking"):
                 skipped.append(f'{s["name"]} (busy in a conversation)')
@@ -162,7 +191,10 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
                 await voice.say(s["id"], text, pcm=pcm)
                 spoken.append(s["name"])
         log_tool(f'speak on {", ".join(spoken) or "nothing"}: "{text}"')
-        return {"spoken_on": spoken, "skipped": skipped, "note": NOT_HEARD if spoken else "Nothing was spoken."}
+        note = NOT_HEARD if spoken else "Nothing was spoken."
+        if dnd:
+            note += " " + DND_NOTE.format(names=", ".join(dnd))
+        return {"spoken_on": spoken, "skipped": skipped, "note": note}
 
     @server.tool(description=RING_DESCRIPTION)
     async def ring(speaker: str = "all", seconds: int = MAX_RING_S, message: str = "",
@@ -170,16 +202,38 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
         chosen, error = _targets(ctx, speaker)
         if error:
             return {"answered": False, "note": error}
-        online = [s for s in chosen if s["online"]]
+        notes = []
+        dnd = [s["name"] for s in chosen if s["agents"] == "do_not_disturb"]
+        if dnd:
+            notes.append(DND_NOTE.format(names=", ".join(dnd)))
+        speak_only = [s["name"] for s in chosen if s["agents"] == "speak_only"]
+        if speak_only:
+            notes.append(f"{', '.join(speak_only)} can't be rung by agents (speak only).")
+        now = time.time()
+        allowed = []
+        for s in chosen:
+            if s["agents"] != "ring_and_speak" or not s["online"]:
+                continue
+            recent = rings_by_speaker.setdefault(s["id"], deque())
+            while recent and now - recent[0] > 3600:
+                recent.popleft()
+            if len(recent) >= MAX_RINGS_PER_HOUR:
+                notes.append(f"{s['name']} has been rung {MAX_RINGS_PER_HOUR} times in the last hour; that's the limit.")
+                continue
+            allowed.append(s)
+        online = allowed
         if not online:
-            return {"answered": False, "note": "None of those speakers is online, so nothing rang. Presume no one heard."}
+            notes.append("Nothing rang. Presume no one heard.")
+            return {"answered": False, "note": " ".join(notes)}
+        for s in online:
+            rings_by_speaker[s["id"]].append(now)
         seconds = max(MIN_RING_S, min(MAX_RING_S, int(seconds)))
         log_tool(f'ring {", ".join(s["name"] for s in online)} for {seconds} s')
         answered = await voice.rings.ring([s["id"] for s in online], seconds)
         if answered is None:
             log_tool("no one answered")
-            return {"answered": False, "rang": [s["name"] for s in online],
-                    "note": f"No one answered within {seconds} seconds. Presume no one is there and no one heard."}
+            notes.append(f"No one answered within {seconds} seconds. Presume no one is there and no one heard.")
+            return {"answered": False, "rang": [s["name"] for s in online], "note": " ".join(notes)}
         name = next(s["name"] for s in online if s["id"] == answered)
         log_tool(f"answered on {name}")
         out: dict[str, Any] = {"answered": True, "answered_on": name}

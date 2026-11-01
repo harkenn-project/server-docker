@@ -46,7 +46,8 @@ claude mcp add --transport http harkenn https://harkenn.example.com/mcp --header
 
 Every speaker, with its `id`, `name` (usually the room), whether it's `online`, what it's doing (`state`: idle,
 listening, thinking, speaking, sleeping) and whether its microphone is muted (`mic_muted`). An online speaker can
-still have no one near it.
+still have no one near it. `agents` says what agents may do there now: `ring_and_speak`, `speak_only` or
+`do_not_disturb`.
 
 ### `speak(text, speaker="all")`
 
@@ -72,6 +73,18 @@ Rings one speaker or all of them for 5–30 seconds, like a phone. The speaker p
   hears "Thanks, I'll pass that on." An empty `reply` means nothing was understood.
 
 The call takes as long as the ringing plus the reply, so give your client a tool timeout of about 2 minutes.
+
+## Do not disturb
+
+Each speaker's page has an **Agents** section, set by the people who live there, and enforced by the server:
+
+- **Agents may:** ring it and speak on it (the default), speak on it but not ring it, or nothing at all (do not
+  disturb).
+- **Quiet hours:** a daily window, in the server's time zone, when the speaker is do not disturb. It can span
+  midnight, e.g. 22:00 to 07:00.
+
+`speak` and `ring` skip speakers that don't allow them, and tell the agent so, asking it not to try to get around
+it. On top of that, agents can ring any one speaker at most 6 times an hour.
 
 ## Prompts and resources
 
