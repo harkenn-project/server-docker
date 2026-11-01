@@ -1274,3 +1274,34 @@ def sounds_wav(pcm):
     from app.sounds import wav
 
     return wav(pcm)
+
+
+def test_wake_word_in_the_speaker_config(tmp_path, prebuilt):
+    import json as jsonlib
+
+    bundled = tmp_path / "wakewords"
+    bundled.mkdir()
+    (bundled / "hey_jarvis.tflite").write_bytes(b"TFL3" + bytes(100))
+    (bundled / "hey_jarvis.json").write_text(jsonlib.dumps({"micro": {
+        "probability_cutoff": 0.97, "sliding_window_size": 5, "tensor_arena_size": 22860}}))
+    settings = Settings(data_dir=tmp_path / "data", admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        wakewords_dir=bundled)
+    with TestClient(create_app(settings)) as c:
+        token = adopt(c)
+        config = c.get("/api/v1/device/config", headers=bearer(token)).json()
+        assert config["wake_word"] is None  # none by default
+        device = c.get(f"/admin/api/devices/{MAC}", headers=ADMIN).json()
+        device["config"]["audio"].update(wake_word="hey_jarvis", wake_sensitivity="high")
+        assert c.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                     json={"name": device["name"], "config": device["config"]}).status_code == 200
+        wake = c.get("/api/v1/device/config", headers=bearer(token)).json()["wake_word"]
+        assert wake["id"] == "hey_jarvis" and wake["name"] == "Hey Jarvis" and wake["bytes"] == 104
+        assert wake["cutoff"] == 0.92 and wake["window"] == 5 and wake["arena"] == 22860  # high: 0.97 - 0.05
+        assert wake["url"].startswith("http://testserver/assets/wakewords/hey_jarvis.tflite?v=")
+        assert c.get(wake["url"]).content == b"TFL3" + bytes(100)
+        assert c.get("/assets/wakewords/nope.tflite").status_code == 404
+        device["config"]["audio"]["wake_word"] = "ok_nabu"  # an old, unknown id: no wake word, not an error
+        c.put(f"/admin/api/devices/{MAC}", headers=ADMIN, json={"name": device["name"], "config": device["config"]})
+        assert c.get("/api/v1/device/config", headers=bearer(token)).json()["wake_word"] is None
+        assert "hey_jarvis" in c.get("/admin/api/catalog", headers=ADMIN).json()["wake_words"]

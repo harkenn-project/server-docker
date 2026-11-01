@@ -13,6 +13,8 @@ COPY app ./app
 # Draw the built-in characters once at build time instead of on every fresh start
 ENV HARKENN_PREBUILT_CHARACTERS=/srv/prebuilt-characters
 RUN python -m app.starter /srv/prebuilt-characters
+ENV HARKENN_WAKEWORDS_DIR=/srv/wakewords
+RUN python -m app.wakewords /srv/wakewords
 RUN useradd --system --uid 10001 --home-dir /srv harkenn \
  && mkdir -p /data && chown harkenn /data
 

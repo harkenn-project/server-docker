@@ -19,6 +19,7 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [Silero VAD](https://github.com/snakers4/silero-vad) | Hearing when someone has finished talking (the model bundled with faster-whisper) | MIT |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (k2-fsa) | Computing voiceprints | Apache-2.0 |
 | [WeSpeaker](https://github.com/wenet-e2e/wespeaker) ResNet34 model | Voiceprints; trained on [VoxCeleb](https://www.robots.ox.ac.uk/~vgg/data/voxceleb/) (CC BY 4.0). Downloaded when first used | Apache-2.0 |
+| [micro-wake-word-models](https://github.com/esphome/micro-wake-word-models) (ESPHome / Open Home Foundation; models by Kevin Ahrendt, trained with [microWakeWord](https://github.com/kahrendt/microWakeWord)) | The wake word models (Okay Nabu, Hey Jarvis, Hey Mycroft, Alexa), bundled in the image and run on the speakers | Apache-2.0 |
 
 ## Server
 

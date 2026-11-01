@@ -19,6 +19,7 @@ class Settings:
     max_recording_bytes: int = 10 * 1024 * 1024
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
+    wakewords_dir: Path | None = None  # wake word models bundled at image build time (see wakewords.py)
     update_url: str = ""  # where latest.json + firmware are served raw (updates.py); empty = no update checks
     update_channel: str = "stable"  # stable, beta, alpha or development; the admin Firmware page can change it
     voice_warmup: bool = False  # load the voice models in the background at startup
@@ -77,6 +78,7 @@ def load_settings() -> Settings:
         max_recording_bytes=int(env("MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
         max_upload_bytes=int(env("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(prebuilt) if prebuilt else None,
+        wakewords_dir=Path(env("WAKEWORDS_DIR")) if env("WAKEWORDS_DIR") else None,
         update_url=env("UPDATE_URL", DEFAULT_UPDATE_URL).rstrip("/"),
         update_channel=env("UPDATE_CHANNEL", "stable"),
         voice_warmup=env("VOICE_WARMUP", "true") == "true",

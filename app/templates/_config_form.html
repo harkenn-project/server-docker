@@ -37,7 +37,18 @@
     <fieldset><legend>Audio</legend>
       <label>Volume <span class="range"><input type="range" min="0" max="100" data-path="config.audio.volume" data-type="int"><output></output></span></label>
       <label>Stop listening after this many seconds of silence <span class="range"><input type="range" min="1" max="30" data-path="config.audio.silence_s" data-type="int"><output></output></span></label>
-      <label>Wake word <input data-path="config.audio.wake_word" maxlength="64"></label>
+      <label>Wake word
+        <select data-path="config.audio.wake_word">
+          <option value="">None (tap to talk)</option>
+          {% for id, name in catalog.wake_words.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
+        </select>
+        <small>Heard by the speaker itself: nothing leaves it until it hears the wake word. Needs firmware 0.12 or later.</small></label>
+      <label>Wake word sensitivity
+        <select data-path="config.audio.wake_sensitivity">
+          <option value="low">Low: fewer false wakes</option>
+          <option value="normal">Normal</option>
+          <option value="high">High: wakes more easily, from further away</option>
+        </select></label>
       <label>Sounds
         <select data-path="config.audio.sound_pack">
           {% for p in catalog.sound_packs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}

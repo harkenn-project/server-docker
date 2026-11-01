@@ -25,6 +25,7 @@ from .mcp_server import Tokens
 from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
 from .voice import voiceprint
 from .updates import CHANNEL_LABELS
+from .wakewords import WAKE_WORDS
 from .models import (AgentTokenIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
@@ -59,6 +60,7 @@ def catalog(c: Context) -> dict[str, Any]:
         "characters": [{"id": m["id"], "name": m["name"], "version": m["version"], "states": list(m["states"])}
                        for m in c.characters.list()],
         "sound_packs": [{"id": p["id"], "name": p["name"]} for p in c.sounds.list()],
+        "wake_words": WAKE_WORDS,
     }
 
 

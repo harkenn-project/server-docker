@@ -16,6 +16,7 @@ from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
 from .sounds import CLASSIC, SoundStore
+from .wakewords import WakeWords
 from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
 from .voice.service import VoiceService
@@ -36,11 +37,13 @@ class Context:
     updates: UpdateChecker = field(init=False)
     voice: VoiceService = field(init=False)
     sounds: SoundStore = field(init=False)
+    wakewords: WakeWords = field(init=False)
 
     def __post_init__(self) -> None:
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
+        self.wakewords = WakeWords(self.settings.wakewords_dir, self.settings.data_dir / "models" / "wakewords")
 
     def public_url(self) -> str:
         """The server's public address: set in the admin UI, else HARKENN_PUBLIC_URL."""
@@ -115,4 +118,6 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         # The sound pack's clips (sounds.py); null = the speaker's own chimes.
         "sounds": ctx.sounds.speaker_manifest(config.audio.sound_pack, base)
         if config.audio.sound_pack != CLASSIC else None,
+        # The wake word model and its settings (wakewords.py); null = none. Detected on the speaker itself.
+        "wake_word": ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base),
     }

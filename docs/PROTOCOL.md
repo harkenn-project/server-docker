@@ -129,7 +129,9 @@ changes.
       "listening": {…}, "thinking": {…}, "speaking": {…}, "sleeping": {…}, "error": {…}}},
   "sounds": {"pack": "marimba", "version": 1, "slots": {
       "boot": {"url": "https://harkenn.example/assets/sounds/marimba/boot.pcm?v=1", "bytes": 41280},
-      "wake": {…}, "done": {…}, "error": {"url": "", "bytes": 0}, "shutdown": {…}}}
+      "wake": {…}, "done": {…}, "error": {"url": "", "bytes": 0}, "shutdown": {…}}},
+  "wake_word": {"id": "hey_jarvis", "name": "Hey Jarvis", "url": "https://harkenn.example/assets/wakewords/hey_jarvis.tflite?v=40ff33f5",
+                "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860}
 }
 ```
 
@@ -161,6 +163,12 @@ What the firmware has to do with it:
   ignores `sounds`.
 * **Shutting down.** The speaker plays `shutdown` before it restarts (an update, the reboot command) and before it
   powers off. Holding BOOT for 3 s powers it off (deep sleep); a press turns it back on.
+* **Wake word.** Detected on the speaker itself, so no audio leaves it until it hears the word. `url` is a
+  microWakeWord streaming model (TensorFlow Lite Micro, int8 features in, uint8 probability out). The speaker keeps it
+  in flash and runs it on 40-channel features from TFLM's micro audio frontend (30 ms windows every 10 ms) while it's
+  idle and unmuted, never while it's making a sound. A detection is the average of the last `window` probabilities
+  reaching `cutoff`, and starts listening just like a tap. `arena` is the tensor memory the model needs.
+  `"wake_word": null` means none (tap to talk). Firmware before 0.12 ignores it.
 * After applying a config, the device reports `config_version` in its next `status`.
 
 ## 5. Voice
