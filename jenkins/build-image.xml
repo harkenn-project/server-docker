@@ -60,7 +60,13 @@ echo "$REGISTRY_PASSWORD" | docker login -u "$REGISTRY_USER" --password-stdin gh
 docker push "$IMAGE:$SHA"
 docker push "$IMAGE:latest"
 docker logout ghcr.io
-docker image prune -f --filter "until=168h" &gt;/dev/null
+
+echo "--- clean up"
+# The image is ~2 GB (Whisper, Piper, ONNX, FFmpeg): keep only what was just pushed, so the build disk doesn't fill.
+docker images "$IMAGE" --format '{{.Repository}}:{{.Tag}}' | grep -v -e ":latest$" -e ":$SHA$" | xargs -r docker rmi || true
+docker image prune -f &gt;/dev/null
+docker builder prune -f --filter "until=24h" &gt;/dev/null
+df -h / | tail -1
 </command>
       <configuredLocalRules/>
     </hudson.tasks.Shell>
