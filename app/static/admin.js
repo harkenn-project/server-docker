@@ -528,6 +528,36 @@ function initVoice() {
   });
   fill(jsonScript("voice-data"));
 
+  // custom wake words
+  const wwList = $("#wakeword-list");
+  const showWakeWords = data => {
+    const custom = data.wake_words.filter(w => w.custom);
+    wwList.replaceChildren(...custom.map(w => el("p", {}, el("strong", {}, w.name),
+      w.used_by.length ? ` · used by ${w.used_by.join(", ")} ` : " ",
+      el("button", { type: "button", class: "link", onclick: async () => {
+        if (!confirm(`Remove the ${w.name} wake word?`)) return;
+        try { await api("DELETE", `/admin/api/wakewords/${w.id}`); showWakeWords(await api("GET", "/admin/api/wakewords")); }
+        catch (err) { toast(err.message, true); }
+      } }, "Remove"))));
+    if (!custom.length) wwList.append(el("p", { class: "hint" }, "No custom wake words yet."));
+  };
+  if (wwList) {
+    api("GET", "/admin/api/wakewords").then(showWakeWords).catch(() => {});
+    $("#ww-add").addEventListener("click", async () => {
+      const model = $("#ww-model").files[0];
+      if (!model) { toast("Choose the model's .tflite file", true); return; }
+      const fd = new FormData();
+      fd.append("model", model);
+      if ($("#ww-manifest").files[0]) fd.append("manifest", $("#ww-manifest").files[0]);
+      fd.append("name", $("#ww-name").value);
+      try {
+        showWakeWords(await api("POST", "/admin/api/wakewords", fd));
+        toast("Added: choose it for a speaker on its page");
+        $("#ww-model").value = ""; $("#ww-manifest").value = ""; $("#ww-name").value = "";
+      } catch (err) { toast(err.message, true); }
+    });
+  }
+
   const say = $("#say-form");
   if (say) say.addEventListener("submit", async e => {
     e.preventDefault();

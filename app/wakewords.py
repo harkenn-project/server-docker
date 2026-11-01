@@ -1,8 +1,10 @@
 """Wake words, detected on the speaker itself: nothing leaves it until it hears one.
 
-The models are microWakeWord streaming models (TensorFlow Lite Micro) from github.com/esphome/micro-wake-word-models,
-Apache-2.0, pinned to a commit. The Docker image bundles them (`python -m app.wakewords <dir>`); elsewhere they're
-downloaded into the data folder the first time they're needed. A speaker gets its model and settings in its config
+The built-in models are microWakeWord streaming models (TensorFlow Lite Micro) from
+github.com/esphome/micro-wake-word-models, Apache-2.0, pinned to a commit. The Docker image bundles them
+(`python -m app.wakewords <dir>`); elsewhere they're downloaded into the data folder the first time they're needed.
+Custom ones (trained with microWakeWord, e.g. "Hi Janet") are uploaded on the admin Voice page and kept in
+<data>/wakewords. A speaker gets its model and settings in its config
 ("wake_word", docs/PROTOCOL.md) and keeps the model in flash.
 
     python -m app.wakewords <dir>      # download the models into <dir> (used by the Dockerfile)
@@ -11,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import threading
 import urllib.request
@@ -45,14 +48,64 @@ def download(directory: Path, wid: str) -> None:
         tmp.replace(directory / f"{wid}.{ext}")
 
 
+DEFAULT_MICRO = {"probability_cutoff": 0.97, "sliding_window_size": 5, "tensor_arena_size": 30000}
+
+
 class WakeWords:
-    def __init__(self, bundled: Path | None, data_dir: Path) -> None:
+    def __init__(self, bundled: Path | None, data_dir: Path, custom_dir: Path | None = None) -> None:
         self.dirs = [d for d in (bundled, data_dir) if d]
         self.data_dir = data_dir
+        self.custom_dir = custom_dir or data_dir.parent.parent / "wakewords"
         self._lock = threading.Lock()
 
+    # custom models
+
+    def custom(self) -> dict[str, dict[str, Any]]:
+        out = {}
+        if self.custom_dir.is_dir():
+            for meta in sorted(self.custom_dir.glob("*.json")):
+                if meta.with_suffix(".tflite").is_file():
+                    try:
+                        out[meta.stem] = json.loads(meta.read_text())
+                    except ValueError:
+                        continue
+        return out
+
+    def catalog(self) -> dict[str, str]:
+        """Every wake word a speaker can use: id -> name."""
+        return {**WAKE_WORDS, **{wid: m.get("wake_word") or wid for wid, m in self.custom().items()}}
+
+    def add_custom(self, model: bytes, manifest: dict[str, Any] | None, name: str = "") -> str:
+        """Store an uploaded model. Raises ValueError if it isn't a TFLite model."""
+        if len(model) > MAX_MODEL_BYTES or model[4:8] != b"TFL3":
+            raise ValueError("that isn't a TensorFlow Lite model (.tflite)")
+        manifest = dict(manifest or {})
+        name = (name or manifest.get("wake_word") or "").strip()[:40]
+        if not name:
+            raise ValueError("give the wake word a name")
+        micro = {**DEFAULT_MICRO, **{k: v for k, v in (manifest.get("micro") or {}).items()
+                                     if k in ("probability_cutoff", "sliding_window_size", "tensor_arena_size")}}
+        wid = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:32] or "custom"
+        if wid in WAKE_WORDS:
+            wid = f"custom_{wid}"
+        self.custom_dir.mkdir(parents=True, exist_ok=True)
+        (self.custom_dir / f"{wid}.tflite").write_bytes(model)
+        (self.custom_dir / f"{wid}.json").write_text(json.dumps({"wake_word": name, "micro": micro}, indent=2))
+        return wid
+
+    def delete_custom(self, wid: str) -> bool:
+        if wid not in self.custom():
+            return False
+        for ext in ("tflite", "json"):
+            (self.custom_dir / f"{wid}.{ext}").unlink(missing_ok=True)
+        return True
+
+    # models
+
     def path(self, wid: str) -> Path | None:
-        """The model file, downloading it into the data folder if it isn't bundled."""
+        """The model file, downloading a built-in one into the data folder if it isn't bundled."""
+        if wid in self.custom():
+            return self.custom_dir / f"{wid}.tflite"
         if wid not in WAKE_WORDS:
             return None
         for d in self.dirs:
@@ -66,7 +119,8 @@ class WakeWords:
 
     def speaker_manifest(self, wid: str, sensitivity: str, base_url: str) -> dict[str, Any] | None:
         """What a speaker needs for its wake word; None for none (or if the model can't be had)."""
-        if wid not in WAKE_WORDS:
+        names = self.catalog()
+        if wid not in names:
             return None
         try:
             model = self.path(wid)
@@ -75,7 +129,8 @@ class WakeWords:
             log.warning("wake word %s unavailable: %s", wid, e)
             return None
         cutoff = min(0.995, max(0.5, float(micro["probability_cutoff"]) + SENSITIVITY.get(sensitivity, 0.0)))
-        return {"id": wid, "name": WAKE_WORDS[wid], "url": f"{base_url}/assets/wakewords/{wid}.tflite?v={MODELS_COMMIT[:8]}",
+        version = MODELS_COMMIT[:8] if wid in WAKE_WORDS else str(int(model.stat().st_mtime))
+        return {"id": wid, "name": names[wid], "url": f"{base_url}/assets/wakewords/{wid}.tflite?v={version}",
                 "bytes": model.stat().st_size, "cutoff": round(cutoff, 3),
                 "window": int(micro.get("sliding_window_size", 5)), "arena": int(micro.get("tensor_arena_size", 30000))}
 

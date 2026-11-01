@@ -1305,3 +1305,33 @@ def test_wake_word_in_the_speaker_config(tmp_path, prebuilt):
         c.put(f"/admin/api/devices/{MAC}", headers=ADMIN, json={"name": device["name"], "config": device["config"]})
         assert c.get("/api/v1/device/config", headers=bearer(token)).json()["wake_word"] is None
         assert "hey_jarvis" in c.get("/admin/api/catalog", headers=ADMIN).json()["wake_words"]
+
+
+def test_custom_wake_word(client):
+    import json as jsonlib
+
+    token = adopt(client)
+    login(client)
+    model = b"\x1c\x00\x00\x00TFL3" + bytes(200)
+    manifest = jsonlib.dumps({"wake_word": "Hi Janet", "micro": {"probability_cutoff": 0.9, "sliding_window_size": 4,
+                                                                  "tensor_arena_size": 28000, "other": 1}})
+    assert client.post("/admin/api/wakewords", headers=ADMIN, files={"model": ("x.tflite", b"not a model")},
+                       data={"name": "Bad"}).status_code == 422
+    r = client.post("/admin/api/wakewords", headers=ADMIN,
+                    files={"model": ("hi_janet.tflite", model), "manifest": ("hi_janet.json", manifest)})
+    assert r.status_code == 201, r.text
+    assert r.json()["id"] == "hi_janet"
+    listed = {w["id"]: w for w in client.get("/admin/api/wakewords", headers=ADMIN).json()["wake_words"]}
+    assert listed["hi_janet"]["custom"] and not listed["hey_jarvis"]["custom"]
+    device = client.get(f"/admin/api/devices/{MAC}", headers=ADMIN).json()
+    device["config"]["audio"]["wake_word"] = "hi_janet"
+    assert client.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                      json={"name": device["name"], "config": device["config"]}).status_code == 200
+    wake = client.get("/api/v1/device/config", headers=bearer(token)).json()["wake_word"]
+    assert wake["name"] == "Hi Janet" and wake["cutoff"] == 0.9 and wake["window"] == 4 and wake["arena"] == 28000
+    assert client.get(wake["url"]).content == model
+    assert client.delete("/admin/api/wakewords/hi_janet", headers=ADMIN).status_code == 409  # in use
+    device["config"]["audio"]["wake_word"] = ""
+    client.put(f"/admin/api/devices/{MAC}", headers=ADMIN, json={"name": device["name"], "config": device["config"]})
+    assert client.delete("/admin/api/wakewords/hi_janet", headers=ADMIN).status_code == 204
+    assert client.delete("/admin/api/wakewords/hey_jarvis", headers=ADMIN).status_code == 404  # built in

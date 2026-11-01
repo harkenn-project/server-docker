@@ -60,7 +60,7 @@ def catalog(c: Context) -> dict[str, Any]:
         "characters": [{"id": m["id"], "name": m["name"], "version": m["version"], "states": list(m["states"])}
                        for m in c.characters.list()],
         "sound_packs": [{"id": p["id"], "name": p["name"]} for p in c.sounds.list()],
-        "wake_words": WAKE_WORDS,
+        "wake_words": c.wakewords.catalog(),
     }
 
 
@@ -726,6 +726,51 @@ async def identify_voice(file: UploadFile, request: Request) -> dict[str, Any]:
         raise HTTPException(422, str(e)) from e
     who = await run_in_threadpool(c.voice.voiceprints.identify, pcm, c.voice.settings().voiceprint_threshold)
     return {"who": who}
+
+
+def _wakewords_out(c: Context) -> dict[str, Any]:
+    used: dict[str, list[str]] = {}
+    for d in c.db.list_devices():
+        used.setdefault(DeviceConfig.model_validate(d["config"]).audio.wake_word, []).append(d["name"])
+    return {"wake_words": [{"id": wid, "name": name, "custom": wid not in WAKE_WORDS, "used_by": used.get(wid, [])}
+                           for wid, name in c.wakewords.catalog().items()]}
+
+
+@api.get("/wakewords")
+async def list_wake_words(request: Request) -> dict[str, Any]:
+    return _wakewords_out(get_ctx(request))
+
+
+@api.post("/wakewords", status_code=201)
+async def add_wake_word(request: Request, model: UploadFile, manifest: UploadFile | None = None,
+                        name: str = Form("")) -> dict[str, Any]:
+    """A custom wake word: a microWakeWord streaming model (.tflite), with its .json if there is one."""
+    c = get_ctx(request)
+    data = await model.read(512 * 1024 + 1)
+    meta = None
+    if manifest is not None:
+        try:
+            meta = json.loads((await manifest.read(64 * 1024)).decode())
+        except ValueError as e:
+            raise HTTPException(422, "that .json isn't valid") from e
+    try:
+        wid = c.wakewords.add_custom(data, meta, name)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    for d in c.db.list_devices():  # speakers using an updated model get it
+        if DeviceConfig.model_validate(d["config"]).audio.wake_word == wid:
+            await push_config(c, d["id"])
+    return {"id": wid, **_wakewords_out(c)}
+
+
+@api.delete("/wakewords/{wid}", status_code=204)
+async def delete_wake_word(wid: str, request: Request) -> Response:
+    c = get_ctx(request)
+    if any(DeviceConfig.model_validate(d["config"]).audio.wake_word == wid for d in c.db.list_devices()):
+        raise HTTPException(409, "a speaker uses this wake word: choose another one for it first")
+    if not c.wakewords.delete_custom(wid):
+        raise HTTPException(404)
+    return Response(status_code=204)
 
 
 @api.get("/server")

@@ -43,7 +43,8 @@ class Context:
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
-        self.wakewords = WakeWords(self.settings.wakewords_dir, self.settings.data_dir / "models" / "wakewords")
+        self.wakewords = WakeWords(self.settings.wakewords_dir, self.settings.data_dir / "models" / "wakewords",
+                                   self.settings.data_dir / "wakewords")
 
     def public_url(self) -> str:
         """The server's public address: set in the admin UI, else HARKENN_PUBLIC_URL."""

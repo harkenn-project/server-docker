@@ -70,6 +70,18 @@
       <small>How alike a voice must be to the voiceprints on the <a href="/admin/people">People</a> page to count as
         that person (0.70 by default). Higher means fewer wrong guesses but more "not recognized".</small></label>
   </fieldset>
+  <fieldset><legend>Custom wake words</legend>
+    <p class="hint">Besides the built-in wake words, speakers can use your own, trained with
+      <a href="https://github.com/kahrendt/microWakeWord">microWakeWord</a> (a streaming .tflite model, and its .json).
+      Choose one for a speaker on its page.</p>
+    <div id="wakeword-list"></div>
+    <div class="inline-form">
+      <label>Model (.tflite) <input type="file" id="ww-model" accept=".tflite"></label>
+      <label>Settings (.json, optional) <input type="file" id="ww-manifest" accept=".json,application/json"></label>
+      <label>Name <input id="ww-name" maxlength="40" placeholder="from the .json"></label>
+      <button type="button" class="secondary" id="ww-add">Add wake word</button>
+    </div>
+  </fieldset>
   <fieldset><legend>Privacy</legend>
     <label class="inline"><input type="checkbox" name="keep_recordings"> Keep what speakers hear (Recordings on each speaker's page), for troubleshooting</label>
   </fieldset>

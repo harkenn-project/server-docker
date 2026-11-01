@@ -20,7 +20,6 @@ from .assets import STATES
 from .context import Context, base_url, device_payload, get_ctx
 from .models import AdoptionRequestIn, LogBatch, LogLine, StatusIn
 from .sounds import wav
-from .wakewords import WAKE_WORDS
 from .themes import ALL_CHARACTER_SIZES
 
 log = logging.getLogger("harkenn.device")
@@ -305,7 +304,7 @@ async def sound_clip(pid: str, slot: str, fmt: str, request: Request, v: int | N
 @assets_router.get("/assets/wakewords/{wid}.tflite")
 async def wake_word_model(wid: str, request: Request, v: str | None = None) -> FileResponse:
     """A wake word model, for speakers (they run it themselves)."""
-    if wid not in WAKE_WORDS:
+    if wid not in get_ctx(request).wakewords.catalog():
         raise HTTPException(404)
     try:
         path = await run_in_threadpool(get_ctx(request).wakewords.path, wid)
