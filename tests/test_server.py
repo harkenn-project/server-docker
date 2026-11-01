@@ -679,3 +679,17 @@ def test_public_url_from_admin_and_links_follow_the_speaker(client):
     client.put("/admin/api/server", json={"public_url": ""}, headers=ADMIN)  # back to the default
     assert client.get("/admin/api/server").json()["effective_public_url"] == "http://testserver"
     assert client.get("/admin/server").status_code == 200
+
+def test_base_url_drops_default_port():
+    from starlette.requests import Request
+
+    from app.context import base_url
+
+    def req(scheme, host):
+        return Request({"type": "http", "scheme": scheme, "path": "/", "query_string": b"",
+                        "headers": [(b"host", host.encode())], "server": ("x", 0)})
+
+    assert base_url(req("https", "harkenn.example:443")) == "https://harkenn.example"
+    assert base_url(req("http", "harkenn:80")) == "http://harkenn"
+    assert base_url(req("http", "harkenn:8000")) == "http://harkenn:8000"
+    assert base_url(req("https", "harkenn.example")) == "https://harkenn.example"

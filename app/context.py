@@ -52,7 +52,13 @@ def base_url(conn: HTTPConnection) -> str:
     """The address a speaker used to reach this server. Links sent back to that speaker use it, so they keep working
     whatever the public URL is (e.g. a speaker adopted through http://harkenn)."""
     scheme = {"ws": "http", "wss": "https"}.get(conn.url.scheme, conn.url.scheme)
-    return f"{scheme}://{conn.headers.get('host') or conn.url.netloc}"
+    host = conn.headers.get("host") or conn.url.netloc
+    # Some clients name the default port (the speaker's WebSocket sends "host:443", its HTTP client doesn't). Drop it,
+    # so both give the same links and the speaker doesn't download its animations again.
+    default_port = {"http": ":80", "https": ":443"}.get(scheme)
+    if default_port and host.endswith(default_port):
+        host = host[: -len(default_port)]
+    return f"{scheme}://{host}"
 
 
 def default_config(ctx: Context) -> DeviceConfig:
