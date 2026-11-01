@@ -161,7 +161,8 @@ sent as binary WebSocket frames.
 ```
 speaker                                     Harkenn
 voice_start {session, rate, local_time}  ->
-binary frames (mic, ~100 ms each)        ->
+binary frames (mic, ~100 ms each)        ->           end-of-speech detection (Silero VAD)
+                                         <-  listen_stop {session}   (heard speech, then audio.silence_s without it)
 voice_end {session}                      ->           speech-to-text (Whisper), reply, text-to-speech (Piper)
                                          <-  voice_result {session, heard, reply}
                                          <-  speak_start {session, rate, bytes, text}
@@ -169,8 +170,11 @@ voice_end {session}                      ->           speech-to-text (Whisper), 
                                          <-  speak_end {session}
 ```
 
-* The speaker ends the utterance itself: on a tap, after `audio.silence_s` without speech, or after 30 s. If it heard
-  no speech at all it sends `voice_cancel` instead of `voice_end`.
+* Harkenn tells speech from noise, so it decides when the speaker has finished: once it has heard speech and then
+  `audio.silence_s` without any, it sends `listen_stop` and the speaker stops listening and sends `voice_end`. The
+  speaker also ends the utterance itself, by loudness alone: on a tap, after `audio.silence_s` of quiet, or after 30 s.
+  If neither heard speech it sends `voice_cancel` instead of `voice_end`. (Firmware before 0.8.0 ignores
+  `listen_stop`.)
 * `local_time` (ISO 8601, no zone) is the speaker's clock, so answers use its time zone.
 * `voice_result` with an empty `heard` means nothing was understood: the speaker plays its cancel sound.
 * `voice_error {session, message}` means the pipeline failed.

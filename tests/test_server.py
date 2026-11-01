@@ -11,6 +11,7 @@ from app.assets import STATES
 from app.main import create_app
 from app.settings import Settings
 from app.starter import BUILTIN_VERSION, build
+from app.voice.vad import SpeechEnd
 
 ADMIN = {"X-Requested-With": "harkenn"}
 MAC = "907069f466b0"
@@ -544,7 +545,16 @@ def fake_voice(c, heard="what time is it"):
 
     voice.stt.transcribe = transcribe
     voice.tts.synthesize = synthesize
+    voice.speech_end = lambda silence_s: SpeechEnd(silence_s, probability=loud)  # loud is speech, quiet isn't
     return got
+
+
+def loud(window):
+    return 1.0 if np.abs(window).max() > 0.1 else 0.0
+
+
+SPEECH = np.full(1600, 12000, dtype="<i2").tobytes()  # 100 ms that the fake detector calls speech
+QUIET = bytes(3200)                           # 100 ms of silence
 
 
 def receive_speech(ws):
@@ -693,3 +703,40 @@ def test_base_url_drops_default_port():
     assert base_url(req("http", "harkenn:80")) == "http://harkenn"
     assert base_url(req("http", "harkenn:8000")) == "http://harkenn:8000"
     assert base_url(req("https", "harkenn.example")) == "https://harkenn.example"
+
+
+def test_speech_end_waits_for_speech_then_silence():
+    end = SpeechEnd(1.0, probability=loud)
+    assert not any(end.feed(QUIET) for _ in range(30))  # silence alone never ends it: the speaker's timeout does
+    assert not end.feed(SPEECH[:1000])                   # a click is not enough speech
+    assert not any(end.feed(QUIET) for _ in range(15))
+    assert not any(end.feed(SPEECH) for _ in range(5))   # speech...
+    quiet = next(n for n in range(1, 20) if end.feed(QUIET))  # ...then quiet, in 100 ms frames
+    assert 10 <= quiet <= 11                                  # ends after 1 s (give or take a 32 ms window)
+    assert not end.feed(QUIET)                                # and only once
+
+
+def test_server_ends_listening_after_speech(client):
+    token = adopt(client)
+    fake_voice(client)
+    db = client.app.state.ctx.db
+    device = db.get_device(MAC)
+    device["config"]["audio"]["silence_s"] = 1  # the speaker's "stop after" setting is what the server waits for
+    db.update_device(MAC, name=device["name"], config=device["config"])
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "s3"})
+        for frame in [QUIET] * 5 + [SPEECH] * 8 + [QUIET] * 12:
+            ws.send_bytes(frame)
+        assert ws.receive_json() == {"type": "listen_stop", "session": "s3"}
+        ws.send_json({"type": "voice_end", "session": "s3"})
+        assert ws.receive_json()["type"] == "voice_result"
+
+
+def test_silero_ignores_silence_and_noise():
+    end = SpeechEnd(0.5)  # the real model, as bundled with faster-whisper
+    rng = np.random.default_rng(1)
+    noise = (rng.normal(0, 3000, 16000 * 3)).astype("<i2").tobytes()
+    assert not any(end.feed(bytes(3200)) for _ in range(20))
+    assert not any(end.feed(noise[i:i + 3200]) for i in range(0, len(noise), 3200))
+    assert not end.heard_speech

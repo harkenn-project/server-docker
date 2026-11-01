@@ -1,6 +1,7 @@
 """The voice pipeline: a speaker streams what it hears, Harkenn turns it into a spoken reply.
 
     speaker: voice_start {session, local_time}, binary PCM frames (16 kHz, 16-bit mono), voice_end
+    server:  listen_stop {session} once the speaker has heard speech and then silence (vad.py)
     server:  speech-to-text -> reply (brain.py) -> text-to-speech
     server:  voice_result {heard, reply}, speak_start {rate, text, bytes}, binary PCM frames, speak_end
 
@@ -21,8 +22,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from ..models import VoiceSettings
-from . import brain
+from ..models import DeviceConfig, VoiceSettings
+from . import brain, vad
 from .engines import RATE, SpeechToText, TextToSpeech
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ class Utterance:
     started: float = field(default_factory=time.time)
     local_time: datetime | None = None
     audio: bytearray = field(default_factory=bytearray)
+    speech_end: vad.SpeechEnd | None = None
 
 
 def parse_local_time(value: Any) -> datetime | None:
@@ -71,6 +73,8 @@ class VoiceService:
         self.conversations = brain.Conversations()
         self._utterances: dict[str, Utterance] = {}
         self._tasks: dict[str, asyncio.Task] = {}
+        self._background: set[asyncio.Task] = set()
+        self.speech_end = vad.SpeechEnd  # (silence_s) -> detector; replaced in tests
 
     # settings
 
@@ -92,7 +96,8 @@ class VoiceService:
         if kind == "voice_start":
             self._cancel(device_id)
             self._utterances[device_id] = Utterance(session=str(msg.get("session", ""))[:32],
-                                                    local_time=parse_local_time(msg.get("local_time")))
+                                                    local_time=parse_local_time(msg.get("local_time")),
+                                                    speech_end=self._speech_end(device_id))
         elif kind == "voice_end":
             u = self._utterances.pop(device_id, None)
             if u is not None:
@@ -103,12 +108,34 @@ class VoiceService:
 
     def audio(self, device_id: str, data: bytes) -> None:
         u = self._utterances.get(device_id)
-        if u is not None and len(u.audio) + len(data) <= MAX_UTTERANCE_BYTES:
-            u.audio += data
+        if u is None or len(u.audio) + len(data) > MAX_UTTERANCE_BYTES:
+            return
+        u.audio += data
+        if u.speech_end is None:
+            return
+        try:
+            ended = u.speech_end.feed(data)
+        except Exception as e:  # never lose the utterance over this: the speaker's own detector still ends it
+            log.warning("end-of-speech detection failed for %s: %s", device_id, e)
+            u.speech_end = None
+            return
+        if ended:  # the speaker stops listening and sends voice_end, as if its own detector had ended it
+            task = asyncio.create_task(self.ctx.hub.send(device_id, {"type": "listen_stop", "session": u.session}))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
 
     def disconnected(self, device_id: str) -> None:
         self._utterances.pop(device_id, None)
         self._cancel(device_id)
+
+    def _speech_end(self, device_id: str) -> vad.SpeechEnd | None:
+        device = self.ctx.db.get_device(device_id) or {}
+        try:
+            silence_s = DeviceConfig.model_validate(device.get("config") or {}).audio.silence_s
+            return self.speech_end(silence_s)
+        except Exception as e:
+            log.warning("end-of-speech detection unavailable, the speaker decides: %s", e)
+            return None
 
     # pipeline
 
@@ -196,6 +223,7 @@ class VoiceService:
         """Download and load the configured models now, so the first question isn't slow. Runs in a thread."""
         s = self.settings()
         try:
+            vad.load()
             if s.tts_engine == "builtin":
                 self.tts.synthesize("Ready.", engine="builtin", voice=s.tts_voice, address="")
             if s.stt_engine == "builtin":
