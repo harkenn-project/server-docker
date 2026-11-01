@@ -15,6 +15,7 @@ from .firmware import FirmwareStore
 from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
+from .homeassistant import Bridge
 from .screens import Screens
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
@@ -40,9 +41,11 @@ class Context:
     sounds: SoundStore = field(init=False)
     wakewords: WakeWords = field(init=False)
     screens: Screens = field(init=False)
+    homeassistant: Bridge = field(init=False)
 
     def __post_init__(self) -> None:
         self.screens = Screens(self.db)
+        self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
@@ -98,6 +101,12 @@ def restore_secrets(new: DeviceConfig, old: dict[str, Any]) -> DeviceConfig:
                 raise ValueError(f"Enter the password for Wi-Fi network '{network.ssid}'")
             network.password = stored[network.ssid]
     return new
+
+
+async def push_config(ctx: Context, device_id: str) -> bool:
+    """Send a speaker its current config, if it's online."""
+    device = ctx.db.get_device(device_id)
+    return bool(device) and await ctx.hub.send(device_id, device_payload(ctx, device))
 
 
 def device_theme(device: dict[str, Any]) -> dict[str, str]:

@@ -129,13 +129,16 @@ class VoiceService:
             self._utterances[device_id] = Utterance(session=str(msg.get("session", ""))[:32], follow_up=follow_up,
                                                     local_time=parse_local_time(msg.get("local_time")),
                                                     speech_end=self._speech_end(device_id))
+            self.ctx.hub.set_activity(device_id, "listening")
         elif kind == "voice_end":
             u = self._utterances.pop(device_id, None)
             if u is not None:
+                self.ctx.hub.set_activity(device_id, "thinking")
                 self._start(device_id, self._respond(device_id, u))
         elif kind in ("voice_cancel", "speak_stop"):
             self._utterances.pop(device_id, None)
             self._cancel(device_id)
+            self.ctx.hub.set_activity(device_id, "idle")
             if kind == "voice_cancel":
                 self._deliver_reply(device_id, "")
         elif kind == "ring_answer":
@@ -148,6 +151,7 @@ class VoiceService:
                 await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": "",
                                                     "reply": ""})
                 return
+            self.ctx.hub.set_activity(device_id, "thinking")
             self._start(device_id, self._respond_tap(device_id, session, label))
         elif kind == "screen_dismiss":
             self._log(device_id, "I", "screen dismissed")
@@ -173,6 +177,7 @@ class VoiceService:
     def disconnected(self, device_id: str) -> None:
         self._utterances.pop(device_id, None)
         self._cancel(device_id)
+        self.ctx.hub.set_activity(device_id, "idle")
         self._deliver_reply(device_id, "")
 
     # replies to a question someone else asked through a speaker (an agent, via mcp_server.py)
@@ -224,7 +229,13 @@ class VoiceService:
         self._cancel(device_id)
         task = asyncio.create_task(coro)
         self._tasks[device_id] = task
-        task.add_done_callback(lambda t: self._tasks.pop(device_id, None) if self._tasks.get(device_id) is t else None)
+
+        def done(t: asyncio.Task) -> None:
+            if self._tasks.get(device_id) is t:
+                self._tasks.pop(device_id, None)
+                if self.ctx.hub.activity(device_id) == "thinking":  # it ended without anything to say
+                    self.ctx.hub.set_activity(device_id, "idle")
+        task.add_done_callback(done)
 
     def _cancel(self, device_id: str) -> None:
         task = self._tasks.pop(device_id, None)
@@ -413,6 +424,7 @@ class VoiceService:
             start["follow_up"] = True  # ...for a reply in the same conversation (a quiet cue, not the wake sound)
         if not await hub.send(device_id, start):
             return
+        hub.set_activity(device_id, "speaking")
         sent_at = time.monotonic()
         for i in range(0, len(pcm), CHUNK_BYTES):
             if not await hub.send_bytes(device_id, pcm[i:i + CHUNK_BYTES]):
@@ -421,6 +433,16 @@ class VoiceService:
             if ahead > BURST_S:  # the speaker's buffer is finite: stay at most BURST_S ahead of playback
                 await asyncio.sleep(ahead - BURST_S)
         await hub.send(device_id, {"type": "speak_end", "session": session})
+        # the speaker is still playing what's in its buffer; it's idle after that (or listening again, if asked)
+        playing = len(pcm) / (RATE * 2) - (time.monotonic() - sent_at)
+        task = asyncio.create_task(self._idle_after(device_id, max(0.0, playing), listen))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def _idle_after(self, device_id: str, seconds: float, listen: bool) -> None:
+        await asyncio.sleep(seconds)
+        if self.ctx.hub.activity(device_id) == "speaking" and not listen:
+            self.ctx.hub.set_activity(device_id, "idle")
 
     def warm_up(self) -> None:
         """Download and load the configured models now, so the first question isn't slow. Runs in a thread."""

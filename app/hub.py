@@ -16,6 +16,7 @@ class Hub:
         self._conns: dict[str, tuple[WebSocket, asyncio.Lock]] = {}
         self._bases: dict[str, str] = {}  # the address each speaker connected through
         self._subscribers: set[asyncio.Queue] = set()
+        self._activity: dict[str, str] = {}  # what each speaker is doing: idle, listening, thinking, speaking, ringing
 
     def online(self, device_id: str) -> bool:
         return device_id in self._conns
@@ -71,6 +72,15 @@ class Hub:
         if conn:
             with suppress(Exception):
                 await conn[0].close(code=code, reason=reason)
+
+    def activity(self, device_id: str) -> str:
+        return self._activity.get(device_id, "idle")
+
+    def set_activity(self, device_id: str, state: str) -> None:
+        """What a speaker is doing, as the server sees it (the speaker's own status only comes every minute)."""
+        if self._activity.get(device_id, "idle") != state:
+            self._activity[device_id] = state
+            self.publish({"type": "activity", "id": device_id, "state": state})
 
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=200)

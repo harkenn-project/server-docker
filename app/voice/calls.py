@@ -31,6 +31,8 @@ class Rings:
         answered: asyncio.Future = asyncio.get_running_loop().create_future()
         self._waiting[rid] = answered
         reached = [d for d in device_ids if await self.hub.send(d, {"type": "ring", "ring": rid, "seconds": seconds})]
+        for d in reached:
+            self.hub.set_activity(d, "ringing")
         try:
             if not reached:
                 return None
@@ -41,6 +43,8 @@ class Rings:
             self._waiting.pop(rid, None)
             for d in reached:
                 await self.hub.send(d, {"type": "ring_stop", "ring": rid})
+                if self.hub.activity(d) == "ringing":
+                    self.hub.set_activity(d, "idle")
 
     def answered(self, device_id: str, rid: str) -> None:
         f = self._waiting.get(rid)

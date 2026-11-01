@@ -50,8 +50,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             threading.Thread(target=app.state.ctx.voice.warm_up, name="voice-warmup", daemon=True).start()
         if settings.mdns:
             await app.state.announcer.start(app.state.ctx.public_url())
+        app.state.ctx.homeassistant.start()
         async with app.state.mcp.session_manager.run():
             yield
+        app.state.ctx.homeassistant.stop()
         await app.state.announcer.stop()
 
     app = FastAPI(title="Harkenn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)

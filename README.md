@@ -15,6 +15,8 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   a lock: the assistant is told it can be wrong or fooled.
 - **Shows as well as tells.** With an answer, the assistant can put a picture, chart or buttons on the speaker's
   screen, and tapping a button answers it ([how](docs/SCREEN.md)).
+- **Home Assistant.** Every speaker shows up as a device: what it's doing as it happens, its volume, a notifier for
+  announcements, and more, through MQTT ([how](docs/HOMEASSISTANT.md)).
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted. Four come
   built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts

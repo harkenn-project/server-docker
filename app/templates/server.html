@@ -20,5 +20,19 @@
   </fieldset>
   <div class="buttons"><button type="submit">Save</button></div>
 </form>
+<form id="ha-form" class="card form">
+  <fieldset><legend>Home Assistant</legend>
+    <p class="hint">Harkenn can show every speaker in Home Assistant, through its MQTT broker (the MQTT integration
+      must be set up there): what each one is doing (idle, listening, thinking, speaking, ringing), its volume and
+      agent access to change, a <em>Say</em> notifier for announcements, and more.
+      <a href="https://github.com/harkenn-project/server-docker/blob/main/docs/HOMEASSISTANT.md" target="_blank" rel="noopener">How it works</a></p>
+    <label class="inline"><input type="checkbox" name="enabled"> Connect to Home Assistant</label>
+    <label>MQTT broker <input name="broker" placeholder="mqtt://user:password@homeassistant.local:1883" maxlength="300"></label>
+    <label>Discovery prefix <input name="discovery_prefix" maxlength="60">
+      <small>Home Assistant's default is <code>homeassistant</code>.</small></label>
+    <p class="hint">Status: <strong id="ha-status"></strong> <span id="ha-env"></span></p>
+  </fieldset>
+  <div class="buttons"><button type="submit">Save</button></div>
+</form>
 <script type="application/json" id="server-data">{{ server | tojson }}</script>
 {% endblock %}

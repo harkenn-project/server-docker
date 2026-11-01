@@ -1512,3 +1512,157 @@ def test_screen_admin_preview_and_custom_overlays(client):
     assert client.delete("/admin/api/screen/overlays/weather", headers=ADMIN).status_code == 204
     from app.screens import fill_template
     assert fill_template("<text>{{a}}</text>", {"a": "<b>&"}) == "<text>&lt;b&gt;&amp;</text>"
+
+
+class FakeBroker:
+    """Just enough of an MQTT broker for the Home Assistant bridge: accepts one client at a time, records what it
+    publishes, and can send it messages."""
+
+    def __init__(self):
+        import socket
+        import threading
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(1)
+        self.port = self.sock.getsockname()[1]
+        self.published = []  # (topic, payload, retain)
+        self.subscribed = []
+        self.conn = None
+        self.connect_flags = None
+        self.lock = threading.Lock()
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _read(self, n):
+        data = b""
+        while len(data) < n:
+            chunk = self.conn.recv(n - len(data))
+            if not chunk:
+                raise ConnectionError
+            data += chunk
+        return data
+
+    def _serve(self):
+        import struct
+        while True:
+            try:
+                self.conn, _ = self.sock.accept()
+            except OSError:
+                return
+            try:
+                while True:
+                    first = self._read(1)[0]
+                    length, shift = 0, 0
+                    while True:
+                        b = self._read(1)[0]
+                        length |= (b & 0x7F) << shift
+                        shift += 7
+                        if not b & 0x80:
+                            break
+                    body = self._read(length) if length else b""
+                    kind = first >> 4
+                    if kind == 1:
+                        self.connect_flags = body[7]
+                        self.conn.sendall(b"\x20\x02\x00\x00")
+                    elif kind == 3:
+                        n = struct.unpack_from("!H", body)[0]
+                        with self.lock:
+                            self.published.append((body[2:2 + n].decode(), body[2 + n:], bool(first & 1)))
+                    elif kind == 8:
+                        pid = body[:2]
+                        i, topics = 2, []
+                        while i < len(body):
+                            n = struct.unpack_from("!H", body, i)[0]
+                            topics.append(body[i + 2:i + 2 + n].decode())
+                            i += 3 + n
+                        self.subscribed += topics
+                        self.conn.sendall(b"\x90" + bytes([2 + len(topics)]) + pid + b"\x00" * len(topics))
+                    elif kind == 12:
+                        self.conn.sendall(b"\xd0\x00")
+            except (ConnectionError, OSError):
+                continue
+
+    def send(self, topic, payload):
+        from app.mqtt import publish_packet
+        self.conn.sendall(publish_packet(topic, payload.encode()))
+
+    def wait(self, check, timeout=5.0):
+        import time as _t
+        end = _t.time() + timeout
+        while _t.time() < end:
+            with self.lock:
+                hit = [p for p in self.published if check(p)]
+            if hit:
+                return hit
+            _t.sleep(0.02)
+        raise AssertionError("nothing matching was published")
+
+    def last(self, topic):
+        import json
+        with self.lock:
+            payload = [p for t, p, _ in self.published if t == topic][-1]
+        return json.loads(payload)
+
+
+def test_mqtt_packets_and_broker_addresses():
+    from app.mqtt import Broker, encode_length
+
+    assert encode_length(0) == b"\x00" and encode_length(127) == b"\x7f" and encode_length(321) == b"\xc1\x02"
+    assert Broker.parse("mqtt://u%40x:p@ha.local") == Broker("ha.local", 1883, "u@x", "p", False)
+    assert Broker.parse("mqtts://h:9999").tls and Broker.parse("mqtts://h:9999").port == 9999
+    with pytest.raises(ValueError):
+        Broker.parse("http://h")
+
+
+def test_home_assistant_bridge(tmp_path, prebuilt):
+    broker = FakeBroker()
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        mqtt_url=f"mqtt://127.0.0.1:{broker.port}")
+    with TestClient(create_app(settings)) as c:
+        token = adopt(c)
+        fake_voice(c)
+        state = f"harkenn/{MAC}/state"
+        broker.wait(lambda p: p[0] == f"homeassistant/sensor/harkenn_{MAC}/activity/config" and p[2])
+        assert broker.connect_flags & 0x24 == 0x24  # a retained last will (harkenn/status offline)
+        assert ("harkenn/status", b"online", True) in broker.published
+        assert "harkenn/+/+/set" in broker.subscribed and "homeassistant/status" in broker.subscribed
+        cfg = broker.last(f"homeassistant/number/harkenn_{MAC}/volume/config")
+        assert cfg["command_topic"] == f"harkenn/{MAC}/volume/set" and cfg["device"]["name"] == "Kitchen"
+        assert broker.last(state)["online"] is False
+        with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+            ws.receive_json()
+            broker.wait(lambda p: p[0] == state and b'"online": true' in p[1])
+            ws.send_json({"type": "voice_start", "session": "h1"})
+            broker.wait(lambda p: p[0] == state and b'"activity": "listening"' in p[1])
+            broker.send(f"harkenn/{MAC}/volume/set", "40")
+            pushed = ws.receive_json()
+            assert pushed["type"] == "config" and pushed["config"]["audio"]["volume"] == 40
+            broker.wait(lambda p: p[0] == state and b'"volume": 40' in p[1])
+            ws.send_json({"type": "voice_cancel", "session": "h1"})
+            broker.send(f"harkenn/{MAC}/say/set", "Dinner is ready")
+            start, _ = receive_speech(ws)
+            assert start["text"] == "Dinner is ready"
+            broker.wait(lambda p: p[0] == state and b'"activity": "speaking"' in p[1])
+            broker.send(f"harkenn/{MAC}/agents/set", "Do not disturb")
+            broker.wait(lambda p: p[0] == state and b'"agents": "Do not disturb"' in p[1])
+        assert c.app.state.ctx.db.get_device(MAC)["config"]["agents"]["access"] == "do_not_disturb"
+        # Home Assistant restarted: it gets the discovery messages again
+        before = len([p for p in broker.published if p[0].endswith("/activity/config")])
+        broker.send("homeassistant/status", "online")
+        broker.wait(lambda p: len([q for q in broker.published if q[0].endswith("/activity/config")]) > before)
+        # the admin UI: the password never reaches the browser, and an unchanged one is kept
+        login(c)
+        out = c.get("/admin/api/homeassistant", headers=ADMIN).json()
+        assert out["status"] == "connected" and out["from_environment"] is True
+        r = c.put("/admin/api/homeassistant", headers=ADMIN, json={
+            "enabled": True, "broker": f"mqtt://ha:secret@127.0.0.1:{broker.port}", "discovery_prefix": "homeassistant"})
+        assert r.status_code == 200 and "secret" not in r.text and "ha:********@" in r.json()["broker"]
+        r = c.put("/admin/api/homeassistant", headers=ADMIN, json={
+            "enabled": True, "broker": r.json()["broker"], "discovery_prefix": "homeassistant"})
+        assert c.app.state.ctx.homeassistant.settings().broker == f"mqtt://ha:secret@127.0.0.1:{broker.port}"
+        assert c.put("/admin/api/homeassistant", headers=ADMIN,
+                     json={"enabled": True, "broker": "http://nope"}).status_code == 422
+        # forgetting a speaker removes it from Home Assistant
+        assert c.delete(f"/admin/api/devices/{MAC}", headers=ADMIN).status_code == 204
+        broker.wait(lambda p: p[0] == f"homeassistant/sensor/harkenn_{MAC}/activity/config" and p[1] == b"")
+    broker.sock.close()

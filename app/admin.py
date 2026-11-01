@@ -12,10 +12,12 @@ import shutil
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
@@ -23,10 +25,12 @@ from starlette.concurrency import run_in_threadpool
 from . import kani
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
-from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, get_ctx, mask_secrets,
+from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_config, get_ctx, mask_secrets,
                       restore_secrets)
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
+from .homeassistant import SETTINGS_KEY as HA_SETTINGS_KEY
+from .homeassistant import HomeAssistantSettings
 from .mcp_server import Tokens
 from . import screens
 from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
@@ -370,11 +374,6 @@ def _check_character(c: Context, config: DeviceConfig) -> None:
         raise HTTPException(422, f"unknown character '{config.character}'")
     if c.sounds.get(config.audio.sound_pack) is None:
         raise HTTPException(422, f"unknown sound pack '{config.audio.sound_pack}'")
-
-
-async def push_config(c: Context, device_id: str) -> bool:
-    device = c.db.get_device(device_id)
-    return bool(device) and await c.hub.send(device_id, device_payload(c, device))
 
 
 @api.get("/devices/{device_id}")
@@ -966,3 +965,49 @@ async def show_screen(device_id: str, body: ScreenSpecIn, request: Request) -> d
     if not c.hub.online(device_id):
         raise HTTPException(409, "speaker is offline")
     return {"sent": True, "warnings": await c.voice.show_screen(device_id, body.spec)}
+
+
+# Home Assistant (homeassistant.py)
+
+def _mask_broker(url: str) -> str:
+    """The broker address without its password, for the browser."""
+    u = urlsplit(url)
+    if not u.password:
+        return url
+    netloc = f"{u.username}:{PASSWORD_MASK}@{u.hostname}" + (f":{u.port}" if u.port else "")
+    return urlunsplit(u._replace(netloc=netloc))
+
+
+def _homeassistant_out(c: Context) -> dict[str, Any]:
+    s = c.homeassistant.settings()
+    return {**s.model_dump(), "broker": _mask_broker(s.broker), "status": c.homeassistant.status,
+            "from_environment": bool(c.settings.mqtt_url) and not c.db.get_setting(HA_SETTINGS_KEY)}
+
+
+@api.get("/homeassistant")
+async def get_homeassistant(request: Request) -> dict[str, Any]:
+    return _homeassistant_out(get_ctx(request))
+
+
+@api.put("/homeassistant")
+async def put_homeassistant(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    body = {k: v for k, v in body.items() if k in ("enabled", "broker", "discovery_prefix")}
+    if PASSWORD_MASK in str(body.get("broker", "")):  # unchanged: keep the stored password
+        old = urlsplit(c.homeassistant.settings().broker)
+        new = urlsplit(body["broker"])
+        if new.hostname == old.hostname and new.username == old.username:
+            body["broker"] = urlunsplit(new._replace(netloc=old.netloc))
+    try:
+        s = HomeAssistantSettings.model_validate(body)
+    except ValidationError as e:
+        raise HTTPException(422, "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors())) from e
+    if s.enabled and not s.broker:
+        raise HTTPException(422, "enter the MQTT broker's address")
+    c.homeassistant.save(s)
+    await c.homeassistant.restart()
+    for _ in range(30):  # a moment for the first connection, so the page can show how it went
+        if c.homeassistant.status != "connecting":
+            break
+        await asyncio.sleep(0.1)
+    return _homeassistant_out(c)

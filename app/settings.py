@@ -31,6 +31,7 @@ class Settings:
     assistant_model: str = ""
     assistant_key: str = ""
     mcp_token: str = ""  # an extra MCP access token (mcp.py), e.g. shared with an agent through a secret
+    mqtt_url: str = ""  # Home Assistant's MQTT broker (homeassistant.py) until the admin UI sets one
 
     @property
     def db_path(self) -> Path:
@@ -88,4 +89,5 @@ def load_settings() -> Settings:
         assistant_model=env("ASSISTANT_MODEL"),
         assistant_key=env("ASSISTANT_KEY"),
         mcp_token=env("MCP_TOKEN"),
+        mqtt_url=env("MQTT_URL"),
     )

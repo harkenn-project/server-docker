@@ -586,6 +586,25 @@ function initServer() {
     } catch (err) { toast(err.message, true); }
   });
   fill(jsonScript("server-data"));
+
+  const ha = $("#ha-form");
+  const showHa = data => {
+    ha.elements.enabled.checked = data.enabled;
+    ha.elements.broker.value = data.broker;
+    ha.elements.discovery_prefix.value = data.discovery_prefix;
+    $("#ha-status").textContent = data.status;
+    $("#ha-env").textContent = data.from_environment ? "(from HARKENN_MQTT_URL)" : "";
+  };
+  ha.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = ha.elements;
+    try {
+      showHa(await api("PUT", "/admin/api/homeassistant",
+        { enabled: f.enabled.checked, broker: f.broker.value, discovery_prefix: f.discovery_prefix.value }));
+      toast("Saved");
+    } catch (err) { toast(err.message, true); }
+  });
+  api("GET", "/admin/api/homeassistant").then(showHa).catch(err => toast(err.message, true));
 }
 
 // agents
