@@ -70,7 +70,8 @@ Rings one speaker or all of them for 5–30 seconds, like a phone. The speaker p
 - **Answered:** `{"answered": true, "answered_on": "Kitchen"}`. If `message` is given, it's spoken on that speaker.
 - **With `wait_for_reply`:** after the message (or "Go ahead." without one), the speaker listens. What the person
   says comes back as `reply`, transcribed by speech-to-text. That speaker's assistant doesn't answer it; the person
-  hears "Thanks, I'll pass that on." An empty `reply` means nothing was understood.
+  hears "Thanks, I'll pass that on." An empty `reply` means nothing was understood. If the speaker shows a screen
+  with buttons (docs/SCREEN.md), a tap counts as the reply: `(tapped "Yes" on the screen)`.
 
 The call takes as long as the ringing plus the reply, so give your client a tool timeout of about 2 minutes.
 

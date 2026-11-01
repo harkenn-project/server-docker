@@ -31,13 +31,19 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [Jinja](https://github.com/pallets/jinja) and [ItsDangerous](https://github.com/pallets/itsdangerous) (Pallets) | Admin pages, signed sessions | BSD-3-Clause |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Uploads | Apache-2.0 |
 | [Pillow](https://github.com/python-pillow/Pillow) | Drawing and converting character animations and screens | MIT-CMU |
+| [Aileron](https://www.dotcolon.net/font/aileron/) (Sora Sagano, bundled with Pillow) | The lettering on the assistant's buttons and text | CC0-1.0 |
 | [CairoSVG](https://github.com/Kozea/CairoSVG) (Kozea) and [cairo](https://www.cairographics.org/) | Drawing the assistant's SVG screens | LGPL-3.0 / LGPL-2.1 |
+| [DejaVu fonts](https://dejavu-fonts.github.io) and [Fontconfig](https://www.freedesktop.org/wiki/Software/fontconfig/) | Text in SVG screens (installed in the image from Debian) | Bitstream Vera licence (free) / MIT |
+| [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) (Model Context Protocol) | The MCP server agents use | MIT |
 | [NumPy](https://numpy.org) | Animation encoding, audio resampling | BSD-3-Clause |
 | [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) | Announcing the server on the network (mDNS) | LGPL-2.1-or-later |
 | [SQLite](https://sqlite.org) | Database | public domain |
 
 ## Ideas and protocols
 
+- The speakers appear in Home Assistant through its [MQTT discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery)
+  convention; Harkenn has its own small MQTT 3.1.1 client ([MQTT](https://mqtt.org) is an OASIS standard).
+- Agents reach the speakers over the [Model Context Protocol](https://modelcontextprotocol.io).
 - The speaker's Wi-Fi setup, adoption code and over-the-air updates follow patterns from
   [ESPHome](https://esphome.io) and [Home Assistant](https://www.home-assistant.io); the voice pipeline follows the
   shape of Home Assistant's Assist, and can use the same Wyoming services.
