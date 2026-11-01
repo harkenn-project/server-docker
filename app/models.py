@@ -115,6 +115,10 @@ class VoiceSettings(Strict):
     assistant_model: str = Field("", max_length=120)
     assistant_key: str = Field("", max_length=400)
     assistant_timeout_s: int = Field(120, ge=5, le=600, description="how long an answer may take (agents use tools)")
+    follow_up: Literal["always", "questions", "never"] = Field(
+        "always", description="listen for a reply after answering: always, only after a question, or never")
+    context_conversations: int = Field(5, ge=0, le=50, description="the assistant sees this many recent conversations")
+    context_minutes: int = Field(60, ge=1, le=1440, description="...from at most this many minutes ago")
     system_prompt: str = Field("", max_length=4000, description="empty = built-in prompt")
     keep_recordings: bool = Field(False, description="save what speakers hear, for troubleshooting")
 

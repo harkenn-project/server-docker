@@ -194,8 +194,16 @@ voice_end {session}                      ->           speech-to-text (Whisper), 
   and sends `speak_stop`.
 * `voice_wait {session}` arrives every 20 s while an answer takes long (an agent using tools). The speaker keeps
   waiting another 60 s each time.
-* `speak_start {..., listen: true}`: someone asked a question (an agent, through `ring`). When the speech has played,
-  the speaker starts listening as if tapped. Harkenn passes what it hears to whoever asked, not to the assistant.
+* `speak_start {..., listen: true}`: when the speech has played, the speaker listens again, with a soft cue rather
+  than the wake sound. Two cases:
+  * `follow_up: true` too: the assistant answered and waits for a reply (Voice page, *listen for a reply*). The
+    speaker sends `voice_start {..., follow_up: true}`, and Harkenn keeps the reply in the same conversation. If no one
+    speaks, the conversation ends quietly (no cancel sound).
+  * Without it: someone asked a question (an agent, through `ring`). Harkenn passes what it hears to whoever asked,
+    not to the assistant.
+* A **conversation** is one tap or wake word plus the replies that follow it. The assistant sees only the last few
+  conversations from a recent window (Voice page; 5 from the last 60 minutes by default). Firmware before 0.11.0
+  doesn't send `follow_up`, so every utterance starts a new conversation.
 
 ## 6. Ringing (agents)
 

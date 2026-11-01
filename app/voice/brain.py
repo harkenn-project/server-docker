@@ -4,10 +4,13 @@ of the box.
 Three kinds of API cover most of what's out there:
 
     openai     OpenAI-compatible chat completions: OpenAI, DeepSeek, OpenRouter, Mistral, Groq, Gemini (its OpenAI
-               endpoint), Ollama, llama.cpp, LM Studio, vLLM, LocalAI, ... Harkenn keeps the recent turns.
-    anthropic  The Anthropic Messages API. Harkenn keeps the recent turns.
-    hermes     A Hermes Agent gateway (its Responses API). Each speaker is a named conversation that Hermes keeps,
-               with its own memory, tools and skills; Harkenn sends only what was just said.
+               endpoint), Ollama, llama.cpp, LM Studio, vLLM, LocalAI, ...
+    anthropic  The Anthropic Messages API.
+    hermes     A Hermes Agent gateway: its (stateless) chat completions, with its tools, skills and long-term memory
+               (scoped to the speaker by X-Hermes-Session-Key).
+
+Harkenn keeps the history for all of them, so it stays small: a conversation is one tap or wake word plus the replies
+that follow it, and the assistant sees only the last few conversations from the last hour or so (both adjustable).
 """
 from __future__ import annotations
 
@@ -15,12 +18,10 @@ import json
 import re
 import time
 import urllib.request
-from collections import deque
 from datetime import datetime
 from typing import Any
 
-HISTORY_TURNS = 6
-HISTORY_TTL_S = 300  # a conversation is forgotten after five quiet minutes
+MAX_TURNS_PER_CONVERSATION = 20  # the oldest exchanges of a very long conversation are dropped
 MAX_REPLY_CHARS = 600
 
 DEFAULT_PROMPT = (
@@ -36,21 +37,35 @@ AGENT_PROMPT = (
 
 
 class Conversations:
-    """Recent turns per speaker, so follow-up questions work."""
+    """Each speaker's recent conversations. A conversation starts with a tap or the wake word (start) and goes on
+    while the speaker listens for replies; history() is what the assistant gets to see."""
 
     def __init__(self) -> None:
-        self._turns: dict[str, deque] = {}
-        self._last: dict[str, float] = {}
+        self._convs: dict[str, list[dict[str, Any]]] = {}
 
-    def history(self, device_id: str) -> list[dict[str, str]]:
-        if time.time() - self._last.get(device_id, 0) > HISTORY_TTL_S:
-            self._turns.pop(device_id, None)
-        return list(self._turns.get(device_id, ()))
+    def start(self, device_id: str) -> None:
+        convs = self._convs.setdefault(device_id, [])
+        if not convs or convs[-1]["turns"]:  # an empty one (nothing was said) is reused
+            convs.append({"turns": [], "last": time.time()})
+        del convs[:-50]
 
     def add(self, device_id: str, user: str, assistant: str) -> None:
-        turns = self._turns.setdefault(device_id, deque(maxlen=HISTORY_TURNS * 2))
-        turns.extend([{"role": "user", "content": user}, {"role": "assistant", "content": assistant}])
-        self._last[device_id] = time.time()
+        convs = self._convs.setdefault(device_id, [])
+        if not convs:
+            convs.append({"turns": [], "last": time.time()})
+        conv = convs[-1]
+        conv["turns"] += [{"role": "user", "content": user}, {"role": "assistant", "content": assistant}]
+        del conv["turns"][:-MAX_TURNS_PER_CONVERSATION * 2]
+        conv["last"] = time.time()
+
+    def history(self, device_id: str, conversations: int = 5, minutes: float = 60) -> list[dict[str, str]]:
+        """The turns of the last `conversations` conversations (the current one included) that were active in the
+        last `minutes`, oldest first."""
+        if conversations <= 0:
+            return []
+        since = time.time() - minutes * 60
+        recent = [c for c in self._convs.get(device_id, []) if c["turns"] and c["last"] >= since]
+        return [t for c in recent[-conversations:] for t in c["turns"]]
 
 
 def speakable(text: str) -> str:
@@ -103,12 +118,14 @@ def post(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float
 
 
 def chat_completions(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
-                     timeout: float) -> str:
+                     timeout: float, headers: dict[str, str] | None = None) -> str:
     body: dict[str, Any] = {"messages": [{"role": "system", "content": system}, *messages], "max_tokens": MAX_TOKENS}
     if settings.get("assistant_model"):
         body["model"] = settings["assistant_model"]
-    key = settings.get("assistant_key")
-    data = post(f"{url}/chat/completions", body, {"Authorization": f"Bearer {key}"} if key else {}, timeout)
+    headers = dict(headers or {})
+    if settings.get("assistant_key"):
+        headers["Authorization"] = f"Bearer {settings['assistant_key']}"
+    data = post(f"{url}/chat/completions", body, headers, timeout)
     return data["choices"][0]["message"]["content"] or ""
 
 
@@ -121,22 +138,6 @@ def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages
     return "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
 
 
-def hermes_responses(url: str, settings: dict[str, Any], system: str, text: str, device_id: str,
-                     timeout: float) -> str:
-    conversation = f"harkenn-{device_id}"
-    body: dict[str, Any] = {"input": text, "instructions": system, "conversation": conversation, "store": True}
-    if settings.get("assistant_model"):
-        body["model"] = settings["assistant_model"]
-    headers = {"X-Hermes-Session-Key": conversation}
-    if settings.get("assistant_key"):
-        headers["Authorization"] = f"Bearer {settings['assistant_key']}"
-    data = post(f"{url}/responses", body, headers, timeout)
-    if isinstance(data.get("output_text"), str):
-        return data["output_text"]
-    return "".join(part.get("text", "") for item in data.get("output", []) if item.get("type") == "message"
-                   for part in item.get("content", []) if part.get("type") in ("output_text", "text"))
-
-
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
         conversations: Conversations) -> str:
     api = settings.get("assistant_api") or "openai"
@@ -146,11 +147,16 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
     timeout = float(settings.get("assistant_timeout_s") or 120)
-    if api == "hermes":  # Hermes keeps the conversation itself
-        reply = speakable(hermes_responses(url, settings, system, text, device_id, timeout))
+    history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
+                                    float(settings.get("context_minutes", 60)))
+    messages = [*history, {"role": "user", "content": text}]
+    if api == "anthropic":
+        reply = anthropic_messages(url, settings, system, messages, timeout)
+    elif api == "hermes":  # stateless: Hermes sees only this history; its long-term memory is scoped to the speaker
+        reply = chat_completions(url, settings, system, messages, timeout,
+                                 {"X-Hermes-Session-Key": f"harkenn-{device_id}"})
     else:
-        messages = [*conversations.history(device_id), {"role": "user", "content": text}]
-        call = anthropic_messages if api == "anthropic" else chat_completions
-        reply = speakable(call(url, settings, system, messages, timeout))
-        conversations.add(device_id, text, reply)
+        reply = chat_completions(url, settings, system, messages, timeout)
+    reply = speakable(reply)
+    conversations.add(device_id, text, reply)
     return reply or "Sorry, I don't have an answer for that."

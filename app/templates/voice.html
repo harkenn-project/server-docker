@@ -54,6 +54,18 @@
     <label>Instructions <textarea name="system_prompt" rows="5" placeholder="Empty: the built-in instructions"></textarea>
       <small>{character}, {speaker} and {now} are filled in.</small></label>
   </fieldset>
+  <fieldset><legend>Conversations</legend>
+    <p class="hint">A conversation starts with a tap or the wake word and goes on while the speaker listens for
+      replies. The assistant only sees recent conversations, which keeps answers quick and cheap.</p>
+    <label>After answering, listen for a reply <select name="follow_up">
+      <option value="always">Always</option>
+      <option value="questions">Only when the answer is a question</option>
+      <option value="never">Never</option></select>
+      <small>A soft blip means it's listening. If no one says anything, the conversation ends.</small></label>
+    <label>The assistant remembers the last <input name="context_conversations" type="number" min="0" max="50">
+      conversations from the last <input name="context_minutes" type="number" min="1" max="1440"> minutes
+      <small>0 conversations: every question stands alone. Replies within a conversation always count as one.</small></label>
+  </fieldset>
   <fieldset><legend>Privacy</legend>
     <label class="inline"><input type="checkbox" name="keep_recordings"> Keep what speakers hear (Recordings on each speaker's page), for troubleshooting</label>
   </fieldset>

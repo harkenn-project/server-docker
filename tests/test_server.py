@@ -852,11 +852,9 @@ def test_assistant_apis(monkeypatch):
 
     def post(url, body, headers, timeout):
         seen.update(url=url, body=body, headers=headers)
-        if url.endswith("/responses"):
-            return {"output": [{"type": "message", "content": [{"type": "output_text", "text": "**Hi** there"}]}]}
         if url.endswith("/messages"):
             return {"content": [{"type": "text", "text": "Hello from Claude"}]}
-        return {"choices": [{"message": {"content": "Hello"}}]}
+        return {"choices": [{"message": {"content": "**Hi** there"}}]}
 
     monkeypatch.setattr(brain, "post", post)
     conv = brain.Conversations()
@@ -864,17 +862,84 @@ def test_assistant_apis(monkeypatch):
                   conversations=conv)
     s = {"assistant_api": "hermes", "assistant_url": "http://hermes:8642/v1/", "assistant_key": "k"}
     assert brain.ask("hi", settings=s, **common) == "Hi there"
-    assert seen["url"] == "http://hermes:8642/v1/responses" and seen["body"]["conversation"] == "harkenn-d1"
-    assert seen["body"]["input"] == "hi" and "Kitchen" in seen["body"]["instructions"]
-    assert "Janet" not in seen["body"]["instructions"]  # Hermes has its own persona
-    assert seen["headers"]["Authorization"] == "Bearer k" and conv.history("d1") == []  # Hermes keeps it
+    assert seen["url"] == "http://hermes:8642/v1/chat/completions"  # stateless: Harkenn sends the history
+    assert seen["headers"] == {"Authorization": "Bearer k", "X-Hermes-Session-Key": "harkenn-d1"}
+    system = seen["body"]["messages"][0]["content"]
+    assert "Kitchen" in system and "Janet" not in system  # Hermes has its own persona
     assert brain.ask("hi", settings={"assistant_api": "anthropic", "assistant_key": "a"}, **common) == "Hello from Claude"
     assert seen["url"] == "https://api.anthropic.com/v1/messages" and seen["headers"]["x-api-key"] == "a"
-    assert seen["body"]["system"].startswith("You are Janet")
+    assert seen["body"]["system"].startswith("You are Janet") and len(seen["body"]["messages"]) == 3
     s = {"assistant_api": "openai", "assistant_url": "https://api.deepseek.com/v1", "assistant_model": "deepseek-v4-flash"}
-    assert brain.ask("and you?", settings=s, **common) == "Hello"
+    assert brain.ask("and you?", settings=s, **common) == "Hi there"
     assert seen["body"]["model"] == "deepseek-v4-flash" and seen["body"]["messages"][-1]["content"] == "and you?"
-    assert len(seen["body"]["messages"]) == 4  # system, the Anthropic turn kept in history, and this one
+    assert len(seen["body"]["messages"]) == 6  # system, two earlier exchanges, and this one
+
+
+def test_context_is_the_last_conversations_in_the_last_minutes(monkeypatch):
+    from app.voice import brain
+
+    clock = [1000.0]
+    monkeypatch.setattr(brain.time, "time", lambda: clock[0])
+    conv = brain.Conversations()
+    for k in range(7):  # seven conversations, ten minutes apart; the last has a follow-up
+        conv.start("d")
+        conv.add("d", f"q{k}", f"a{k}")
+        clock[0] += 600
+    conv.add("d", "q6b", "a6b")  # a reply in the same conversation
+    said = lambda h: [t["content"] for t in h if t["role"] == "user"]
+    assert said(conv.history("d", 5, 60)) == ["q2", "q3", "q4", "q5", "q6", "q6b"]
+    assert said(conv.history("d", 5, 25)) == ["q5", "q6", "q6b"]  # only the ones active in the last 25 minutes
+    assert said(conv.history("d", 1, 60)) == ["q6", "q6b"]
+    assert conv.history("d", 0, 60) == []
+    conv.start("d")
+    conv.start("d")  # nothing was said: no empty conversations pile up
+    assert said(conv.history("d", 2, 60)) == ["q5", "q6", "q6b"]
+
+
+def test_follow_up_continues_the_conversation(client, monkeypatch):
+    from app.voice import brain, service
+
+    token = adopt(client)
+    fake_voice(client)
+    voice = client.app.state.ctx.voice
+    monkeypatch.setattr(brain, "post", lambda *a: {"choices": [{"message": {"content": "Sure. Anything else?"}}]})
+    monkeypatch.setattr(service.VoiceService, "effective",
+                        lambda self: self.settings().model_copy(update={"assistant_url": "http://llm/v1"}))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+
+        def ask(session, follow_up=False):
+            ws.send_json({"type": "voice_start", "session": session, "follow_up": follow_up})
+            ws.send_bytes(SPEECH * 5)
+            ws.send_json({"type": "voice_end", "session": session})
+            assert ws.receive_json()["type"] == "voice_result"
+            return receive_speech(ws)[0]
+
+        start = ask("c1")
+        assert start["listen"] is True and start["follow_up"] is True  # always listen for a reply, by default
+        ask("c2", follow_up=True)
+        ask("c3")  # a tap: a new conversation
+    convs = voice.conversations._convs[MAC]
+    assert [len(c["turns"]) for c in convs] == [4, 2]
+    login(client)
+    s = client.get("/admin/api/voice", headers=ADMIN).json()
+    s["follow_up"] = "questions"
+    assert client.put("/admin/api/voice", json=s, headers=ADMIN).status_code == 200
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "c4"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "c4"})
+        ws.receive_json()
+        assert receive_speech(ws)[0]["listen"] is True  # "Anything else?" is a question
+    monkeypatch.setattr(brain, "post", lambda *a: {"choices": [{"message": {"content": "Done."}}]})
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "c5"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "c5"})
+        ws.receive_json()
+        assert "listen" not in receive_speech(ws)[0]  # not a question: no listening
 
 
 def test_assistant_from_environment(tmp_path, prebuilt):

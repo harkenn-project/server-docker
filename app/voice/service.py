@@ -37,6 +37,7 @@ MAX_UTTERANCE_BYTES = RATE * 2 * 30  # 30 s, the speakers' limit too
 MIN_UTTERANCE_BYTES = RATE * 2 // 4  # under a quarter second is a click, not speech
 CHUNK_BYTES = RATE * 2 // 10         # 100 ms per frame sent to the speaker
 BURST_S = 3.0                        # how far ahead of playback the speaker's buffer is kept
+FOLLOW_UP_WINDOW_S = 120.0           # a reply must start within this long after the answer was sent
 WAIT_PING_S = 20.0                   # while an answer takes long, tell the speaker to keep waiting this often
 REPLY_ACK = "Thanks, I'll pass that on."
 
@@ -44,6 +45,7 @@ REPLY_ACK = "Thanks, I'll pass that on."
 @dataclass
 class Utterance:
     session: str
+    follow_up: bool = False  # a reply to the last answer, in the same conversation
     started: float = field(default_factory=time.time)
     local_time: datetime | None = None
     audio: bytearray = field(default_factory=bytearray)
@@ -80,6 +82,7 @@ class VoiceService:
         self.speech_end = vad.SpeechEnd  # (silence_s) -> detector; replaced in tests
         self.rings = Rings(ctx.hub)
         self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
+        self._awaiting_reply: dict[str, float] = {}  # speaker -> when it was asked to listen for a reply (follow_up)
 
     # settings
 
@@ -112,7 +115,13 @@ class VoiceService:
         kind = msg.get("type")
         if kind == "voice_start":
             self._cancel(device_id)
-            self._utterances[device_id] = Utterance(session=str(msg.get("session", ""))[:32],
+            # A reply to the last answer continues its conversation. Firmware 0.11 says so; older firmware can't
+            # listen by itself after answering, so it's always a new conversation there.
+            asked = self._awaiting_reply.pop(device_id, 0)
+            follow_up = bool(msg.get("follow_up")) and time.time() - asked < FOLLOW_UP_WINDOW_S
+            if not follow_up:
+                self.conversations.start(device_id)
+            self._utterances[device_id] = Utterance(session=str(msg.get("session", ""))[:32], follow_up=follow_up,
                                                     local_time=parse_local_time(msg.get("local_time")),
                                                     speech_end=self._speech_end(device_id))
         elif kind == "voice_end":
@@ -253,7 +262,10 @@ class VoiceService:
             t3 = time.perf_counter()
             self._log(device_id, "I", f'heard "{heard}" ({t1 - t0:.1f} s), replied "{reply}" '
                                       f"({t2 - t1:.1f} s, speech {t3 - t2:.1f} s)")
-            await self._stream(device_id, speech, reply, u.session)
+            listen = s.follow_up == "always" or (s.follow_up == "questions" and reply.rstrip().endswith("?"))
+            if listen:
+                self._awaiting_reply[device_id] = time.time()
+            await self._stream(device_id, speech, reply, u.session, listen=listen, follow_up=listen)
         except asyncio.CancelledError:
             raise
         except Exception as e:
@@ -274,11 +286,14 @@ class VoiceService:
         finally:
             task.cancel()
 
-    async def _stream(self, device_id: str, pcm: bytes, text: str, session: str = "", listen: bool = False) -> None:
+    async def _stream(self, device_id: str, pcm: bytes, text: str, session: str = "", listen: bool = False,
+                      follow_up: bool = False) -> None:
         hub = self.ctx.hub
         start = {"type": "speak_start", "session": session, "rate": RATE, "bytes": len(pcm), "text": text}
         if listen:
             start["listen"] = True  # the speaker starts listening when it has finished speaking
+        if follow_up:
+            start["follow_up"] = True  # ...for a reply in the same conversation (a quiet cue, not the wake sound)
         if not await hub.send(device_id, start):
             return
         sent_at = time.monotonic()
