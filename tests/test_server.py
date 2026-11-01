@@ -1666,3 +1666,17 @@ def test_home_assistant_bridge(tmp_path, prebuilt):
         assert c.delete(f"/admin/api/devices/{MAC}", headers=ADMIN).status_code == 204
         broker.wait(lambda p: p[0] == f"homeassistant/sensor/harkenn_{MAC}/activity/config" and p[1] == b"")
     broker.sock.close()
+
+
+def test_about_page_shows_links_support_and_credits(client):
+    from app.about import markdown
+
+    r = client.get("/admin/about")  # open to everyone: no sign-in
+    assert r.status_code == 200
+    assert "github.com/harkenn-project/server-docker" in r.text and "Buy us a coffee" in r.text
+    assert "<td><a href=\"https://github.com/SYSTRAN/faster-whisper\"" in r.text  # the credits, as a table
+    assert "Master Magic" in r.text and 'href="/admin/about"' in r.text
+    out = str(markdown("# Title\n\nSee [docs](docs/X.md) and **<b>** `x`.\n\n- one\n  more\n- two\n\n| A | B |\n|---|---|\n| 1 | 2 |",
+                       "https://g/r"))
+    assert "Title" not in out and 'href="https://g/r/blob/main/docs/X.md"' in out and "<strong>&lt;b&gt;</strong>" in out
+    assert "<li>one more</li><li>two</li>" in out and "<td>1</td><td>2</td>" in out

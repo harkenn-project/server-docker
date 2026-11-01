@@ -131,3 +131,8 @@ label small { color: var(--muted); font-size: .85em; }
 pre.wrap { white-space: pre-wrap; word-break: break-word; font-size: .85em; }
 #overlay-form textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85em; }
 #overlay-form input[type=number] { width: 5em; }
+.about-pip { float: right; margin: 0 0 8px 16px; }
+.about-links { margin: 8px 0 0; padding-left: 20px; }
+.credits h3 { margin-top: 18px; }
+.credits table td, .credits table th { vertical-align: top; }
+details summary { cursor: pointer; margin-top: 6px; }

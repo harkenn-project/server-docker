@@ -13,6 +13,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+# For the admin About page: support, licences and credits, the speaker firmware's included
+COPY CREDITS.md SUPPORT.md LICENSE ./
+ADD https://raw.githubusercontent.com/harkenn-project/speaker-firmware/main/CREDITS.md FIRMWARE-CREDITS.md
+RUN chmod 644 FIRMWARE-CREDITS.md  # downloaded files come readable by root only
 # Draw the built-in characters once at build time instead of on every fresh start
 ENV HARKENN_PREBUILT_CHARACTERS=/srv/prebuilt-characters
 RUN python -m app.starter /srv/prebuilt-characters

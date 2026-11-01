@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import kani
+from . import __version__, about, kani
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_config, get_ctx, mask_secrets,
@@ -269,6 +269,13 @@ async def screen_page(request: Request) -> Response:
     c = get_ctx(request)
     return _page(request, "screen.html", overlays=c.screens.custom(), devices=c.db.list_devices(),
                  enabled=c.voice.settings().screen, prompt=c.screens.prompt())
+
+
+@pages.get("/about")
+async def about_page(request: Request) -> Response:
+    """Links, support and credits. Open to everyone: attributions shouldn't need a password."""
+    return _page(request, "about.html", docs=await run_in_threadpool(about.documents), version=__version__,
+                 server_repo=about.SERVER_REPO, firmware_repo=about.FIRMWARE_REPO, support_url=about.SUPPORT_URL)
 
 
 @pages.get("/events")

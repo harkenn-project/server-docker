@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}About{% endblock %}
+{% block page %}about{% endblock %}
+{% block content %}
+<h1>About Harkenn</h1>
+<section class="card about">
+  <img src="/static/pip-64.png" alt="Pip, a round blue character in a wizard hat holding a wand" width="64" height="64" class="about-pip">
+  <p><strong>Harkenn</strong> (<em>harken</em>: to listen) is a private voice assistant for your home: small speakers
+    listen and answer, and this server does the thinking, on your own hardware.</p>
+  <p>It's made by <strong>Master Magic</strong> and <strong>Pip</strong>, an AI that writes code with Master Magic,
+    together with the Harkenn contributors. Harkenn is free and open source under the
+    <a href="{{ server_repo }}/blob/main/LICENSE" target="_blank" rel="noopener">MIT licence</a>.</p>
+  <p class="hint">Server version {{ version }}.</p>
+  <ul class="about-links">
+    <li><a href="{{ server_repo }}" target="_blank" rel="noopener">Server source</a> (server-docker): docs, issues and releases</li>
+    <li><a href="{{ firmware_repo }}" target="_blank" rel="noopener">Speaker firmware source</a> (speaker-firmware)</li>
+    <li><a href="{{ server_repo }}/issues" target="_blank" rel="noopener">Report a problem or suggest something</a></li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>☕ Buy us a coffee</h2>
+  <p>If Harkenn makes your home a little nicer, you can support it on
+    <a href="{{ support_url }}" target="_blank" rel="noopener"><strong>GitHub Sponsors</strong></a>, one-off or
+    monthly. Half of every donation goes to the open-source projects Harkenn is built on, and every payout is published
+    in <a href="{{ server_repo }}/blob/main/THANKS.md" target="_blank" rel="noopener">THANKS.md</a>.</p>
+  {% if docs.support %}<details><summary>Where the money goes</summary>{{ docs.support }}</details>{% endif %}
+</section>
+
+<section class="card">
+  <h2>Licences</h2>
+  <p>Harkenn's own code is MIT. The projects below keep their own licences. Piper, the built-in speech engine, is
+    GPL-3.0, so the Docker image, which includes it, is distributed under the GPL's terms as a whole. Each Piper
+    voice has its own licence on its model card; voices download the first time they're used.</p>
+</section>
+
+<section class="card credits">
+  <h2>Credits: the server</h2>
+  {% if docs.server %}{{ docs.server }}{% else %}<p><a href="{{ server_repo }}/blob/main/CREDITS.md" target="_blank" rel="noopener">CREDITS.md</a></p>{% endif %}
+</section>
+
+<section class="card credits">
+  <h2>Credits: the speaker firmware</h2>
+  {% if docs.firmware %}{{ docs.firmware }}{% else %}<p><a href="{{ firmware_repo }}/blob/main/CREDITS.md" target="_blank" rel="noopener">CREDITS.md</a></p>{% endif %}
+</section>
+{% endblock %}
