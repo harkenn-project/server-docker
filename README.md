@@ -38,7 +38,14 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
 - **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it. The server
   follows a release channel of your choice: stable, beta, alpha or development.
 
-The speaker firmware is in [speaker-firmware](https://github.com/harkenn-project/speaker-firmware).
+## Get a speaker
+
+Harkenn runs on the **Spotpear ESP32-S3 1.28" BOX**: a small cylinder with a round 1.28" touch screen, a microphone,
+a speaker and a battery (CA$41 when we bought ours). On AliExpress it's sold as
+[*Superior-ESP32 S3 1.28 Inch LCD Touch Screen Mini Speaker ESP32 S3 Xiaozhi AI Mini Speaker Support Deepseek*](https://www.aliexpress.com/item/1005010093339429.html).
+It ships with XiaoZhi firmware, which you replace with Harkenn's over USB the first time:
+[speaker-firmware](https://github.com/harkenn-project/speaker-firmware) has the steps. Similar-looking Spotpear boxes
+(a 1.85" round screen, or no screen) aren't supported, so check it's the 1.28" one.
 
 ## Screenshots
 
