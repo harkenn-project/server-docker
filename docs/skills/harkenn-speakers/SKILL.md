@@ -1,6 +1,6 @@
 ---
 name: harkenn-speakers
-description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring, mcp__harkenn__get_weather, mcp__harkenn__show_weather). Also for the weather at home, and to show the weather on a speaker's screen.
+description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring, mcp__harkenn__get_weather, mcp__harkenn__show_weather, mcp__harkenn__list_timers, mcp__harkenn__set_timer, mcp__harkenn__set_alarm, mcp__harkenn__cancel_timer, mcp__harkenn__notify). Also for the weather at home, showing the weather on a speaker's screen, timers and alarms on the speakers, and notifications on their screens.
 ---
 
 # Harkenn speakers
@@ -13,6 +13,8 @@ Harkenn runs the smart speakers in this home. Its MCP server, `harkenn`, has thr
 | `mcp__harkenn__speak` | Say something aloud when no response is needed |
 | `mcp__harkenn__ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
 | `mcp__harkenn__get_weather` | The weather where the speakers are, now and for the next four days |
+| `mcp__harkenn__list_timers`, `set_timer`, `set_alarm`, `cancel_timer` | Timers and alarms, which live on a speaker and ring there: "9m", "07:30" on "weekdays", cancel by label |
+| `mcp__harkenn__notify` | A notification card on a speaker's screen (no speech); an envelope stays until someone looks |
 | `mcp__harkenn__show_weather` | Show an animated weather screen on a speaker: leave the fields out for the weather here, or give your own |
 
 ## Choosing between speak and ring

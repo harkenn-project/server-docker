@@ -44,7 +44,9 @@ thanks instead: **Whisper** (OpenAI), **faster-whisper** (SYSTRAN), **CTranslate
 **ONNX Runtime**, **Hugging Face Hub**, **PyAV**, **python-zeroconf**, **Silero VAD**, **sherpa-onnx** (k2-fsa) and
 **WeSpeaker**, **microWakeWord** (Kevin Ahrendt) and ESPHome's wake word models, **TensorFlow Lite Micro** (Google)
 and **esp-nn** (Espressif), the **MCP Python SDK**, **cairo**, **Fontconfig**, the **DejaVu** and **Aileron** fonts,
-**arduinoWebSockets**, **the Arduino core for ESP32** and **ESP-IDF** (Espressif), **xiaozhi-esp32** and **SQLite**. The **Open Home Foundation**, which stewards Piper and Wyoming, asks individuals to
+**arduinoWebSockets**, **the Arduino core for ESP32** and **ESP-IDF** (Espressif), **esptool-js** (Espressif, for
+the web flasher), **pyca/cryptography**, **websockets** (Aymeric Augustin), **Open-Meteo** (the weather),
+**xiaozhi-esp32** and **SQLite**. The **Open Home Foundation**, which stewards Piper and Wyoming, asks individuals to
 support maintainers directly, which is why Piper's share goes to its creator. Full credits are in
 [CREDITS.md](CREDITS.md).
 

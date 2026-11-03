@@ -135,7 +135,10 @@ changes.
   "wake_word": {"id": "hey_jarvis", "name": "Hey Jarvis", "url": "https://harkenn.example/assets/wakewords/hey_jarvis.tflite?v=40ff33f5",
                 "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860},
   "local_access": {"admin_hash": "pbkdf2_sha256$10000$…$…", "speaker_hash": "pbkdf2_sha256$10000$…$…",
-                   "hotspot_psk": "…64 hex digits…", "unlock": 0}
+                   "hotspot_psk": "…64 hex digits…", "unlock": 0},
+  "remote": {"url": "wss://flash.example", "id": "…32 hex digits…", "key": "…64 hex digits…"},
+  "stop_word": {"url": "https://harkenn.example/assets/wakewords/stop.tflite?v=…", "bytes": 45744, "cutoff": 0.5,
+                "window": 5, "arena": 21000}
 }
 ```
 
@@ -162,6 +165,10 @@ What the firmware has to do with it:
   are a static IP for that network (empty `ip` = DHCP; firmware before 0.13 ignores them). Holding BOOT for 6 s
   always opens the hotspot and web page (§8) as a way back in.
 * **Local access.** `local_access` is what the speaker's web page needs (§8). Firmware before 0.13 ignores it.
+* **Remote.** `remote` is the relay and this speaker's credentials, for when it's away from home (RELAY.md); null when
+  remote connection is off.
+* **Stop word.** `stop_word` is the small model that hears "stop" while a timer or alarm rings (§9); null without
+  one.
 * **Sleeping.** After `display.sleep_after_s` without a touch the screen sleeps as `display.sleep_display` says:
   `character` (dimmed, the character's sleeping animation), `clock` (dimmed, only a big clock) or `off`. A touch,
   the wake word or anything to show wakes it.
