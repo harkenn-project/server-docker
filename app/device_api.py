@@ -17,8 +17,8 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__
 from .assets import STATES
-from .context import Context, base_url, device_payload, get_ctx
-from .models import AdoptionRequestIn, LogBatch, LogLine, StatusIn
+from .context import Context, base_url, device_payload, get_ctx, push_config
+from .models import AdoptionRequestIn, DeviceConfig, LogBatch, LogLine, StatusIn, WifiNetwork
 from .sounds import wav
 from .themes import ALL_CHARACTER_SIZES
 
@@ -184,6 +184,47 @@ async def get_firmware(fid: str, request: Request, device: dict = Depends(curren
 
 # WebSocket
 
+LOG_LEVELS = ("error", "warn", "info", "debug")
+WIFI_FIELDS = ("ssid", "password", "ip", "gateway", "subnet", "dns")
+
+
+def apply_local_changes(c: Context, device_id: str, changes: dict[str, Any]) -> list[str]:
+    """Settings changed on the speaker's own web page, while it couldn't reach us or since. The speaker's change wins:
+    it goes into the stored config. Returns what changed, for the log."""
+    device = c.db.get_device(device_id)
+    if device is None:
+        return []
+    config = DeviceConfig.model_validate(device["config"]).model_dump()
+    notes: list[str] = []
+    removed = {s for s in changes.get("wifi_removed") or [] if isinstance(s, str)}
+    wifi = [n for n in config["wifi"] if n["ssid"] not in removed]
+    if removed:
+        notes.append("removed Wi-Fi " + ", ".join(sorted(removed)))
+    for raw in reversed(changes.get("wifi") or []):  # the first is the newest
+        if not isinstance(raw, dict):
+            continue
+        try:
+            network = WifiNetwork.model_validate({k: str(raw.get(k) or "") for k in WIFI_FIELDS})
+        except ValidationError as e:
+            notes.append(f"ignored Wi-Fi {raw.get('ssid')!r}: {e.errors()[0]['msg']}")
+            continue
+        wifi = [network.model_dump()] + [n for n in wifi if n["ssid"] != network.ssid]
+        notes.append(f"Wi-Fi {network.ssid}" + (f" (static {network.ip})" if network.ip else ""))
+    config["wifi"] = wifi[:8]
+    level = changes.get("log_level")
+    if level in LOG_LEVELS and level != config["log_level"]:
+        config["log_level"] = level
+        notes.append(f"log level {level}")
+    brightness = changes.get("brightness")
+    if isinstance(brightness, int) and not isinstance(brightness, bool) and 5 <= brightness <= 100:
+        config["display"]["brightness"] = brightness
+        notes.append(f"brightness {brightness}%")
+    if isinstance(changes.get("server_url"), str):  # the speaker's own setting; noted, nothing to store here
+        notes.append(f"server address {changes['server_url'] or '(found automatically)'}")
+    c.db.update_device(device_id, name=device["name"], config=DeviceConfig.model_validate(config).model_dump())
+    return notes
+
+
 async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: str | None) -> None:
     kind = msg.get("type")
     if kind == "status":
@@ -208,6 +249,14 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
     elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer", "screen_tap",
                   "screen_dismiss"):
         await c.voice.handle(device_id, msg)
+    elif kind == "local_changes":
+        notes = apply_local_changes(c, device_id, msg.get("changes") or {})
+        await c.hub.send(device_id, {"type": "local_changes_ack", "id": msg.get("id")})
+        if notes:
+            _store_logs(c, device_id, [LogLine(level="I", tag="local",
+                                               message="changed on the speaker: " + "; ".join(notes))])
+            await push_config(c, device_id)
+            c.hub.publish({"type": "device", "id": device_id})
     elif kind == "config_request":
         device = c.db.get_device(device_id)
         if device:

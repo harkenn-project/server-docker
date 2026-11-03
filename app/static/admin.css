@@ -74,6 +74,11 @@ tr.offline td { color: var(--muted); }
 label.color { display: flex; align-items: center; gap: 6px; }
 label.color input[type=color] { width: 36px; height: 26px; padding: 0; margin-left: auto; }
 .wifi input.ssid, .wifi input.password { flex: 1; }
+.wifi .static { display: flex; gap: 8px; flex-wrap: wrap; flex-basis: 100%; }
+.wifi .static input { flex: 1; min-width: 110px; }
+dialog#secret { background: var(--card, #171c2f); color: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; max-width: 420px; }
+dialog#secret::backdrop { background: rgba(0, 0, 0, .6); }
+dialog#secret .secret { font-size: 1.6em; letter-spacing: .05em; user-select: all; }
 .actions { display: flex; gap: 12px; align-items: center; padding-top: 14px; }
 .form-message { white-space: pre-line; font-size: .9em; }
 

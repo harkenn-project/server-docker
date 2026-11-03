@@ -74,7 +74,8 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256} |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too) |
+| `local_changes_ack` | `id` | The speaker's `local_changes` with this id are in the stored config now (§8) |
 | `update_available` | `firmware: {url, version, size, sha256}` | Reply to `update_check` when a newer release exists. The speaker offers it on screen (Install / Dismiss) |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
 
@@ -82,7 +83,8 @@ changes.
 
 | type | fields | meaning |
 |---|---|---|
-| `status` | `status: {state, firmware, ip, ssid, rssi, uptime_s, free_heap, free_psram, battery, charging, volume, muted, brightness, config_version, message}` | Send on every state change and at least every 30 s. Every field is optional |
+| `status` | `status: {state, firmware, ip, ssid, rssi, uptime_s, free_heap, free_psram, battery, charging, volume, muted, brightness, config_version, message, local_failures, local_locked, hotspot}` | Send on every state change and at least every 30 s. Every field is optional. The last three are about the speaker's own web page (§8) |
+| `local_changes` | `id`, `changes: {wifi, wifi_removed, log_level, brightness, server_url}` | Settings changed on the speaker's own web page (§8). Sent at every connection until acknowledged |
 | `log` | `lines: [{ts, level, tag, message}]` | Batches of up to 200 lines. `level` is one of E/W/I/D/V. `ts` is Unix seconds, or 0 if the clock isn't set |
 | `event` | `name`, `data` | Notable events such as `wake`, `button`, `touch`, `wifi_changed` |
 | `settings` | `volume` | A setting changed on the speaker itself (touch screen). The server stores it in the config without bumping the version or pushing it back |
@@ -112,7 +114,7 @@ changes.
     "display": {"layout": "character_clock", "theme": "midnight", "colors": {…overrides or null…},
                 "brightness": 75, "sleep_after_s": 300, "clock_24h": true},
     "audio": {"volume": 70, "wake_word": "ok_nabu"},
-    "wifi": [{"ssid": "Thing Tank", "password": "…"}],
+    "wifi": [{"ssid": "Thing Tank", "password": "…", "ip": "", "subnet": "", "gateway": "", "dns": ""}],
     "timezone": "MST7MDT,M3.2.0,M11.1.0",
     "assistant": {"url": ""},
     "log_level": "info"
@@ -131,7 +133,9 @@ changes.
       "boot": {"url": "https://harkenn.example/assets/sounds/marimba/boot.pcm?v=1", "bytes": 41280},
       "wake": {…}, "done": {…}, "error": {"url": "", "bytes": 0}, "shutdown": {…}}},
   "wake_word": {"id": "hey_jarvis", "name": "Hey Jarvis", "url": "https://harkenn.example/assets/wakewords/hey_jarvis.tflite?v=40ff33f5",
-                "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860}
+                "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860},
+  "local_access": {"admin_hash": "pbkdf2_sha256$10000$…$…", "speaker_hash": "pbkdf2_sha256$10000$…$…",
+                   "hotspot_psk": "…64 hex digits…", "unlock": 0}
 }
 ```
 
@@ -154,8 +158,10 @@ What the firmware has to do with it:
   * 240 px animations are sent at half frame rate to fit in memory.
 * **Ring.** Draw the ring on top of the character, because the character's animation is opaque.
 * **Wi-Fi.** `wifi` is the full list of networks the server wants the device to know. The device adds new ones to
-  its saved list. It must never delete the network it is connected to unless it has just connected successfully to
-  one from the list. A long press on BOOT always opens the local provisioning portal as a way back in.
+  its saved list and updates changed ones; only its own web page removes any. `ip`, `subnet`, `gateway` and `dns`
+  are a static IP for that network (empty `ip` = DHCP; firmware before 0.13 ignores them). Holding BOOT for 6 s
+  always opens the hotspot and web page (§8) as a way back in.
+* **Local access.** `local_access` is what the speaker's web page needs (§8). Firmware before 0.13 ignores it.
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
   keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a
@@ -254,3 +260,34 @@ screen_dismiss {screen}                  ->  (tapped outside the areas, when dis
 * A `screen_tap` replaces whatever was going on (listening, speaking, waiting) like a new question. A label that
   isn't on the screen the speaker was sent gets an empty `voice_result`.
 * Firmware before 0.12.0 ignores these messages.
+
+## 8. The speaker's own web page (break glass)
+
+From firmware 0.13 every speaker serves a web page: on its network at `http://<its IP>`, and on its hotspot
+`Harkenn-XXXX` (the last four hex digits of its MAC) at `http://192.168.4.1`. It shows status and logs, and lets
+someone change Wi-Fi networks (with static IP), the server address, the log level, volume and brightness, upload
+firmware, restart or factory reset the speaker.
+
+* **When the hotspot comes up.** When the speaker can't join any saved network for a minute, or has none, or BOOT
+  was held 6 s. The speaker doesn't go on to look for Harkenn without Wi-Fi; it keeps trying its saved networks
+  every minute (not while the page was used in the last two minutes, because trying drops the hotspot's clients), and
+  at once when a network is saved on the page. After BOOT, it waits 10 minutes before trying them. The hotspot goes
+  off once the speaker is connected to Harkenn again.
+* **Passwords.** The page takes the Harkenn admin password or the speaker's own password. A speaker that isn't adopted
+  has neither, so its page is open: that's the first-time Wi-Fi setup. `local_access` in the config carries:
+  * `admin_hash`, `speaker_hash`: salted PBKDF2-SHA256, `pbkdf2_sha256$<rounds>$<salt>$<digest>` (base64). The admin
+    one is a separate, lighter copy that the server makes whenever the admin password is entered, so a speaker can
+    check it in about a second. The speaker password is made at adoption (shown once in the admin UI) or set there.
+  * `hotspot_psk`: the hotspot's WPA2 key as 64 hex digits, which is PBKDF2-SHA1 of the speaker password salted with
+    the hotspot's name (IEEE 802.11i). Joining the hotspot needs the speaker password; without a key it's open.
+  * `unlock`: a counter. When it changes, the speaker forgets its wrong passwords.
+* **Lockout.** 3 wrong passwords in a row: no password is checked for 30 s, doubling every other try (60 s after 5,
+  120 s after 7, 240 s after 9). After 10 the page is locked until the admin unlocks it in Harkenn (which bumps
+  `unlock`), or the speaker is factory reset with its button. A restart doesn't skip a wait. The speaker reports
+  `local_failures` and `local_locked` in its status.
+* **Local changes win.** Settings changed on the page are kept on the speaker and sent as `local_changes`
+  `{id, changes}` at every connection, until the server answers `local_changes_ack {id}`. Until then they override the
+  same settings in any config the speaker gets. `changes` may hold `wifi` (networks added or changed on the page, with
+  their passwords and static IP, newest first), `wifi_removed` (names), `log_level`, `brightness` and `server_url`.
+  The server merges them into the stored config, logs what changed, and pushes the new config; `server_url` is only
+  logged. Volume keeps going through `settings`.

@@ -55,6 +55,18 @@ function toast(message, isError = false) {
   toast.timer = setTimeout(() => { t.className = ""; }, isError ? 6000 : 2500);
 }
 
+// A secret shown once (a new speaker password): stays up until dismissed.
+function showSecret(title, secret, hint) {
+  const d = $("#secret");
+  $("h3", d).textContent = title;
+  $(".secret", d).textContent = secret;
+  $(".hint", d).textContent = hint;
+  d.showModal();
+}
+
+const PASSWORD_HINT = "It's shown only this once. You need it to open the speaker's own page or join its hotspot " +
+  "when it can't reach Harkenn (the Harkenn admin password works too, once the speaker has had it).";
+
 function ago(ts) {
   if (!ts) return "never";
   const s = Math.max(0, Date.now() / 1000 - ts);
@@ -115,6 +127,7 @@ function initDashboard() {
         try {
           const r = await api("POST", `/admin/api/adoptions/${req.id}/approve`, { code: code.value, name: name.value });
           toast(`Adopted ${r.name}`);
+          if (r.speaker_password) showSecret(`${r.name}'s speaker password`, r.speaker_password, PASSWORD_HINT);
           refresh();
         } catch (err) { toast(err.message, true); code.select(); }
       },
@@ -200,12 +213,17 @@ function initConfigForm() {
   const data = jsonScript("form-data");
   const wifiList = $(".wifi-list", form);
 
+  const STATIC_FIELDS = [["ip", "static IP (empty = DHCP)"], ["subnet", "subnet mask"], ["gateway", "gateway"],
+                         ["dns", "DNS (optional)"]];
+
   function wifiRow(network = { ssid: "", password: "" }) {
     const row = el("div", { class: "row wifi" },
       el("input", { class: "ssid", placeholder: "SSID", maxlength: 32, value: network.ssid }),
       el("input", { class: "password", type: "password", placeholder: "password (empty = open)", maxlength: 64,
                     value: network.password, autocomplete: "new-password" }),
-      el("button", { type: "button", class: "secondary", onclick: () => { row.remove(); preview(); } }, "Remove"));
+      el("button", { type: "button", class: "secondary", onclick: () => { row.remove(); preview(); } }, "Remove"),
+      el("div", { class: "static" }, STATIC_FIELDS.map(([key, label]) =>
+        el("input", { class: key, placeholder: label, maxlength: 15, inputmode: "decimal", value: network[key] || "" }))));
     return row;
   }
 
@@ -236,7 +254,8 @@ function initConfigForm() {
     out.config.display.colors = Object.fromEntries($$("[data-color]", form).map(input => [
       input.dataset.color, $(`[data-color-enable="${input.dataset.color}"]`, form).checked ? input.value : null]));
     out.config.wifi = $$(".wifi", wifiList)
-      .map(row => ({ ssid: $(".ssid", row).value.trim(), password: $(".password", row).value }))
+      .map(row => ({ ssid: $(".ssid", row).value.trim(), password: $(".password", row).value,
+                     ...Object.fromEntries(STATIC_FIELDS.map(([key]) => [key, $(`.${key}`, row).value.trim()])) }))
       .filter(n => n.ssid);
     return out;
   }
@@ -341,6 +360,18 @@ function initDevice() {
       ...statusItem("Config", applied),
       ...statusItem("MAC", mac(d.id)),
       ...statusItem("Status received", s.received_at ? ago(s.received_at) : undefined));
+    const la = d.local_access || {};
+    $("#hotspot-name").textContent = `Harkenn-${d.id.slice(8).toUpperCase()}`;
+    const locked = s.local_locked ? "LOCKED after too many wrong passwords: unlock it here"
+      : s.local_failures ? `${s.local_failures} wrong password${s.local_failures > 1 ? "s" : ""} since the last right one`
+      : s.local_failures === 0 ? "no wrong passwords" : undefined;
+    $("#local-access").replaceChildren(
+      ...statusItem("Speaker password", la.speaker_password ? "set (shown only when it was made)" : "not set yet"),
+      ...statusItem("Admin password", la.admin_password ? "sent to speakers"
+        : "not sent yet: log out and in again to send it"),
+      ...statusItem("Hotspot", s.hotspot ? "ON: the speaker can't join its Wi-Fi" : undefined),
+      ...statusItem("Lockout", locked));
+    $("#unlock").hidden = !(s.local_locked || s.local_failures);
   }
 
   function appendLogs(lines) {
@@ -376,6 +407,37 @@ function initDevice() {
   for (const button of $$("[data-install-device]")) {
     button.addEventListener("click", () => installFirmware($("#firmware-build").value, id));
   }
+  async function setSpeakerPassword(password) {
+    try {
+      const r = await api("POST", `/admin/api/devices/${id}/speaker-password`, { password });
+      if (r.password) showSecret("New speaker password", r.password, PASSWORD_HINT);
+      else toast(r.pushed ? "Speaker password set" : "Saved: the speaker gets it when it next connects");
+      $("#speaker-password").value = "";
+      refreshSoon();
+    } catch (err) { toast(err.message, true); }
+  }
+  $("#new-speaker-password").addEventListener("click", () => {
+    if (confirm("Make a new speaker password? The old one stops working.")) setSpeakerPassword("");
+  });
+  $("#set-speaker-password").addEventListener("click", () => {
+    const pw = $("#speaker-password").value;
+    if (pw.length < 8) { toast("Use at least 8 characters", true); return; }
+    setSpeakerPassword(pw);
+  });
+  $("#unlock").addEventListener("click", async () => {
+    try {
+      const r = await api("POST", `/admin/api/devices/${id}/unlock`);
+      toast(r.pushed ? "Unlocked" : "The speaker is unlocked when it next connects");
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#factory-reset").addEventListener("click", async () => {
+    if (!confirm("Factory reset this speaker? It forgets its Wi-Fi, adoption and settings, and Harkenn forgets it. " +
+                 "It starts over in Wi-Fi setup.")) return;
+    try {
+      await api("POST", `/admin/api/devices/${id}/factory-reset`);
+      location.href = "/admin";
+    } catch (err) { toast(err.message, true); }
+  });
   $("#forget").addEventListener("click", async () => {
     if (!confirm("Forget this speaker? It will have to be adopted again.")) return;
     await api("DELETE", `/admin/api/devices/${id}`);

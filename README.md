@@ -37,6 +37,10 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   page to adopt them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
 - **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it. The server
   follows a release channel of your choice: stable, beta, alpha or development.
+- **Break glass.** Every speaker has its own web page, on its network or on its own hotspot when it can't join its
+  Wi-Fi, for fixing Wi-Fi, static IP, the server address, logs and firmware. It takes the admin password or a speaker
+  password made at adoption, and locks itself after too many wrong ones. Changes made there come back to Harkenn.
+  Speakers can also be factory reset from the admin page. See [PROTOCOL.md](docs/PROTOCOL.md#8-the-speakers-own-web-page-break-glass).
 
 ## Get a speaker
 
@@ -136,6 +140,7 @@ app/
   main.py        app factory
   device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
+  local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
   voice/         speech recognition, end of speech (vad.py), replies (brain.py), speech, ringing (calls.py),
                  voiceprints (voiceprint.py)
   mcp_server.py  the MCP server for agents (docs/MCP.md, docs/skills/)

@@ -1,3 +1,4 @@
+import json
 import io
 
 import numpy as np
@@ -208,13 +209,14 @@ def test_wifi_passwords_masked_and_preserved(client):
     assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config}, headers=ADMIN).status_code == 200
 
     seen = client.get(f"/admin/api/devices/{MAC}").json()["config"]
-    assert seen["wifi"] == [{"ssid": "Thing Tank", "password": "********"}]
+    dhcp = {"ip": "", "gateway": "", "subnet": "", "dns": ""}
+    assert seen["wifi"] == [{"ssid": "Thing Tank", "password": "********", **dhcp}]
     assert "supersecret" not in client.get(f"/admin/devices/{MAC}").text
 
     seen["audio"]["volume"] = 10
     assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": seen}, headers=ADMIN).status_code == 200
     device_view = client.get("/api/v1/device/config", headers=bearer(token)).json()
-    assert device_view["config"]["wifi"] == [{"ssid": "Thing Tank", "password": "supersecret"}]
+    assert device_view["config"]["wifi"] == [{"ssid": "Thing Tank", "password": "supersecret", **dhcp}]
 
     seen["wifi"].append({"ssid": "Other", "password": "********"})
     r = client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": seen}, headers=ADMIN)
@@ -1691,3 +1693,117 @@ def test_about_page_shows_links_support_and_credits(client):
                        "https://g/r"))
     assert "Title" not in out and 'href="https://g/r/blob/main/docs/X.md"' in out and "<strong>&lt;b&gt;</strong>" in out
     assert "<li>one more</li><li>two</li>" in out and "<td>1</td><td>2</td>" in out
+
+
+# the speaker's own web page (local_access.py)
+
+def adopt_with_password(c, name="Kitchen"):
+    req = request_adoption(c)
+    login(c)
+    r = c.post(f"/admin/api/adoptions/{req['request_id']}/approve", json={"code": req["code"], "name": name},
+               headers=ADMIN)
+    assert r.status_code == 200, r.text
+    return c.get(f"/api/v1/adoption/{req['request_id']}").json()["token"], r.json()["speaker_password"]
+
+
+def test_wpa_key_matches_the_standard():
+    from app.local_access import wpa_key
+    # IEEE 802.11i-2004, H.4.3
+    assert wpa_key("password", "IEEE") == "f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e"
+
+
+def test_adoption_makes_a_speaker_password_kept_only_as_hashes(client):
+    from app.auth import verify_password
+    from app.local_access import SPEAKER_ITERATIONS, wpa_key
+    token, password = adopt_with_password(client)
+    assert len(password) == 14 and password.count("-") == 2
+    access = client.get("/api/v1/device/config", headers=bearer(token)).json()["local_access"]
+    assert verify_password(password, access["speaker_hash"]) and not verify_password("nope", access["speaker_hash"])
+    assert access["speaker_hash"].split("$")[1] == str(SPEAKER_ITERATIONS)
+    assert access["hotspot_psk"] == wpa_key(password, "Harkenn-66B0")
+    assert verify_password("pw", access["admin_hash"])  # logging in sent the admin password, hashed for speakers
+    assert access["unlock"] == 0
+    device = client.get(f"/admin/api/devices/{MAC}").json()
+    assert device["local_access"] == {"speaker_password": True, "admin_password": True}
+    assert password not in json.dumps(client.get("/admin/api/overview").json())
+
+
+def test_set_speaker_password_and_unlock(client):
+    from app.auth import verify_password
+    token = adopt(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.post(f"/admin/api/devices/{MAC}/speaker-password", json={"password": "short"}, headers=ADMIN)
+        assert r.status_code == 422
+        r = client.post(f"/admin/api/devices/{MAC}/speaker-password", json={"password": "my own words"},
+                        headers=ADMIN)
+        assert r.json() == {"password": None, "pushed": True}
+        assert verify_password("my own words", ws.receive_json()["local_access"]["speaker_hash"])
+        r = client.post(f"/admin/api/devices/{MAC}/speaker-password", json={}, headers=ADMIN).json()
+        assert verify_password(r["password"], ws.receive_json()["local_access"]["speaker_hash"])
+        assert client.post(f"/admin/api/devices/{MAC}/unlock", headers=ADMIN).json() == {"pushed": True}
+        assert ws.receive_json()["local_access"]["unlock"] == 1
+
+
+def test_admin_password_change_reaches_speakers(client):
+    from app.auth import verify_password
+    token = adopt(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        assert verify_password("pw", ws.receive_json()["local_access"]["admin_hash"])
+        r = client.post("/admin/password", data={"current": "pw", "password": "new password 1",
+                                                 "confirm": "new password 1"})
+        assert r.status_code == 200
+        assert verify_password("new password 1", ws.receive_json()["local_access"]["admin_hash"])
+        client.post("/admin/logout")
+        login_again = client.post("/admin/login", data={"password": "new password 1"}, follow_redirects=False)
+        assert login_again.status_code == 303
+        ws.send_json({"type": "config_request"})  # logging in with the same password pushes nothing new
+        assert verify_password("new password 1", ws.receive_json()["local_access"]["admin_hash"])
+
+
+def test_factory_reset_from_admin(client):
+    token = adopt(client)
+    assert client.post(f"/admin/api/devices/{MAC}/factory-reset", headers=ADMIN).status_code == 409
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        assert client.post(f"/admin/api/devices/{MAC}/factory-reset", headers=ADMIN).json() == {"sent": True}
+        assert ws.receive_json() == {"type": "command", "command": "factory_reset", "args": {}}
+    assert client.get(f"/admin/api/devices/{MAC}").status_code == 404
+    assert client.get("/api/v1/device/config", headers=bearer(token)).status_code == 401
+    assert client.get("/api/v1/device/config", headers=bearer(token)).status_code == 401
+
+
+def test_changes_made_on_the_speaker_are_kept(client):
+    token = adopt(client)
+    config = client.get(f"/admin/api/devices/{MAC}").json()["config"]
+    config["wifi"] = [{"ssid": "Old", "password": "oldpassword"}, {"ssid": "Kept", "password": ""}]
+    client.put(f"/admin/api/devices/{MAC}", json={"name": "Kitchen", "config": config}, headers=ADMIN)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        assert ws.receive_json()["version"] == 2
+        ws.send_json({"type": "local_changes", "id": 7, "changes": {
+            "wifi": [{"ssid": "Cabin", "password": "cabin pass", "ip": "192.168.5.20", "subnet": "255.255.255.0",
+                      "gateway": "192.168.5.1", "dns": ""},
+                     {"ssid": "Bad", "password": "short"}],
+            "wifi_removed": ["Old"], "log_level": "debug", "brightness": 40, "server_url": "http://10.0.0.5:8000"}})
+        assert ws.receive_json() == {"type": "local_changes_ack", "id": 7}
+        pushed = ws.receive_json()
+        assert pushed["version"] == 3
+        assert [n["ssid"] for n in pushed["config"]["wifi"]] == ["Cabin", "Kept"]
+        assert pushed["config"]["wifi"][0]["ip"] == "192.168.5.20"
+        assert pushed["config"]["log_level"] == "debug" and pushed["config"]["display"]["brightness"] == 40
+        ws.send_json({"type": "local_changes", "id": 8, "changes": {}})
+        assert ws.receive_json() == {"type": "local_changes_ack", "id": 8}  # nothing changed: no push
+    message = client.get(f"/admin/api/devices/{MAC}/logs").json()[-1]["message"]
+    assert "Wi-Fi Cabin (static 192.168.5.20)" in message and "ignored Wi-Fi 'Bad'" in message
+    assert "removed Wi-Fi Old" in message and "server address http://10.0.0.5:8000" in message
+
+
+def test_static_ip_needs_gateway_and_subnet(client):
+    adopt(client)
+    config = client.get(f"/admin/api/devices/{MAC}").json()["config"]
+    config["wifi"] = [{"ssid": "Cabin", "password": "", "ip": "192.168.5.20"}]
+    r = client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config}, headers=ADMIN)
+    assert r.status_code == 422 and "gateway" in r.text
+    config["wifi"][0] |= {"ip": "192.168.5.300", "gateway": "192.168.5.1", "subnet": "255.255.255.0"}
+    assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config},
+                      headers=ADMIN).status_code == 422

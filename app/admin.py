@@ -22,11 +22,11 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, kani
+from . import __version__, about, kani, local_access
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
-from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_config, get_ctx, mask_secrets,
-                      restore_secrets)
+from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
+                      push_config, get_ctx, mask_secrets, restore_secrets)
 from .device_api import hash_token
 from .firmware import MAX_FIRMWARE_BYTES, update_args
 from .homeassistant import SETTINGS_KEY as HA_SETTINGS_KEY
@@ -37,7 +37,7 @@ from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
 from .voice import voiceprint
 from .updates import CHANNEL_LABELS
 from .wakewords import WAKE_WORDS
-from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn,
+from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn, SpeakerPasswordIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -78,7 +78,8 @@ def catalog(c: Context) -> dict[str, Any]:
 def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
     return {k: d[k] for k in ("id", "name", "hardware", "firmware", "adopted_at", "last_seen", "last_ip",
                               "status", "config_version")} | {"online": c.hub.online(d["id"]),
-                                                              "character": d["config"].get("character")}
+                                                              "character": d["config"].get("character"),
+                                                              "local_access": local_access.summary(c, d["id"])}
 
 
 def adoption_summary(c: Context, r: dict[str, Any], now: float) -> dict[str, Any]:
@@ -96,6 +97,12 @@ def _login_redirect(request: Request) -> RedirectResponse:
     if not password_configured(get_ctx(request)):
         return RedirectResponse("/admin/setup", status_code=303)
     return RedirectResponse(f"/admin/login?next={request.url.path}", status_code=303)
+
+
+async def _admin_password_entered(c: Context, password: str) -> None:
+    """Keep the speakers' copy of the admin password (local_access.py) in step with the one just entered."""
+    if await run_in_threadpool(local_access.remember_admin_password, c, password):
+        await push_all(c)
 
 
 # pages: authentication
@@ -118,6 +125,7 @@ async def setup(request: Request, password: str = Form(...), confirm: str = Form
         resp.status_code = 400
         return resp
     await run_in_threadpool(set_password, c, password)
+    await _admin_password_entered(c, password)
     request.session["admin"] = True
     return RedirectResponse("/admin", status_code=303)
 
@@ -131,7 +139,9 @@ async def login_page(request: Request, next: str = "/admin") -> Response:
 
 @pages.post("/login")
 async def login(request: Request, password: str = Form(...), next: str = Form("/admin")) -> Response:
-    if await run_in_threadpool(check_password, get_ctx(request), password):
+    c = get_ctx(request)
+    if await run_in_threadpool(check_password, c, password):
+        await _admin_password_entered(c, password)
         request.session["admin"] = True
         target = next if next.startswith("/admin") and not next.startswith("//") else "/admin"
         return RedirectResponse(target, status_code=303)
@@ -164,6 +174,7 @@ async def change_password(request: Request, current: str = Form(...), password: 
         resp.status_code = 400
         return resp
     await run_in_threadpool(set_password, c, password)
+    await _admin_password_entered(c, password)
     return _page(request, "password.html", error=None, saved=True)
 
 
@@ -346,9 +357,12 @@ async def approve_adoption(request_id: str, body: ApproveIn, request: Request) -
     c.db.adopt_device(device_id=req["device_id"], name=name, hardware=req["hardware"], firmware=req["firmware"],
                       token_hash=hash_token(token), config=config, now=now)
     c.db.set_adoption_state(request_id, "approved", token=token)
+    # A new speaker password every adoption: shown this once, only its hashes are kept (local_access.py)
+    speaker_password = local_access.generate_password()
+    await run_in_threadpool(local_access.set_speaker_password, c, req["device_id"], speaker_password)
     await c.hub.kick(req["device_id"], reason="re-adopted")
     c.hub.publish({"type": "adoption", "device_id": req["device_id"]})
-    return {"device_id": req["device_id"], "name": name}
+    return {"device_id": req["device_id"], "name": name, "speaker_password": speaker_password}
 
 
 @api.post("/adoptions/{request_id}/reject", status_code=204)
@@ -409,11 +423,52 @@ async def update_device(device_id: str, body: DeviceUpdateIn, request: Request) 
 async def forget_device(device_id: str, request: Request) -> Response:
     c = get_ctx(request)
     _device_or_404(c, device_id)
+    await _forget(c, device_id)
+    return Response(status_code=204)
+
+
+async def _forget(c: Context, device_id: str) -> None:
     c.db.delete_device(device_id)
+    local_access.forget(c, device_id)
     shutil.rmtree(c.settings.recordings_dir / device_id, ignore_errors=True)
     await c.hub.kick(device_id)
     c.hub.publish({"type": "device", "id": device_id})
-    return Response(status_code=204)
+
+
+@api.post("/devices/{device_id}/factory-reset")
+async def factory_reset(device_id: str, request: Request) -> dict[str, bool]:
+    """Wipe the speaker (Wi-Fi, adoption, passwords, settings) and forget it here. It has to be online."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    if not await c.hub.send(device_id, {"type": "command", "command": "factory_reset", "args": {}}):
+        raise HTTPException(409, "speaker is offline: hold its button 11 s to reset it, or forget it here")
+    await asyncio.sleep(0.5)  # let the command reach it before the socket is closed
+    await _forget(c, device_id)
+    return {"sent": True}
+
+
+@api.post("/devices/{device_id}/speaker-password")
+async def set_speaker_password(device_id: str, body: SpeakerPasswordIn, request: Request) -> dict[str, Any]:
+    """Set the speaker's own password for its web page and hotspot; empty makes a random one, returned this once."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    password = body.password or local_access.generate_password()
+    error = local_access.validate_password(password)
+    if error:
+        raise HTTPException(422, error)
+    await run_in_threadpool(local_access.set_speaker_password, c, device_id, password)
+    pushed = await push_config(c, device_id)
+    c.hub.publish({"type": "device", "id": device_id})
+    return {"password": None if body.password else password, "pushed": pushed}
+
+
+@api.post("/devices/{device_id}/unlock")
+async def unlock_speaker(device_id: str, request: Request) -> dict[str, bool]:
+    """Clear the lockout on the speaker's web page; it takes effect when the speaker next gets its config."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    local_access.unlock(c, device_id)
+    return {"pushed": await push_config(c, device_id)}
 
 
 @api.post("/devices/{device_id}/command")

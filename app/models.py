@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .themes import LAYOUTS, THEMES
 
@@ -23,9 +23,17 @@ class Lenient(BaseModel):
 
 # device configuration
 
+IPV4 = r"^$|^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$"
+
+
 class WifiNetwork(Strict):
     ssid: str = Field(min_length=1, max_length=32)
     password: str = Field(default="", max_length=64)
+    # Static IP on this network; all empty = DHCP. Needs firmware 0.13 or later.
+    ip: str = Field("", pattern=IPV4)
+    gateway: str = Field("", pattern=IPV4)
+    subnet: str = Field("", pattern=IPV4)
+    dns: str = Field("", pattern=IPV4)
 
     @field_validator("password")
     @classmethod
@@ -33,6 +41,14 @@ class WifiNetwork(Strict):
         if v and len(v) < 8:
             raise ValueError("WPA passwords are 8-63 characters (leave empty for an open network)")
         return v
+
+    @model_validator(mode="after")
+    def _static_complete(self) -> "WifiNetwork":
+        if self.ip and not (self.gateway and self.subnet):
+            raise ValueError(f"a static IP on '{self.ssid}' also needs a gateway and a subnet mask")
+        if not self.ip and (self.gateway or self.subnet or self.dns):
+            raise ValueError(f"enter the static IP for '{self.ssid}', or clear the gateway, subnet and DNS")
+        return self
 
 
 class ColorOverrides(Strict):
@@ -253,6 +269,9 @@ class StatusIn(Lenient):
     brightness: int | None = None
     config_version: int | None = None
     message: str | None = Field(None, max_length=200)
+    local_failures: int | None = Field(None, ge=0, description="wrong passwords on its web page since the last right one")
+    local_locked: bool | None = Field(None, description="its web page is locked until unlocked from here")
+    hotspot: bool | None = None
 
 
 class LogLine(Lenient):
@@ -285,6 +304,10 @@ class DefaultsIn(Strict):
 class CommandIn(Strict):
     command: Literal["reboot", "identify", "refresh_config", "set_volume", "play_state"]
     args: dict[str, Any] = Field(default_factory=dict)
+
+
+class SpeakerPasswordIn(Strict):
+    password: str = Field("", max_length=63, description="empty = make a random one")
 
 
 class FirmwareUpdateIn(Strict):

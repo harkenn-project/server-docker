@@ -116,6 +116,7 @@ def device_theme(device: dict[str, Any]) -> dict[str, str]:
 
 def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None) -> dict[str, Any]:
     """The config message for a speaker. `base` is the address it connected through (base_url)."""
+    from . import local_access  # imports auth, which imports this module
     config = DeviceConfig.model_validate(device["config"])
     theme = resolve_theme(config.display.theme, config.display.colors.model_dump())
     sizes = character_sizes(config.display.layout)
@@ -138,4 +139,13 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         if config.audio.sound_pack != CLASSIC else None,
         # The wake word model and its settings (wakewords.py); null = none. Detected on the speaker itself.
         "wake_word": ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base),
+        # The speaker's own web page: password hashes, its hotspot key and the lockout reset (local_access.py).
+        "local_access": local_access.payload(ctx, device["id"]),
     }
+
+
+async def push_all(ctx: Context) -> None:
+    """Send every online speaker its config, e.g. after the admin password changed."""
+    for device in ctx.db.list_devices():
+        if ctx.hub.online(device["id"]):
+            await ctx.hub.send(device["id"], device_payload(ctx, device))
