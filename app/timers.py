@@ -196,6 +196,23 @@ class Board:
         for d in (self.items, self.ringing, self.reported_at, self.events, self.notes):
             d.pop(device_id, None)
 
+    def notes_for(self, device_id: str) -> dict[str, str]:
+        """For the assistant, in parts (each sent only when it changes): timers (with what happened lately) and
+        unread notifications. Empty when there's nothing."""
+        now = time.time()
+        timers = ""
+        items = self.items.get(device_id) or []
+        if items:
+            timers = "Timers and alarms here: " + "; ".join(describe_item(i, now) for i in items) + "."
+        events = [f"{e} {describe_left(int(now - t))} ago" for t, e in self.events.get(device_id, [])
+                  if now - t < EVENT_KEEP_S]
+        if events:
+            timers += (" " if timers else "") + "Lately: " + "; ".join(events) + "."
+        notes = self.notes.get(device_id) or []
+        unread = "Unread notifications on the screen: " + "; ".join(
+            f'"{n["title"] + ": " if n["title"] else ""}{n["text"]}"' for n in notes) + "." if notes else ""
+        return {"timers": timers, "notifications": unread}
+
     def summary(self, device_id: str) -> str:
         """For the assistant, on the newest message: what's set, what happened lately, unread notifications."""
         now = time.time()

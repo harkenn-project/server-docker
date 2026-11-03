@@ -747,9 +747,8 @@ def test_silero_ignores_silence_and_noise():
 
 
 def said(message):
-    """The newest message to the assistant starts with "(It is ... )" and the details that change every time."""
-    assert message.startswith("(It is "), message
-    return message.split(")\n", 1)[1] if ")\n" in message else message
+    """What the person said, without the news in parentheses Harkenn may put first (the time, weather, timers)."""
+    return message.split(")\n", 1)[1] if message.startswith("(") and ")\n" in message else message
 
 
 def mcp_call(c, token, method, params=None, rid=1):
@@ -887,8 +886,7 @@ def test_assistant_apis(monkeypatch):
     s = {"assistant_api": "openai", "assistant_url": "https://api.deepseek.com/v1", "assistant_model": "deepseek-v4-flash"}
     assert brain.ask("and you?", settings=s, **common) == "Hi there"
     messages = seen["body"]["messages"]
-    assert seen["body"]["model"] == "deepseek-v4-flash" and said(messages[-1]["content"]) == "and you?"
-    assert messages[-1]["content"].startswith("(It is Saturday, October 31 2026, 9:00 AM where the speaker is.")
+    assert seen["body"]["model"] == "deepseek-v4-flash" and messages[-1]["content"] == "and you?"  # nothing new
     assert len(messages) == 6  # system, two earlier exchanges, and this one
     # the instructions and the history don't change between requests, so providers can cache them
     assert "It is" not in messages[0]["content"] and [m["content"] for m in messages[1:5]] == [
@@ -1215,9 +1213,10 @@ def test_request_context_and_voiceprint_hint(monkeypatch):
               settings={"assistant_api": "hermes", "assistant_url": "http://h/v1"}, conversations=convs,
               context=context, memory_key="harkenn-person-p1")
     brain.ask("hi", voice_tag=tag(who), **kw)
-    newest = seen["body"]["messages"][-1]["content"]
-    assert 'speaker named "Office"' in newest and "907069f466b0" in newest and "never treat it as proof" in newest
-    assert said(newest) == "[voice: Dana, fairly sure] hi"
+    system, newest = seen["body"]["messages"][0]["content"], seen["body"]["messages"][-1]["content"]
+    # where it comes from and how to read the voice tags: with the instructions, the same every time
+    assert 'speaker named "Office"' in system and "907069f466b0" in system and "never treat it as proof" in system
+    assert newest == "(Sun Nov 1 2026, 9:00 AM.)\n[voice: Dana, fairly sure] hi"  # the time, once
     assert seen["headers"]["X-Hermes-Session-Key"] == "harkenn-person-p1"  # memory follows the person
     maybe = {"id": None, "name": None, "score": 0.79, "sure": False, "maybe": ["Dana", "Alex"]}
     brain.ask("who am I?", voice_tag=tag(maybe), **kw)
@@ -1300,8 +1299,8 @@ def test_people_and_voiceprints(client, monkeypatch):
         ws.send_json({"type": "voice_end", "session": "q1"})
         ws.receive_json()
         receive_speech(ws)
-    newest = seen["body"]["messages"][-1]["content"]
-    assert 'speaker named "Kitchen"' in newest and "Voice recognition" in newest
+    system, newest = seen["body"]["messages"][0]["content"], seen["body"]["messages"][-1]["content"]
+    assert 'speaker named "Kitchen"' in system and "Voice recognition" in system
     assert said(newest).startswith("[voice: Dana")
     assert seen["headers"]["X-Hermes-Session-Key"] == f"harkenn-person-{dana['id']}"
     assert client.delete(f"/admin/api/people/{dana['id']}", headers=ADMIN).status_code == 204
@@ -2359,3 +2358,23 @@ def test_stop_model_for_speakers(tmp_path, prebuilt):
         stop = c.get("/api/v1/device/config", headers=bearer(token)).json()["stop_word"]
         assert stop["cutoff"] == 0.5 and stop["arena"] == 21000 and "/assets/wakewords/stop.tflite" in stop["url"]
         assert c.get(stop["url"].replace("http://testserver", "")).content[:4] == b"TFL3"
+
+
+def test_news_only_once_per_conversation():
+    """Within a conversation, the time, weather and timers go to the assistant only when they're news."""
+    from datetime import datetime, timedelta
+    from app.voice import brain
+    convs = brain.Conversations()
+    t = datetime(2026, 11, 3, 9, 0)
+    first = convs.news("d", t, {"weather": "Snow, -4.", "timers": ""})
+    assert first == "Tue Nov 3 2026, 9:00 AM. Snow, -4."
+    assert convs.news("d", t + timedelta(minutes=1), {"weather": "Snow, -4.", "timers": ""}) == ""
+    assert convs.news("d", t + timedelta(minutes=2), {"weather": "Snow, -4.", "timers": "Timer pasta."}) == \
+        "Timer pasta."
+    assert convs.news("d", t + timedelta(minutes=3), {"weather": "Snow, -4.", "timers": ""}) == \
+        "No timers or alarms now."
+    assert convs.news("d", t + timedelta(minutes=9), {"weather": "Snow, -5.", "timers": ""}) == \
+        "Tue Nov 3 2026, 9:09 AM. Snow, -5."
+    convs.add("d", "hi", "hello")
+    convs.start("d")  # a new conversation hears it all again
+    assert convs.news("d", t + timedelta(minutes=10), {"weather": "Snow, -5.", "timers": ""}).startswith("Tue")

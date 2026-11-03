@@ -12,11 +12,11 @@ Three kinds of API cover most of what's out there:
 Harkenn keeps the history for all of them, so it stays small: a conversation is one tap or wake word plus the replies
 that follow it, and the assistant sees only the last few conversations from the last hour or so (both adjustable).
 
-The APIs are stateless, so every request carries the instructions (persona, screen and weather markers, listening).
-They come once, first, and never change from one request to the next; what does change (the time, which speaker,
-who's probably talking, the weather now) goes on the newest message instead, and isn't kept in the history. So the
-instructions and the history so far are the same at the start of every request in a conversation, which providers
-cache: OpenAI and DeepSeek by themselves, Anthropic where it's marked (cache_control).
+The APIs are stateless, so every request carries the instructions (persona, which speaker, markers, listening).
+They come once, first, and don't change from one request to the next, so providers cache them along with the history
+(OpenAI and DeepSeek by themselves, Anthropic where it's marked with cache_control). What does change (the time, the
+weather, timers, notifications) goes in parentheses on the newest message, and only when it's news: a conversation
+remembers what it has told the assistant, so most messages carry nothing extra. It isn't kept in the history.
 """
 from __future__ import annotations
 
@@ -46,14 +46,13 @@ MAX_REPLY_CHARS = 600
 DEFAULT_PROMPT = (
     "You are {character}, a friendly voice assistant on a small smart speaker called {speaker}. "
     "Your words are spoken aloud: answer in one to three short sentences, with no lists, markdown, emoji or URLs. "
-    "Each message from the speaker starts with the time and other details in parentheses: that's from Harkenn, not "
-    "the person."
+    "Details in parentheses at the start of a message (the time, weather, timers) are from Harkenn, not the person."
 )
 # An agent has its own identity (Hermes: SOUL.md): only say how it's being reached, and how to talk.
 AGENT_PROMPT = (
     "Someone is talking to you through a smart speaker called {speaker}. Your words are spoken aloud: answer in one "
-    "to three short sentences, with no lists, markdown, emoji or URLs. Each message from the speaker starts with the "
-    "time and other details in parentheses: that's from Harkenn, not the person."
+    "to three short sentences, with no lists, markdown, emoji or URLs. Details in parentheses at the start of a "
+    "message (the time, weather, timers) are from Harkenn, not the person."
 )
 
 
@@ -80,6 +79,23 @@ class Conversations:
         if sure:
             convs[-1]["person"] = sure
         return convs[-1].get("person", "")
+
+    def news(self, device_id: str, now: datetime, notes: dict[str, str]) -> str:
+        """What the assistant hasn't been told yet in this conversation: the time (again after TIME_AGAIN_S), and
+        each note (weather, timers...) when it's new or changed. "" when there's nothing new."""
+        convs = self._convs.setdefault(device_id, [])
+        if not convs:
+            convs.append({"turns": [], "last": time.time(), "person": ""})
+        told = convs[-1].setdefault("told", {})
+        parts = []
+        if now.timestamp() - told.get("time", 0) >= TIME_AGAIN_S:
+            parts.append(short_time(now) + ".")
+            told["time"] = now.timestamp()
+        for key, note in notes.items():
+            if note != told.get(key, ""):
+                parts.append(note or NOTHING_NOW.get(key, ""))
+                told[key] = note
+        return " ".join(p for p in parts if p)
 
     def add(self, device_id: str, user: str, assistant: str) -> None:
         convs = self._convs.setdefault(device_id, [])
@@ -119,6 +135,14 @@ def clock(now: datetime) -> str:
 
 def day(now: datetime) -> str:
     return f"{now:%A}, {now:%B} {now.day}"
+
+
+TIME_AGAIN_S = 5 * 60  # within a conversation, the time is given again after this long
+NOTHING_NOW = {"timers": "No timers or alarms now.", "weather": "", "notifications": "No unread notifications now."}
+
+
+def short_time(now: datetime) -> str:
+    return f"{now:%a} {now:%b} {now.day} {now.year}, {clock(now)}"
 
 
 def describe_time(now: datetime) -> str:
@@ -198,15 +222,16 @@ class Reply(str):
 
 
 def request_context(speaker: str, device_id: str, who: str = "") -> str:
-    """What the assistant is told about where a request comes from (and, with voiceprints, who it's probably from)."""
-    out = (f"\n\nThis request comes from the speaker named \"{speaker}\" (Harkenn speaker id {device_id}: use it "
-           f"with Harkenn's tools to reach this speaker).")
+    """Where requests come from (and, with voiceprints, how to read who's talking): the same for every request from
+    a speaker, so it goes with the instructions."""
+    out = (f"\n\nYou're on the speaker named \"{speaker}\" (Harkenn speaker id {device_id}: use it with Harkenn's "
+           f"tools to reach this speaker).")
     return out + (f" {who}" if who else "")
 
 
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
         conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "",
-        voice_tag: str = "", timer_prompt: str = "") -> Reply:
+        voice_tag: str = "", timer_prompt: str = "", notes: dict[str, str] | None = None) -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
@@ -215,11 +240,11 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     # prompt, at the cost of that)
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    system += screen_prompt + timer_prompt
+    system += context + screen_prompt + timer_prompt
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT  # last, so it isn't lost under everything else
-    # what changes every time goes on the newest message
-    moment = f"It is {describe_time(now)} where the speaker is." + context
+    # what changes goes on the newest message, and only what this conversation hasn't been told
+    news = conversations.news(device_id, now, notes or {})
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
@@ -227,7 +252,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     # tell who said what when people take turns
     if voice_tag:
         text = f"{voice_tag} {text}"
-    messages = [*history, {"role": "user", "content": f"({' '.join(moment.split())})\n{text}"}]
+    messages = [*history, {"role": "user", "content": f"({' '.join(news.split())})\n{text}" if news else text}]
     tokens = MAX_TOKENS_WITH_SCREEN if screen_prompt else MAX_TOKENS
     if api == "anthropic":
         reply = anthropic_messages(url, settings, system, messages, timeout, tokens)

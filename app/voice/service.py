@@ -341,8 +341,8 @@ class VoiceService:
             brain.ask, heard, device_id=device_id, speaker=speaker,
             character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
             settings=s.model_dump(), conversations=self.conversations,
-            context=brain.request_context(speaker, device_id, voiceprint.describe(who)) + weather_now
-            + self.ctx.board.summary(device_id), timer_prompt=timers.PROMPT,
+            context=brain.request_context(speaker, device_id, voiceprint.describe(who)), timer_prompt=timers.PROMPT,
+            notes={"weather": weather_now.strip(), **self.ctx.board.notes_for(device_id)},
             memory_key=f"harkenn-person-{person}" if person else "",
             screen_prompt=self.ctx.screens.prompt() + weather.PROMPT if s.screen else "",
             voice_tag=voiceprint.tag(who)))
