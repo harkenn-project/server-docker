@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Harkenn{% endblock %} · Harkenn</title>
-  <link rel="stylesheet" href="/static/admin.css">
+  <link rel="stylesheet" href="{{ static_url['admin.css'] }}">
 </head>
 <body data-page="{% block page %}{% endblock %}" {% block body_attrs %}{% endblock %}>
   <header class="topbar">
@@ -38,6 +38,6 @@
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="secret"><h3></h3><p class="secret mono"></p><p class="hint"></p>
     <form method="dialog"><button>Close</button></form></dialog>
-  <script src="/static/admin.js"></script>
+  <script src="{{ static_url['admin.js'] }}"></script>
 </body>
 </html>

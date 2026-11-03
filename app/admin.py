@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import hmac
 import io
 import json
@@ -45,6 +46,15 @@ from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
 MAX_ADOPTION_ATTEMPTS = 5
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def _static_url(name: str) -> str:
+    """A link to a static file that changes with its content, so browsers never keep an old script after an update."""
+    digest = hashlib.sha256((Path(__file__).parent / "static" / name).read_bytes()).hexdigest()[:10]
+    return f"/static/{name}?v={digest}"
+
+
+templates.env.globals["static_url"] = {name: _static_url(name) for name in ("admin.css", "admin.js")}
 pages = APIRouter(prefix="/admin", include_in_schema=False)
 
 

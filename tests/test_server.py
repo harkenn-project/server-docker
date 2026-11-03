@@ -1815,3 +1815,12 @@ def test_static_ip_needs_gateway_and_subnet(client):
     config["wifi"][0] |= {"ip": "192.168.5.300", "gateway": "192.168.5.1", "subnet": "255.255.255.0"}
     assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config},
                       headers=ADMIN).status_code == 422
+
+
+def test_static_links_change_with_their_content(client):
+    import hashlib
+    from pathlib import Path
+    login(client)
+    page = client.get("/admin").text
+    js = (Path("app/static/admin.js")).read_bytes()
+    assert f'/static/admin.js?v={hashlib.sha256(js).hexdigest()[:10]}"' in page and "/static/admin.css?v=" in page
