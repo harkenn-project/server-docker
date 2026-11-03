@@ -66,6 +66,8 @@ class DisplayConfig(Strict):
     colors: ColorOverrides = Field(default_factory=ColorOverrides)
     brightness: int = Field(75, ge=5, le=100)
     sleep_after_s: int = Field(300, ge=0, le=86400, description="0 = never dim")
+    sleep_display: Literal["character", "clock", "off"] = Field(
+        "character", description="while asleep: the character sleeping (dimmed), only a big clock (dimmed), or off")
     clock_24h: bool = True
 
     @field_validator("layout")
@@ -89,6 +91,8 @@ class AudioConfig(Strict):
     wake_word: str = Field("", max_length=64, description="wakewords.py id; empty (or unknown) = none")
     wake_sensitivity: Literal["low", "normal", "high"] = "normal"
     sound_pack: str = Field("classic", pattern=SLUG, description="sounds.py; classic = the speaker's own chimes")
+    wake_arbitration: bool = Field(True, description="when several speakers hear the wake word, only the one that "
+                                                     "heard it loudest answers (they signal each other above hearing)")
 
 
 class AssistantConfig(Strict):

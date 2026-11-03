@@ -162,6 +162,14 @@ What the firmware has to do with it:
   are a static IP for that network (empty `ip` = DHCP; firmware before 0.13 ignores them). Holding BOOT for 6 s
   always opens the hotspot and web page (§8) as a way back in.
 * **Local access.** `local_access` is what the speaker's web page needs (§8). Firmware before 0.13 ignores it.
+* **Sleeping.** After `display.sleep_after_s` without a touch the screen sleeps as `display.sleep_display` says:
+  `character` (dimmed, the character's sleeping animation), `clock` (dimmed, only a big clock) or `off`. A touch,
+  the wake word or anything to show wakes it.
+* **Only the nearest answers.** With `audio.wake_arbitration`, speakers that hear the wake word together decide
+  among themselves, without Harkenn: each waits longer the quieter it heard the word (12 ms per dB below -10 dBFS,
+  at most 360 ms, plus up to 20 ms at random), then plays a 19 kHz tone for 80 ms, above hearing, and answers. A
+  speaker that hears another's tone first, or in the 1.5 s before it heard the word itself, stays quiet. The codec
+  runs at 48 kHz for this; everything else stays 16 kHz.
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
   keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a

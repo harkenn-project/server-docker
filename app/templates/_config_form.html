@@ -30,7 +30,14 @@
         {% endfor %}
       </div>
       <label>Brightness <span class="range"><input type="range" min="5" max="100" data-path="config.display.brightness" data-type="int"><output></output></span></label>
-      <label>Dim after (seconds, 0 = never) <input type="number" min="0" max="86400" data-path="config.display.sleep_after_s" data-type="int"></label>
+      <label>Sleep after (seconds without a touch, 0 = never) <input type="number" min="0" max="86400" data-path="config.display.sleep_after_s" data-type="int"></label>
+      <label>While asleep
+        <select data-path="config.display.sleep_display">
+          <option value="character">Dim, the character sleeping</option>
+          <option value="clock">Dim, only a big clock</option>
+          <option value="off">Screen off</option>
+        </select>
+        <small>A touch, the wake word or anything the speaker has to show wakes it. Needs firmware 0.13 or later.</small></label>
       <label class="inline"><input type="checkbox" data-path="config.display.clock_24h" data-type="bool"> 24-hour clock</label>
       <label>Time zone (POSIX TZ) <input data-path="config.timezone" maxlength="64"></label>
     </fieldset>
@@ -43,6 +50,10 @@
           {% for id, name in catalog.wake_words.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
         <small>Heard by the speaker itself: nothing leaves it until it hears the wake word. Needs firmware 0.12 or later.</small></label>
+      <label class="inline"><input type="checkbox" data-path="config.audio.wake_arbitration" data-type="bool"> Only the
+        nearest speaker answers
+        <small>When several speakers hear the wake word, the one that heard it loudest answers and tells the others,
+          with a sound too high for people to hear. Needs firmware 0.13 or later.</small></label>
       <label>Wake word sensitivity
         <select data-path="config.audio.wake_sensitivity">
           <option value="low">Low: fewer false wakes</option>

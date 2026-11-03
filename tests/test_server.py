@@ -2042,3 +2042,18 @@ def test_remote_needs_a_relay(client):
     config["remote"] = True
     client.put(f"/admin/api/devices/{MAC}", json={"name": "Kitchen", "config": config}, headers=ADMIN)
     assert client.get("/api/v1/device/config", headers=bearer(token)).json()["remote"] is None
+
+
+def test_sleep_display_and_wake_arbitration_settings(client):
+    token = adopt(client)
+    config = client.get("/api/v1/device/config", headers=bearer(token)).json()["config"]
+    assert config["display"]["sleep_display"] == "character" and config["audio"]["wake_arbitration"] is True
+    config["display"]["sleep_display"] = "clock"
+    config["audio"]["wake_arbitration"] = False
+    assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config},
+                      headers=ADMIN).status_code == 200
+    seen = client.get("/api/v1/device/config", headers=bearer(token)).json()["config"]
+    assert seen["display"]["sleep_display"] == "clock" and seen["audio"]["wake_arbitration"] is False
+    config["display"]["sleep_display"] = "dark"
+    assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config},
+                      headers=ADMIN).status_code == 422
