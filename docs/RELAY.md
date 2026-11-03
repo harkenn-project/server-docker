@@ -12,7 +12,8 @@ speaker ──wss──▶ relay ◀──ws(s)── Harkenn
 
 ## Setting it up
 
-* The relay is the `harkenn-project/flash` service (it's also the web flasher). Point Harkenn at it with
+* The relay is the [harkenn-project/flash](https://github.com/harkenn-project/flash) service (it's also the web
+  flasher). Point Harkenn at it with
   `HARKENN_RELAY_URL` (what speakers use, e.g. `wss://flash.mylife.ninja`) and, if Harkenn reaches it another way
   (inside a cluster), `HARKENN_RELAY_SERVER_URL`.
 * Turn on **Remote connection** for a speaker on its page. Its next config carries

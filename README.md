@@ -69,6 +69,7 @@ The admin pages, from a demo server with made-up speakers and people.
 | [docs/MCP.md](docs/MCP.md) | The MCP server for AI agents, with a ready-made [skill](docs/skills/harkenn-speakers/SKILL.md) |
 | [docs/SCREEN.md](docs/SCREEN.md) | Pictures, buttons and overlays the assistant can show |
 | [docs/HOMEASSISTANT.md](docs/HOMEASSISTANT.md) | The speakers in Home Assistant, through MQTT |
+| [docs/RELAY.md](docs/RELAY.md) | Speakers away from home, through the relay ([harkenn-project/flash](https://github.com/harkenn-project/flash), also the web flasher) |
 
 ## Run it
 
