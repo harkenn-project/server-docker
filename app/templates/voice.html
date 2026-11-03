@@ -48,7 +48,7 @@
     <label>Model <input name="assistant_model" placeholder="e.g. deepseek-v4-flash, llama3.2">
       <small>Empty: the server's default (Hermes: its configured model).</small></label>
     <label>API key <input name="assistant_key" type="password" autocomplete="off"></label>
-    <label>Answer within <input name="assistant_timeout_s" type="number" min="5" max="600"> seconds
+    <label>Answer within <span class="with-unit"><input name="assistant_timeout_s" type="number" min="5" max="600"> seconds</span>
       <small>Agents that use tools (Home Assistant, the web) can take a while; the speaker keeps waiting.</small></label>
     <p class="hint" id="assistant-env" hidden></p>
     <label>Instructions <textarea name="system_prompt" rows="5" placeholder="Empty: the built-in instructions"></textarea>
@@ -63,11 +63,13 @@
       <option value="questions">Only when the answer is a question</option>
       <option value="never">Never</option></select>
       <small>A soft blip means it's listening. If no one says anything, the conversation ends.</small></label>
-    <label class="inline"><input type="checkbox" name="screen"> The assistant may show pictures and buttons on the
-      speakers' screens (<a href="/admin/screen">Screen</a> page)</label>
-    <label>The assistant remembers the last <input name="context_conversations" type="number" min="0" max="50">
-      conversations from the last <input name="context_minutes" type="number" min="1" max="1440"> minutes
-      <small>0 conversations: every question stands alone. Replies within a conversation always count as one.</small></label>
+    <label class="inline"><input type="checkbox" name="screen"> <span>The assistant may show pictures and buttons on the
+      speakers' screens (<a href="/admin/screen">Screen</a> page)</span></label>
+    <label>The assistant remembers the last
+      <span class="with-unit"><input name="context_conversations" type="number" min="0" max="50"> conversations</span>
+      <small>0: every question stands alone. Replies within a conversation always count as one.</small></label>
+    <label>… from the last
+      <span class="with-unit"><input name="context_minutes" type="number" min="1" max="1440"> minutes</span></label>
     <label>Voice recognition match <input name="voiceprint_threshold" type="number" min="0.4" max="0.95" step="0.01">
       <small>How alike a voice must be to the voiceprints on the <a href="/admin/people">People</a> page to count as
         that person (0.70 by default). Higher means fewer wrong guesses but more "not recognized".</small></label>
