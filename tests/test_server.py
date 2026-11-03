@@ -746,6 +746,12 @@ def test_silero_ignores_silence_and_noise():
     assert not end.heard_speech
 
 
+def said(message):
+    """The newest message to the assistant starts with "(It is ... )" and the details that change every time."""
+    assert message.startswith("(It is "), message
+    return message.split(")\n", 1)[1] if ")\n" in message else message
+
+
 def mcp_call(c, token, method, params=None, rid=1):
     r = c.post("/mcp", headers={**bearer(token), "Accept": "application/json, text/event-stream",
                                 "MCP-Protocol-Version": "2025-06-18"},
@@ -873,11 +879,19 @@ def test_assistant_apis(monkeypatch):
     assert "Kitchen" in system and "Janet" not in system  # Hermes has its own persona
     assert brain.ask("hi", settings={"assistant_api": "anthropic", "assistant_key": "a"}, **common) == "Hello from Claude"
     assert seen["url"] == "https://api.anthropic.com/v1/messages" and seen["headers"]["x-api-key"] == "a"
-    assert seen["body"]["system"].startswith("You are Janet") and len(seen["body"]["messages"]) == 3
+    instructions = seen["body"]["system"][0]  # cached: the same in every request
+    assert instructions["text"].startswith("You are Janet") and instructions["cache_control"] == {"type": "ephemeral"}
+    assert len(seen["body"]["messages"]) == 3
+    assert seen["body"]["messages"][1]["content"][0]["cache_control"]  # the history so far, cached too
     s = {"assistant_api": "openai", "assistant_url": "https://api.deepseek.com/v1", "assistant_model": "deepseek-v4-flash"}
     assert brain.ask("and you?", settings=s, **common) == "Hi there"
-    assert seen["body"]["model"] == "deepseek-v4-flash" and seen["body"]["messages"][-1]["content"] == "and you?"
-    assert len(seen["body"]["messages"]) == 6  # system, two earlier exchanges, and this one
+    messages = seen["body"]["messages"]
+    assert seen["body"]["model"] == "deepseek-v4-flash" and said(messages[-1]["content"]) == "and you?"
+    assert messages[-1]["content"].startswith("(It is Saturday, October 31 2026, 9:00 AM where the speaker is.")
+    assert len(messages) == 6  # system, two earlier exchanges, and this one
+    # the instructions and the history don't change between requests, so providers can cache them
+    assert "It is" not in messages[0]["content"] and [m["content"] for m in messages[1:5]] == [
+        "hi", "Hi there", "hi", "Hello from Claude"]
 
 
 def test_context_is_the_last_conversations_in_the_last_minutes(monkeypatch):
@@ -1200,15 +1214,16 @@ def test_request_context_and_voiceprint_hint(monkeypatch):
               settings={"assistant_api": "hermes", "assistant_url": "http://h/v1"}, conversations=convs,
               context=context, memory_key="harkenn-person-p1")
     brain.ask("hi", voice_tag=tag(who), **kw)
-    system = seen["body"]["messages"][0]["content"]
-    assert 'speaker named "Office"' in system and "907069f466b0" in system and "never treat it as proof" in system
-    assert seen["body"]["messages"][-1]["content"] == "[voice: Dana, fairly sure] hi"
+    newest = seen["body"]["messages"][-1]["content"]
+    assert 'speaker named "Office"' in newest and "907069f466b0" in newest and "never treat it as proof" in newest
+    assert said(newest) == "[voice: Dana, fairly sure] hi"
     assert seen["headers"]["X-Hermes-Session-Key"] == "harkenn-person-p1"  # memory follows the person
     maybe = {"id": None, "name": None, "score": 0.79, "sure": False, "maybe": ["Dana", "Alex"]}
     brain.ask("who am I?", voice_tag=tag(maybe), **kw)
     # every line keeps its own tag in the history, so turns by different people stay apart
-    assert [m["content"] for m in seen["body"]["messages"][1:] if m["role"] == "user"] == [
-        "[voice: Dana, fairly sure] hi", "[voice: Dana or Alex, too close to tell] who am I?"]
+    users = [m["content"] for m in seen["body"]["messages"][1:] if m["role"] == "user"]
+    assert users[0] == "[voice: Dana, fairly sure] hi"  # kept without the details: the history stays the same
+    assert said(users[1]) == "[voice: Dana or Alex, too close to tell] who am I?"
     assert tag({"id": None, "score": 0.4, "sure": False}) == "[voice: not recognized]"
     marika = {"id": "p2", "name": "Marika", "phonetic": "Ma-ree-ka", "gender": "woman", "score": 0.9, "sure": True}
     assert tag(marika) == '[voice: Marika (say "Ma-ree-ka"; woman), fairly sure]'
@@ -1284,9 +1299,9 @@ def test_people_and_voiceprints(client, monkeypatch):
         ws.send_json({"type": "voice_end", "session": "q1"})
         ws.receive_json()
         receive_speech(ws)
-    system = seen["body"]["messages"][0]["content"]
-    assert 'speaker named "Kitchen"' in system and "Voice recognition" in system
-    assert seen["body"]["messages"][-1]["content"].startswith("[voice: Dana")
+    newest = seen["body"]["messages"][-1]["content"]
+    assert 'speaker named "Kitchen"' in newest and "Voice recognition" in newest
+    assert said(newest).startswith("[voice: Dana")
     assert seen["headers"]["X-Hermes-Session-Key"] == f"harkenn-person-{dana['id']}"
     assert client.delete(f"/admin/api/people/{dana['id']}", headers=ADMIN).status_code == 204
     assert [p["name"] for p in vp.people()] == ["Alex"]
@@ -1490,7 +1505,7 @@ def test_screen_from_the_assistant_and_taps(client, monkeypatch):
         ws.send_json({"type": "screen_tap", "session": "t1", "screen": shown["screen"], "label": "Blue"})
         result = ws.receive_json()
         assert result["session"] == "t1" and result["reply"] == "Blue it is."
-        assert seen[1]["messages"][-1]["content"] == '(tapped "Blue" on the screen)'
+        assert said(seen[1]["messages"][-1]["content"]) == '(tapped "Blue" on the screen)'
         assert seen[1]["messages"][-2]["content"] == "Which one? [[listen]]"  # same conversation, no screen marker
         receive_speech(ws)
         ws.send_json({"type": "voice_start", "session": "s2"})
@@ -2177,8 +2192,9 @@ def test_weather_from_the_assistant(client, monkeypatch):
             got += ws.receive_bytes()
         assert got[:4] == b"KANI"
         assert ws.receive_json()["reply"] == "Snowing, minus four."
-    system = seen[0]["messages"][0]["content"]
-    assert "[[weather" in system and "The weather in Calgary, Alberta now: snow" in system
+    system, newest = seen[0]["messages"][0]["content"], seen[0]["messages"][-1]["content"]
+    assert "[[weather" in system and "The weather in Calgary, Alberta now: snow" in newest
+    assert "Calgary" not in system  # the instructions stay the same; the weather goes on the message
 
 
 def test_mcp_weather(client, monkeypatch):

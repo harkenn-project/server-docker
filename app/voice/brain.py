@@ -11,6 +11,12 @@ Three kinds of API cover most of what's out there:
 
 Harkenn keeps the history for all of them, so it stays small: a conversation is one tap or wake word plus the replies
 that follow it, and the assistant sees only the last few conversations from the last hour or so (both adjustable).
+
+The APIs are stateless, so every request carries the instructions (persona, screen and weather markers, listening).
+They come once, first, and never change from one request to the next; what does change (the time, which speaker,
+who's probably talking, the weather now) goes on the newest message instead, and isn't kept in the history. So the
+instructions and the history so far are the same at the start of every request in a conversation, which providers
+cache: OpenAI and DeepSeek by themselves, Anthropic where it's marked (cache_control).
 """
 from __future__ import annotations
 
@@ -40,12 +46,14 @@ MAX_REPLY_CHARS = 600
 DEFAULT_PROMPT = (
     "You are {character}, a friendly voice assistant on a small smart speaker called {speaker}. "
     "Your words are spoken aloud: answer in one to three short sentences, with no lists, markdown, emoji or URLs. "
-    "It is {now} where the speaker is."
+    "Each message from the speaker starts with the time and other details in parentheses: that's from Harkenn, not "
+    "the person."
 )
 # An agent has its own identity (Hermes: SOUL.md): only say how it's being reached, and how to talk.
 AGENT_PROMPT = (
     "Someone is talking to you through a smart speaker called {speaker}. Your words are spoken aloud: answer in one "
-    "to three short sentences, with no lists, markdown, emoji or URLs. It is {now} where the speaker is."
+    "to three short sentences, with no lists, markdown, emoji or URLs. Each message from the speaker starts with the "
+    "time and other details in parentheses: that's from Harkenn, not the person."
 )
 
 
@@ -156,8 +164,13 @@ def chat_completions(url: str, settings: dict[str, Any], system: str, messages: 
 
 def anthropic_messages(url: str, settings: dict[str, Any], system: str, messages: list[dict[str, str]],
                        timeout: float, max_tokens: int = MAX_TOKENS) -> str:
+    history = [dict(m) for m in messages]
+    if len(history) > 1:  # cache the history so far too: the next request in the conversation starts the same way
+        history[-2]["content"] = [{"type": "text", "text": history[-2]["content"],
+                                   "cache_control": {"type": "ephemeral"}}]
     body = {"model": settings.get("assistant_model") or "claude-haiku-5-5", "max_tokens": max_tokens,
-            "system": system, "messages": messages}
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "messages": history}
     headers = {"x-api-key": settings.get("assistant_key") or "", "anthropic-version": "2023-06-01"}
     data = post(f"{url}/messages", body, headers, timeout)
     return "".join(part.get("text", "") for part in data.get("content", []) if part.get("type") == "text")
@@ -193,11 +206,15 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
         return Reply(builtin_reply(text, now))
+    # the instructions: the same in every request, so providers can cache them ({now} still works in a custom
+    # prompt, at the cost of that)
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    system += context + screen_prompt
+    system += screen_prompt
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT  # last, so it isn't lost under everything else
+    # what changes every time goes on the newest message
+    moment = f"It is {describe_time(now)} where the speaker is." + context
     timeout = float(settings.get("assistant_timeout_s") or 120)
     history = conversations.history(device_id, int(settings.get("context_conversations", 5)),
                                     float(settings.get("context_minutes", 60)))
@@ -205,7 +222,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     # tell who said what when people take turns
     if voice_tag:
         text = f"{voice_tag} {text}"
-    messages = [*history, {"role": "user", "content": text}]
+    messages = [*history, {"role": "user", "content": f"({' '.join(moment.split())})\n{text}"}]
     tokens = MAX_TOKENS_WITH_SCREEN if screen_prompt else MAX_TOKENS
     if api == "anthropic":
         reply = anthropic_messages(url, settings, system, messages, timeout, tokens)
