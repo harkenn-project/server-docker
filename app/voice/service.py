@@ -331,28 +331,9 @@ class VoiceService:
                       local_time: datetime | None = None, heard_note: str = "") -> None:
         """Ask the assistant, then say its answer (and show its screen) on the speaker."""
         send = self.ctx.hub.send
-        device = self.ctx.db.get_device(device_id) or {}
-        character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
-        speaker = device.get("name", "speaker")
         t1 = time.perf_counter()
-        person = self.conversations.person(device_id, who["id"] if who and who.get("sure") else "")
-        weather_now = await run_in_threadpool(self.ctx.weather.summary)  # cached: at most a fetch every 15 min
-        reply = await self._keep_waiting(device_id, session, run_in_threadpool(
-            brain.ask, heard, device_id=device_id, speaker=speaker,
-            character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
-            settings=s.model_dump(), conversations=self.conversations,
-            context=brain.request_context(speaker, device_id, voiceprint.describe(who)), timer_prompt=timers.PROMPT,
-            notes={"weather": weather_now.strip(), **self.ctx.board.notes_for(device_id)},
-            memory_key=f"harkenn-person-{person}" if person else "",
-            screen_prompt=self.ctx.screens.prompt() + weather.PROMPT if s.screen else "",
-            voice_tag=voiceprint.tag(who)))
+        reply = await self._keep_waiting(device_id, session, self._ask(device_id, heard, s, who, local_time))
         t2 = time.perf_counter()
-        if reply.screen_error:
-            self._log(device_id, "W", f"screen: {reply.screen_error}")
-        for problem in reply.timer_problems:
-            self._log(device_id, "W", f"timer: {problem}")
-        for action in reply.timers:
-            await self.timer_action(device_id, action)
         # Draw the screen while the speech is synthesized; it goes out before the speech, so it shows as the answer
         # starts. With only a screen (no words), the speaker learns it's done from the empty reply in voice_result.
         speech, _ = await asyncio.gather(
@@ -370,6 +351,58 @@ class VoiceService:
         if listen:
             self._awaiting_reply[device_id] = time.time()
         await self._stream(device_id, speech, reply, session, listen=listen, follow_up=listen)
+
+    async def _ask(self, device_id: str, heard: str, s: VoiceSettings, who: dict | None = None,
+                   local_time: datetime | None = None) -> brain.Reply:
+        """The assistant's reply, with its timers and household markers carried out."""
+        device = self.ctx.db.get_device(device_id) or {}
+        character = self.ctx.characters.get((device.get("config") or {}).get("character", "default")) or {}
+        speaker = device.get("name", "speaker")
+        person = self.conversations.person(device_id, who["id"] if who and who.get("sure") else "")
+        weather_now = await run_in_threadpool(self.ctx.weather.summary)  # cached: at most a fetch every 15 min
+        # a chat model gets the household modules; an agent (Hermes) has its own, and Harkenn's through MCP
+        household = self.ctx.household if s.assistant_api != "hermes" else None
+        notes = {"weather": weather_now.strip(), **self.ctx.board.notes_for(device_id)}
+        if household:
+            notes |= await run_in_threadpool(household.notes, device_id, person)
+        reply = await run_in_threadpool(
+            brain.ask, heard, device_id=device_id, speaker=speaker,
+            character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
+            settings=s.model_dump(), conversations=self.conversations,
+            context=brain.request_context(speaker, device_id, voiceprint.describe(who)), timer_prompt=timers.PROMPT,
+            notes=notes, memory_key=f"harkenn-person-{person}" if person else "",
+            screen_prompt=self.ctx.screens.prompt() + weather.PROMPT if s.screen else "",
+            voice_tag=voiceprint.tag(who), household=household, person=person)
+        if reply.screen_error:
+            self._log(device_id, "W", f"screen: {reply.screen_error}")
+        for problem in reply.timer_problems:
+            self._log(device_id, "W", f"timer: {problem}")
+        for action in reply.timers:
+            await self.timer_action(device_id, action)
+        for problem in reply.household_problems:
+            self._log(device_id, "W", f"household: {problem}")
+        for module, body in reply.household:
+            try:
+                done = await self.ctx.household.apply(module, body, device_id, person)
+                if done:
+                    self._log(device_id, "I", f"{module}: {done}")
+            except ValueError as e:
+                self._log(device_id, "W", f"{module}: {e}")
+        return reply
+
+    async def proactive(self, device_id: str, prompt: str) -> None:
+        """Have the assistant say something unasked (the briefing after a morning alarm)."""
+        if not self.ctx.hub.online(device_id):
+            return
+        try:
+            self.conversations.start(device_id)
+            reply = await self._ask(device_id, prompt, self.effective())
+            if reply:
+                self._log(device_id, "I", f'said by itself: "{reply}"')
+                await self.say(device_id, str(reply))
+        except Exception as e:
+            log.exception("proactive reply failed for %s", device_id)
+            self._log(device_id, "E", f"couldn't say it: {e}")
 
     async def timer_action(self, device_id: str, action: dict[str, Any]) -> str:
         """Carry out a timer marker or tool call on the speaker (or the one it names). Returns a problem, or ""."""

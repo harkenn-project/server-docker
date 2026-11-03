@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS household_items (
+    id TEXT PRIMARY KEY,
+    module TEXT NOT NULL,
+    owner TEXT NOT NULL DEFAULT '',
+    data TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS household_module ON household_items(module, created_at);
 """
 
 
@@ -106,6 +115,28 @@ class Database:
                 raise
             finally:
                 conn.close()
+
+    # household modules (household/): memories, lists, reminders, calendar events, messages, chores
+
+    def household_items(self, module: str) -> list[dict[str, Any]]:
+        with self._conn() as c:
+            rows = c.execute("SELECT * FROM household_items WHERE module=? ORDER BY created_at", (module,)).fetchall()
+        return [{**dict(r), "data": json.loads(r["data"])} for r in rows]
+
+    def household_item(self, item_id: str) -> dict[str, Any] | None:
+        with self._conn() as c:
+            r = c.execute("SELECT * FROM household_items WHERE id=?", (item_id,)).fetchone()
+        return {**dict(r), "data": json.loads(r["data"])} if r else None
+
+    def put_household_item(self, item: dict[str, Any]) -> None:
+        with self._conn() as c:
+            c.execute("INSERT OR REPLACE INTO household_items (id, module, owner, data, created_at, updated_at) "
+                      "VALUES (?, ?, ?, ?, ?, ?)", (item["id"], item["module"], item.get("owner", ""),
+                                                    json.dumps(item["data"]), item["created_at"], item["updated_at"]))
+
+    def delete_household_item(self, item_id: str) -> bool:
+        with self._conn() as c:
+            return c.execute("DELETE FROM household_items WHERE id=?", (item_id,)).rowcount > 0
 
     # settings
 

@@ -103,6 +103,20 @@ Harkenn (the speaker only plays it). Every field is optional. With none it shows
 takes nothing from it, so an agent can show any weather it has. The conditions and fields are in
 [SCREEN.md](SCREEN.md#the-weather-screen). Skips speakers that are offline or set to do not disturb.
 
+### `household_items(module, person="", include_done=false)`, `household_change(module, action, person="")`
+
+The household modules ([HOUSEHOLD.md](HOUSEHOLD.md)), when they're turned on: `memories`, `todo`, `shopping`,
+`reminders`, `calendar`, `messages` and `chores`. They're shared with the people at home and with Harkenn's own
+assistant, so an agent adding to the shopping list adds to the same list. `person` is a name from the **People**
+page: it adds that person's own memories, reminders and events, and is who `"for": "me"` means. `action` is what
+Harkenn's own assistant writes in its markers, e.g. `{"add": ["milk", "eggs"]}`, `{"done": "plumber"}`,
+`{"text": "bins", "at": "2026-11-04 19:00", "repeat": "weekly"}`; the tool's description lists them all.
+
+### `calendar_events(start, end="", person="")`, `news_headlines(topic="")`, `morning_briefing(speaker="", person="")`
+
+What's on between two dates (Harkenn's events and its subscribed calendars, repeats expanded), headlines from the
+news feeds set up in Harkenn, and everything for a morning briefing at once, as it's set up for that speaker's group.
+
 ## Do not disturb
 
 Each speaker's page has an **Agents** section, set by the people who live there, and enforced by the server:

@@ -16,6 +16,7 @@ from .hub import Hub
 from .models import DeviceConfig
 from .settings import Settings
 from .homeassistant import Bridge
+from .household import Household
 from .screens import Screens
 from .timers import Board
 from .weather import WeatherService
@@ -47,6 +48,7 @@ class Context:
     weather: WeatherService = field(init=False)
     board: Board = field(init=False)
     homeassistant: Bridge = field(init=False)
+    household: Household = field(init=False)
 
     def __post_init__(self) -> None:
         from . import groups
@@ -57,6 +59,7 @@ class Context:
         self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)
+        self.household = Household(self)
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
         self.wakewords = WakeWords(self.settings.wakewords_dir, self.settings.data_dir / "models" / "wakewords",
                                    self.settings.data_dir / "wakewords")

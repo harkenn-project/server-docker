@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -23,7 +24,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, groups, kani, local_access, relay, timezones
+from . import __version__, about, groups, household, kani, local_access, relay, timezones
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
@@ -112,7 +113,10 @@ def adoption_summary(c: Context, r: dict[str, Any], now: float) -> dict[str, Any
 
 
 def _page(request: Request, name: str, **context: Any) -> Response:
-    return templates.TemplateResponse(request, name, {"admin": is_admin(request), **context})
+    admin = is_admin(request)
+    modules = [m for m in get_ctx(request).household.enabled_modules() if m in HOUSEHOLD_FIELDS] if admin else []
+    return templates.TemplateResponse(request, name, {"admin": admin, "household_nav": [
+        (m, household.MODULES[m]["title"]) for m in modules], **context})
 
 
 def _login_redirect(request: Request) -> RedirectResponse:
@@ -1277,3 +1281,213 @@ async def put_homeassistant(body: dict[str, Any], request: Request) -> dict[str,
             break
         await asyncio.sleep(0.1)
     return _homeassistant_out(c)
+
+
+# household modules (household/)
+
+HOUSEHOLD_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "memories": [{"key": "text", "label": "Remember", "type": "textarea", "required": True},
+                 {"key": "owner", "label": "For", "type": "owner"}],
+    "todo": [{"key": "text", "label": "To do", "type": "text", "required": True},
+             {"key": "due", "label": "Due", "type": "date"},
+             {"key": "done", "label": "Done", "type": "bool", "table_only": True}],
+    "shopping": [{"key": "text", "label": "Item", "type": "text", "required": True},
+                 {"key": "got", "label": "Got it", "type": "bool", "table_only": True}],
+    "reminders": [{"key": "text", "label": "Reminder", "type": "text", "required": True},
+                  {"key": "due", "label": "When", "type": "datetime", "required": True},
+                  {"key": "repeat", "label": "Repeats", "type": "select",
+                   "options": [["", "Once"], ["daily", "Every day"], ["weekdays", "Weekdays"],
+                               ["weekly", "Every week"], ["monthly", "Every month"]]},
+                  {"key": "alarm", "label": "Rings like an alarm", "type": "bool"},
+                  {"key": "speaker", "label": "On", "type": "speaker"},
+                  {"key": "owner", "label": "For", "type": "owner"},
+                  {"key": "done", "label": "Done", "type": "bool", "table_only": True}],
+    "calendar": [{"key": "title", "label": "Event", "type": "text", "required": True},
+                 {"key": "start", "label": "Starts", "type": "when", "required": True,
+                  "placeholder": "2026-11-06 14:30, or 2026-11-06 for all day"},
+                 {"key": "end", "label": "Ends", "type": "when", "placeholder": "15:30 (optional)"},
+                 {"key": "where", "label": "Where", "type": "text"},
+                 {"key": "repeat", "label": "Repeats", "type": "select",
+                  "options": [["", "Once"], ["daily", "Every day"], ["weekly", "Every week"],
+                              ["monthly", "Every month"], ["yearly", "Every year"]]},
+                 {"key": "owner", "label": "For", "type": "owner"},
+                 {"key": "notes", "label": "Notes", "type": "textarea", "form_only": True}],
+    "messages": [{"key": "to", "label": "For", "type": "person", "required": True},
+                 {"key": "from", "label": "From", "type": "text"},
+                 {"key": "text", "label": "Message", "type": "textarea", "required": True},
+                 {"key": "delivered_at", "label": "Passed on", "type": "readonly"}],
+    "chores": [{"key": "name", "label": "Chore", "type": "text", "required": True},
+               {"key": "people", "label": "Whose turn, in order", "type": "list",
+                "placeholder": "Marika, Jules, Tomas"},
+               {"key": "every", "label": "How often", "type": "text", "placeholder": "daily, weekly, weekdays, mon,thu"},
+               {"key": "remind", "label": "Remind at", "type": "time"},
+               {"key": "turn", "label": "Whose turn", "type": "readonly"},
+               {"key": "last_by", "label": "Last done by", "type": "readonly"}],
+}
+
+
+def _household_view(c: Context, item: dict[str, Any], now: Any, devices: dict[str, str]) -> dict[str, str]:
+    """How an item's fields read in the admin table."""
+    d, view = item["data"], {}
+    for f in HOUSEHOLD_FIELDS[item["module"]]:
+        key, v = f["key"], d.get(f["key"])
+        if key == "owner":
+            view[key] = c.household.person_name(item["owner"]) or "Household"
+        elif f["type"] == "speaker":
+            view[key] = "All speakers" if v in ("", "all", None) else devices.get(v, v)
+        elif f["type"] in ("datetime", "when", "date") and v:
+            view[key] = household.say_when(v, now) + ("" if v[:10] == now.strftime("%Y-%m-%d") else f" ({v[:10]})")
+        elif f["type"] == "select":
+            view[key] = dict(f["options"]).get(v or "", v or "")
+        elif key == "delivered_at":
+            view[key] = time.strftime("%b %d %H:%M", time.localtime(v)) if v else "Not yet"
+        elif key == "turn":
+            view[key] = household.whose_turn(d) or "No one"
+        elif f["type"] == "list":
+            view[key] = ", ".join(v or [])
+        else:
+            view[key] = "" if v is None else str(v)
+    return view
+
+
+def _household_out(c: Context) -> dict[str, Any]:
+    s = c.household.settings()
+    return {"settings": s.model_dump(),
+            "modules": [{"name": name, "title": m["title"], "about": m["about"],
+                         "enabled": c.household.enabled(name, s), "page": name in HOUSEHOLD_FIELDS}
+                        for name, m in household.MODULES.items()],
+            "sections": list(household.BRIEFING_SECTIONS.items()),  # lists: tojson would sort a dict's keys
+            "groups": [{"id": g["id"], "name": g["name"]} for g in groups.all_groups(c.db)],
+            "errors": {**c.household.calendar_cache.errors, **c.household.news_cache.errors}}
+
+
+def _module_or_404(module: str) -> str:
+    if module not in HOUSEHOLD_FIELDS:
+        raise HTTPException(404)
+    return module
+
+
+def _module_items_out(c: Context, module: str) -> dict[str, Any]:
+    now = c.household.now()
+    devices = {x["id"]: x["name"] for x in c.db.list_devices()}
+    items = c.household.items(module)
+    items.sort(key=lambda i: (bool(i["data"].get("done") or i["data"].get("got") or i["data"].get("delivered_at")),
+                              i["data"].get("due") or i["data"].get("start") or "", i["created_at"]))
+    out = {"module": module, "title": household.MODULES[module]["title"], "fields": HOUSEHOLD_FIELDS[module],
+           "people": c.household.people(),
+           "speakers": [{"id": k, "name": v} for k, v in devices.items()],
+           "items": [{"id": i["id"], "owner": i["owner"], "data": i["data"], "view": _household_view(c, i, now, devices),
+                      "created_at": i["created_at"]} for i in items]}
+    if module == "calendar":
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        out["upcoming"] = [{"when": household.say_when(e["start"].strftime("%Y-%m-%d" if e["all_day"]
+                                                                         else "%Y-%m-%dT%H:%M"), now),
+                            "date": e["start"].strftime("%Y-%m-%d"), "title": e["title"], "where": e["where"],
+                            "calendar": e["source"] or "Harkenn",
+                            "for": c.household.person_name(e.get("owner", "")) or "Household"}
+                           for e in c.household.events(today, today + timedelta(days=31))]
+    return out
+
+
+@pages.get("/modules")
+async def modules_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "modules.html", household=_household_out(get_ctx(request)))
+
+
+@pages.get("/household/{module}")
+async def household_page(module: str, request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    c = get_ctx(request)
+    _module_or_404(module)
+    return _page(request, "household.html", module=module, info=household.MODULES[module],
+                 enabled=c.household.enabled(module), data=await run_in_threadpool(_module_items_out, c, module))
+
+
+@api.get("/household")
+async def get_household(request: Request) -> dict[str, Any]:
+    return _household_out(get_ctx(request))
+
+
+@api.put("/household")
+async def put_household(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    try:
+        s = household.HouseholdSettings.model_validate(body.get("settings") or {})
+    except ValidationError as e:
+        raise HTTPException(422, "; ".join(f"{'.'.join(map(str, err['loc']))}: {err['msg']}"
+                                           for err in e.errors())) from e
+    c.household.save_settings(s)
+    return _household_out(c)
+
+
+@api.get("/household/news")
+async def household_news(request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    out = []
+    for link in c.household.settings().news_feeds:
+        got = await run_in_threadpool(c.household.news_cache.get, link.url, True)
+        out.append({"name": link.name, "headlines": (got or [])[:8],
+                    "error": c.household.news_cache.errors.get(link.url, "")})
+    return {"feeds": out}
+
+
+@api.post("/household/calendars/refresh")
+async def household_calendars_refresh(request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    out = []
+    for link in c.household.settings().calendars:
+        got = await run_in_threadpool(c.household.calendar_cache.get, link.url, True)
+        out.append({"name": link.name, "ok": got is not None,
+                    "error": c.household.calendar_cache.errors.get(link.url, "")})
+    return {"calendars": out}
+
+
+@api.get("/household/{module}")
+async def household_items(module: str, request: Request) -> dict[str, Any]:
+    return await run_in_threadpool(_module_items_out, get_ctx(request), _module_or_404(module))
+
+
+def _owner_in(c: Context, body: dict[str, Any]) -> str:
+    owner = str(body.get("owner") or "")
+    if owner and not c.household.person_name(owner):
+        raise HTTPException(422, "no such person")
+    return owner
+
+
+def _item_or_404(c: Context, module: str, item_id: str) -> dict[str, Any]:
+    item = c.db.household_item(item_id)
+    if not item or item["module"] != _module_or_404(module):
+        raise HTTPException(404)
+    return item
+
+
+@api.post("/household/{module}", status_code=201)
+async def household_add(module: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    _module_or_404(module)
+    try:
+        c.household.add(module, dict(body.get("data") or {}), _owner_in(c, body))
+    except household.Problem as e:
+        raise HTTPException(422, str(e)) from e
+    return await run_in_threadpool(_module_items_out, c, module)
+
+
+@api.patch("/household/{module}/{item_id}")
+async def household_update(module: str, item_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    item = _item_or_404(c, module, item_id)
+    try:
+        c.household.update(item, dict(body.get("data") or {}), _owner_in(c, body) if "owner" in body else None)
+    except household.Problem as e:
+        raise HTTPException(422, str(e)) from e
+    return await run_in_threadpool(_module_items_out, c, module)
+
+
+@api.delete("/household/{module}/{item_id}")
+async def household_delete(module: str, item_id: str, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    c.household.delete(_item_or_404(c, module, item_id))
+    return await run_in_threadpool(_module_items_out, c, module)

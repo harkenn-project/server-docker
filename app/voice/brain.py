@@ -208,16 +208,20 @@ class Reply(str):
     screen_error: str = ""
     timers: list[dict[str, Any]] = []  # timer markers (timers.py)
     timer_problems: list[str] = []
+    household: list[tuple[str, dict[str, Any]]] = []  # household markers (household/), lookups already done
+    household_problems: list[str] = []
 
     def __new__(cls, text: str, listen: bool = False, screen: dict[str, Any] | None = None,
                 screen_error: str = "", timer_actions: list[dict[str, Any]] | None = None,
-                timer_problems: list[str] | None = None) -> "Reply":
+                timer_problems: list[str] | None = None,
+                household: tuple[list[tuple[str, dict[str, Any]]], list[str]] | None = None) -> "Reply":
         r = super().__new__(cls, text)
         r.listen = listen
         r.screen = screen
         r.screen_error = screen_error
         r.timers = timer_actions or []
         r.timer_problems = timer_problems or []
+        r.household, r.household_problems = household or ([], [])
         return r
 
 
@@ -231,7 +235,10 @@ def request_context(speaker: str, device_id: str, who: str = "") -> str:
 
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
         conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "",
-        voice_tag: str = "", timer_prompt: str = "", notes: dict[str, str] | None = None) -> Reply:
+        voice_tag: str = "", timer_prompt: str = "", notes: dict[str, str] | None = None,
+        household: Any = None, person: str = "") -> Reply:
+    """`household` (household.Household, for a chat model; None for an agent) adds its markers, and looks things
+    up when a reply asks to (a second request, with what it found)."""
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
@@ -240,7 +247,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     # prompt, at the cost of that)
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    system += context + screen_prompt + timer_prompt
+    system += context + screen_prompt + timer_prompt + (household.prompt() if household else "")
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT  # last, so it isn't lost under everything else
     # what changes goes on the newest message, and only what this conversation hasn't been told
@@ -254,13 +261,29 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         text = f"{voice_tag} {text}"
     messages = [*history, {"role": "user", "content": f"({' '.join(news.split())})\n{text}" if news else text}]
     tokens = MAX_TOKENS_WITH_SCREEN if screen_prompt else MAX_TOKENS
-    if api == "anthropic":
-        reply = anthropic_messages(url, settings, system, messages, timeout, tokens)
-    elif api == "hermes":  # stateless: Hermes sees only this history; its long-term memory is scoped to the speaker
-        reply = chat_completions(url, settings, system, messages, timeout,
-                                 {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"}, tokens)
-    else:
-        reply = chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
+
+    def call(messages: list[dict[str, str]]) -> str:
+        if api == "anthropic":
+            return anthropic_messages(url, settings, system, messages, timeout, tokens)
+        if api == "hermes":  # stateless: Hermes sees only this history; its long-term memory is scoped to the speaker
+            return chat_completions(url, settings, system, messages, timeout,
+                                    {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"}, tokens)
+        return chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
+
+    reply = call(messages)
+    actions: list[tuple[str, dict[str, Any]]] = []
+    problems: list[str] = []
+    if household is not None:
+        raw = reply
+        reply, actions, problems = household.split(reply)
+        lookups = [a for a in actions if household.is_lookup(*a)]
+        if lookups:  # the news, the briefing, other days of the calendar: ask again with what was found
+            found = household.lookup(lookups, device_id, person, now)
+            reply = call([*messages, {"role": "assistant", "content": raw},
+                          {"role": "user", "content": f"(Harkenn found: {found})\nNow answer, without that marker."}])
+            reply, more, more_problems = household.split(reply)
+            actions = [a for a in actions + more if not household.is_lookup(*a)]
+            problems += more_problems
     reply, timer_actions, timer_problems = timers.split_markers(reply) if timer_prompt else (reply, [], [])
     # the screen first: speakable() would mangle its JSON. It isn't kept in the history (an SVG would fill it up).
     reply, screen, screen_error = screens.split_marker(reply) if screen_prompt else (reply, None, "")
@@ -274,7 +297,9 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     listen = bool(LISTEN_RE.search(reply)) or speakable(LISTEN_RE.sub("", reply)).rstrip().endswith("?")
     reply = speakable(LISTEN_RE.sub("", reply))
     conversations.add(device_id, text, reply + (f" {LISTEN_MARK}" if listen else ""))  # so it keeps doing it
-    if not reply and (screen or timer_actions):
-        return Reply("", listen, screen, screen_error, timer_actions, timer_problems)  # just a screen or a timer
+    if not reply and (screen or timer_actions):  # just a screen or a timer
+        return Reply("", listen, screen, screen_error, timer_actions, timer_problems, (actions, problems))
+    if not reply and actions:  # just a household marker: say it's done
+        reply = "Done."
     return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply), screen, screen_error,
-                 timer_actions, timer_problems)
+                 timer_actions, timer_problems, (actions, problems))

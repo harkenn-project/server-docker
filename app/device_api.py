@@ -241,6 +241,8 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         _store_logs(c, device_id, [LogLine(level="I", tag="event", message=f"{name} {data}".strip())])
         if name.startswith("timer_") and isinstance(msg.get("data"), dict):
             c.board.event(device_id, name, msg["data"])
+            if name == "timer_stopped":  # a morning alarm: the briefing, maybe (household/)
+                asyncio.create_task(c.household.alarm_stopped(device_id, msg["data"]))
         c.hub.publish({"type": "event", "id": device_id, "name": name})
     elif kind == "timers":  # its timers and alarms (timers.py), whenever they change
         c.board.report(device_id, msg)

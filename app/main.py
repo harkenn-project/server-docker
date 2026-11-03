@@ -53,8 +53,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await app.state.announcer.start(app.state.ctx.public_url())
         app.state.ctx.homeassistant.start()
         app.state.relay.start()
+        app.state.ctx.household.start()
         async with app.state.mcp.session_manager.run():
             yield
+        await app.state.ctx.household.stop()
         await app.state.relay.stop()
         app.state.ctx.homeassistant.stop()
         await app.state.announcer.stop()

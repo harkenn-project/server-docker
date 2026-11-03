@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ info.title }}{% endblock %}
+{% block page %}household-{{ module }}{% endblock %}
+{% block body_attrs %}data-module="{{ module }}"{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>{{ info.title }}</h1>
+</div>
+<p class="hint">{{ info.about }}
+  {% if not enabled %}<strong>This module is off: turn it on on the <a href="/admin/modules">Modules</a> page for the
+  assistant to use it.</strong>{% endif %}</p>
+
+{% if module == "calendar" %}
+<section class="card">
+  <h2>Coming up</h2>
+  <p class="hint">The next 31 days, with the calendars Harkenn subscribes to (set up on the
+    <a href="/admin/modules">Modules</a> page).</p>
+  <div id="upcoming"></div>
+</section>
+{% endif %}
+
+<section class="card">
+  <h2>{% if module == "calendar" %}Harkenn's own events{% else %}{{ info.title }}{% endif %}</h2>
+  <div class="table-wrap"><table class="table household-table"><thead id="item-head"></thead>
+    <tbody id="item-rows"></tbody></table></div>
+</section>
+
+<section class="card form">
+  <h2 id="item-form-title">Add</h2>
+  <form id="item-form" class="item-form"></form>
+</section>
+<script type="application/json" id="household-items">{{ data | tojson }}</script>
+{% endblock %}

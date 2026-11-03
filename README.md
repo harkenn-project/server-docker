@@ -45,6 +45,11 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
 - **Groups.** Speakers in a group share their settings: change the group and they all follow. Any speaker can
   still have settings of its own, and its own Wi-Fi networks (with a fixed IP address if you like) on top of the
   group's. Time zones are picked by place and kept up to date when the rules change.
+- **Household modules** for a plain chat model: memories (on by default), to-do and shopping lists, reminders
+  (spoken, or rung like an alarm), a calendar (Harkenn's own events plus your Google, iCloud or Outlook calendars),
+  messages for someone in the household, a chores rota, a morning briefing and news headlines. Each is off until you
+  turn it on, and everything they keep is on its own admin page. Personal things follow the voiceprints. An agent
+  such as Hermes keeps its own memory and reaches these through MCP. See [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md).
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
 - **Setup without fuss.** Install the firmware from your browser at [flash.mylife.ninja](https://flash.mylife.ninja).
@@ -92,6 +97,7 @@ What the speakers show is in [speaker-firmware](https://github.com/harkenn-proje
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | How speakers and the server talk |
 | [docs/MCP.md](docs/MCP.md) | The MCP server for AI agents, with a ready-made [skill](docs/skills/harkenn-speakers/SKILL.md) |
 | [docs/SCREEN.md](docs/SCREEN.md) | Pictures, buttons and overlays the assistant can show |
+| [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md) | Memories, lists, reminders, calendar, messages, chores, briefing and news |
 | [docs/HOMEASSISTANT.md](docs/HOMEASSISTANT.md) | The speakers in Home Assistant, through MQTT |
 | [docs/RELAY.md](docs/RELAY.md) | Speakers away from home, through the relay ([harkenn-project/flash](https://github.com/harkenn-project/flash), also the web flasher) |
 
@@ -172,6 +178,7 @@ app/
   admin.py       admin pages and JSON API (session login, CSRF header check)
   groups.py      speaker groups: shared settings, each speaker's own on top
   timezones.py   time zones by name, turned into the speakers' POSIX rules
+  household/     memories, lists, reminders, calendar, messages, chores, briefing, news (feeds.py: ICS and RSS)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
   relay.py       speakers away from home, through the relay (docs/RELAY.md)
   timers.py      timers, alarms and notifications: the assistant's markers and what each speaker has

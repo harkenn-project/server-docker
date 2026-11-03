@@ -14,7 +14,7 @@ import logging
 import secrets
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver import MCPServer
@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from . import __version__, weather
+from . import household as household_mod
 from . import timers as timers_mod
 from .models import AgentsConfig
 from .voice.calls import MAX_RING_S, MIN_RING_S
@@ -56,6 +57,11 @@ INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk 
 - get_weather: the weather here now and for the coming days (when the place is set in Harkenn).
 - show_weather: show an animated weather screen on one speaker or all of them, with the numbers you give; anything
   you leave out comes from the weather here.
+- household_items / household_change: the household's memories, to-do and shopping lists, reminders, calendar,
+  messages and chores, when those modules are on in Harkenn. They're shared with the people here (and with
+  Harkenn's own assistant): add to them when asked, and read them before answering about them.
+- calendar_events, news_headlines, morning_briefing: the calendar for a range of days, the news from the feeds set
+  up in Harkenn, and everything for a morning briefing at once.
 
 Words are spoken aloud by a text-to-speech voice: write short, plain sentences, with no lists, markdown, emoji or
 URLs. Don't ring at night or repeatedly unless it's urgent; ringing is loud and interrupts people."""
@@ -387,6 +393,100 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
                 (problems if issues else shown).append(s["name"] if not issues else f'{s["name"]}: {issues[0]}')
         log_tool(f'weather on {", ".join(shown) or "nothing"}')
         return {"shown_on": shown, "skipped": skipped, "problems": problems}
+
+    household = ctx.household
+
+    def _person(name: str) -> str:
+        if not name:
+            return ""
+        found = next((p["id"] for p in household.people() if p["name"].lower() == name.strip().lower()), None)
+        if found is None:
+            raise ValueError(f"no one called {name!r} on Harkenn's People page")
+        return found
+
+    @server.tool()
+    def household_items(module: str, person: str = "", include_done: bool = False) -> dict[str, Any]:
+        """The items of a household module: memories, todo, shopping, reminders, calendar (Harkenn's own events;
+        use calendar_events for what's on), messages or chores. `person` (a name from Harkenn's People page) adds
+        that person's own memories, reminders and events to the household's."""
+        if module not in household_mod.MAIN_FIELD:
+            return {"items": [], "note": f"modules: {', '.join(household_mod.MAIN_FIELD)}"}
+        if not household.enabled(module):
+            return {"items": [], "note": f"The {module} module is turned off in Harkenn (Modules page)."}
+        try:
+            owner = _person(person) if module in household_mod.PERSONAL else None
+        except ValueError as e:
+            return {"items": [], "note": str(e)}
+        items = household.items(module, owner)
+        if not include_done:
+            items = [i for i in items if not (i["data"].get("done") or i["data"].get("delivered_at"))]
+        return {"items": [{"id": i["id"], **i["data"], "for": household.person_name(i["owner"]) or "household"}
+                          for i in items]}
+
+    @server.tool()
+    async def household_change(module: str, action: dict[str, Any], person: str = "") -> dict[str, Any]:
+        """Change a household module (as `person`, a name from Harkenn's People page, for "me"; else the household).
+        `action`, by module:
+        memories: {"remember": "...", "for": "me"|"household"|<name>} or {"forget": "<text or id>"}
+        todo: {"add": "..." or [...], "due": "YYYY-MM-DD"}, {"done": "<text or id>"}, {"undo": ...}, {"remove": ...}
+        shopping: {"add": [...]}, {"got": "<text>" or [...]}, {"remove": "<text>"}, {"clear": true} (removes got)
+        reminders: {"text": "...", "at": "YYYY-MM-DD HH:MM" (or "in": "20m"), "repeat": daily|weekdays|weekly|
+          monthly, "alarm": true (rings), "speaker": <name>|"all", "for": ...} or {"cancel": "<text or id>"}
+        calendar: {"add": "<title>", "start": "YYYY-MM-DD HH:MM" or "YYYY-MM-DD", "end": ..., "where": ...,
+          "repeat": daily|weekly|monthly|yearly, "for": ...} or {"remove": "<title or id>", "date": "YYYY-MM-DD"}
+        messages: {"to": "<name>", "text": "...", "speaker": <name>|"all" (also show it now)}
+        chores: {"done": "<chore>", "by": "<name>"}
+        Times are local to the home."""
+        marker = {"memories": "memories", "memory": "memories", "reminder": "reminders", "message": "messages",
+                  "chore": "chores"}.get(module, module)
+        if marker not in household_mod.MAIN_FIELD:
+            return {"done": "", "problem": f"modules: {', '.join(household_mod.MAIN_FIELD)}"}
+        if not household.enabled(marker):
+            return {"done": "", "problem": f"The {marker} module is turned off in Harkenn (Modules page)."}
+        try:
+            done = await household.apply(marker, action, "", _person(person), sender="an agent")
+        except ValueError as e:
+            return {"done": "", "problem": str(e)}
+        log_tool(f"{marker}: {done}")
+        return {"done": done}
+
+    @server.tool()
+    def calendar_events(start: str, end: str = "", person: str = "") -> dict[str, Any]:
+        """What's on between two dates (YYYY-MM-DD, end included; at most 62 days): Harkenn's own events and the
+        calendars it subscribes to, with `person`'s own events added."""
+        if not household.enabled("calendar"):
+            return {"events": [], "note": "The calendar module is turned off in Harkenn (Modules page)."}
+        try:
+            frm = household_mod.local_dt(start[:10])
+            to = household_mod.local_dt((end or start)[:10]) + timedelta(days=1)
+            owner = _person(person)
+        except ValueError as e:
+            return {"events": [], "note": str(e)}
+        to = min(to, frm + timedelta(days=62))
+        events = household.events(frm, to, owner)
+        return {"events": [{"title": e["title"], "start": e["start"].isoformat(timespec="minutes"),
+                            "end": e["end"].isoformat(timespec="minutes"), "all_day": e["all_day"],
+                            "where": e["where"], "calendar": e["source"] or "Harkenn",
+                            "for": household.person_name(e.get("owner", "")) or "household"} for e in events]}
+
+    @server.tool()
+    async def news_headlines(topic: str = "") -> dict[str, Any]:
+        """Headlines (with short summaries) from the news feeds set up in Harkenn, optionally only about `topic`."""
+        if not household.enabled("news"):
+            return {"news": "", "note": "The news module is turned off in Harkenn (Modules page)."}
+        return {"news": await run_in_threadpool(household.headlines, topic, 15)}
+
+    @server.tool()
+    async def morning_briefing(speaker: str = "", person: str = "") -> dict[str, Any]:
+        """Everything for a morning briefing at once, as Harkenn is set up to give it (the weather, today's events,
+        reminders, to-dos, chores, messages, news), for a speaker's group and a person."""
+        try:
+            owner = _person(person)
+        except ValueError as e:
+            return {"briefing": "", "note": str(e)}
+        found = [d for d in ctx.db.list_devices() if speaker and speaker.lower() in (d["id"], d["name"].lower())]
+        return {"briefing": await run_in_threadpool(household.briefing, found[0]["id"] if found else "", owner,
+                                                    household.now())}
 
     @server.prompt()
     def announce(message: str) -> str:

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Modules{% endblock %}
+{% block page %}modules{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Modules</h1>
+</div>
+<p class="hint">What Harkenn keeps for the household, so a plain chat model can remember things, keep lists, remind
+  you and know what's on. Turn on what you'd like; each has its own page in the menu. An agent such as Hermes has its
+  own memory and tools, so it doesn't get these in its instructions, but it can use them through Harkenn's
+  <a href="/admin/agents">MCP server</a>. Personal things (memories, reminders, events) belong to the person the
+  voiceprints on the <a href="/admin/people">People</a> page recognize, or to the household.</p>
+
+<div id="modules" class="cards module-cards"></div>
+
+<section class="card form" id="calendar-settings">
+  <h2>Calendar subscriptions</h2>
+  <p class="hint">Your existing calendars, read-only: paste a calendar's secret ICS address (Google Calendar:
+    Settings, the calendar, "Secret address in iCal format"; iCloud: share the calendar publicly; Outlook: Publish a
+    calendar, ICS). Harkenn reads them every 30 minutes.</p>
+  <div class="links" data-links="calendars"></div>
+  <div class="buttons"><button type="button" class="secondary" data-add="calendars">Add a calendar</button>
+    <button type="button" class="secondary" id="calendars-refresh">Read them now</button></div>
+</section>
+
+<section class="card form" id="news-settings">
+  <h2>News feeds</h2>
+  <p class="hint">RSS or Atom feeds, e.g. <code>https://www.cbc.ca/webfeed/rss/rss-topstories</code>. "What's in the
+    news?" reads a few headlines from these.</p>
+  <div class="links" data-links="news_feeds"></div>
+  <div class="buttons"><button type="button" class="secondary" data-add="news_feeds">Add a feed</button>
+    <button type="button" class="secondary" id="news-test">Show the headlines</button></div>
+  <div id="news-preview"></div>
+</section>
+
+<section class="card form" id="briefing-settings">
+  <h2>Morning briefing</h2>
+  <p class="hint">What "good morning" covers. A group can have its own (say, no news in the kids' rooms).</p>
+  <table class="table briefing-table"><thead id="briefing-head"></thead><tbody id="briefing-rows"></tbody></table>
+  <label class="inline"><input type="checkbox" id="briefing-after-alarm"> <span>Give the briefing when someone stops
+    an alarm between 4 and 11 in the morning</span></label>
+</section>
+
+<section class="card form">
+  <h2>Reminders and chores</h2>
+  <label class="inline"><input type="checkbox" id="reminders-speak"> <span>Say reminders and chore turns aloud, as
+    well as showing them on the screen</span></label>
+</section>
+<script type="application/json" id="household-data">{{ household | tojson }}</script>
+{% endblock %}

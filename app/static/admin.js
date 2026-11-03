@@ -1334,6 +1334,254 @@ Problems: ${out.warnings.join("; ")}` : "");
   preview();
 }
 
+// household modules: the Modules page, and a page per module
+
+function initModules() {
+  let data = jsonScript("household-data");
+  let settings = structuredClone(data.settings);
+  const SECTIONS = Object.fromEntries(data.sections);
+
+  async function save(quiet = false) {
+    try {
+      data = await api("PUT", "/admin/api/household", { settings });
+      settings = structuredClone(data.settings);
+      if (!quiet) toast("Saved");
+      return true;
+    } catch (err) { toast(err.message, true); return false; }
+  }
+
+  function modules() {
+    $("#modules").replaceChildren(...data.modules.map(m => [m.name, m]).map(([name, m]) => el("div", { class: `card module${m.enabled ? " on" : ""}` },
+      el("div", { class: "module-head" },
+        el("h3", {}, m.title),
+        el("label", { class: "switch", title: m.enabled ? "On" : "Off" },
+          el("input", { type: "checkbox", checked: m.enabled, onchange: async e => {
+            settings.enabled[name] = e.target.checked;
+            if (await save(true)) {
+              toast(`${m.title} ${e.target.checked ? "on" : "off"}`);
+              location.reload();  // the menu changes
+            } else e.target.checked = !e.target.checked;
+          } }), el("span", { class: "slider" }))),
+      el("p", { class: "hint" }, m.about),
+      m.enabled && m.page ? el("a", { href: `/admin/household/${name}` }, `Open ${m.title.toLowerCase()} →`) : null)));
+  }
+
+  function links(kind) {
+    const root = $(`[data-links="${kind}"]`);
+    const list = settings[kind];
+    root.replaceChildren(...list.map((link, i) => el("div", { class: "link-row" },
+      el("input", { value: link.name, placeholder: "Name", maxlength: 60, "aria-label": "Name",
+                    onchange: e => { link.name = e.target.value; save(); } }),
+      el("input", { class: "grow", value: link.url, placeholder: "https://…", "aria-label": "Address",
+                    onchange: e => { link.url = e.target.value.trim(); save(); } }),
+      data.errors[link.url] ? el("span", { class: "badge danger", title: data.errors[link.url] }, "can't read it") : null,
+      el("button", { type: "button", class: "secondary small", onclick: async () => {
+        list.splice(i, 1); if (await save()) links(kind);
+      } }, "Remove"))));
+    if (!list.length) root.append(el("p", { class: "hint" }, "None yet."));
+  }
+  for (const button of $$("[data-add]")) {
+    button.addEventListener("click", () => {
+      const kind = button.dataset.add;
+      const name = prompt("Name (e.g. Family, CBC)");
+      if (!name) return;
+      const url = prompt("Address (https:// or webcal://)");
+      if (!url) return;
+      settings[kind].push({ name, url: url.trim() });
+      save().then(ok => { if (ok) links(kind); else settings[kind].pop(); });
+    });
+  }
+  $("#news-test").addEventListener("click", async () => {
+    const out = $("#news-preview");
+    out.replaceChildren(el("p", { class: "hint" }, "Reading…"));
+    try {
+      const got = await api("GET", "/admin/api/household/news");
+      out.replaceChildren(...got.feeds.map(f => el("div", {},
+        el("h4", {}, f.name), f.error ? el("p", { class: "hint error" }, f.error) : null,
+        el("ul", { class: "headlines" }, ...f.headlines.map(h => el("li", {}, h.title))))));
+      if (!got.feeds.length) out.replaceChildren(el("p", { class: "hint" }, "Add a feed first."));
+    } catch (err) { out.replaceChildren(); toast(err.message, true); }
+  });
+  $("#calendars-refresh").addEventListener("click", async () => {
+    try {
+      const got = await api("POST", "/admin/api/household/calendars/refresh");
+      const bad = got.calendars.filter(c => !c.ok);
+      toast(bad.length ? `Couldn't read ${bad.map(c => `${c.name} (${c.error})`).join(", ")}`
+        : got.calendars.length ? "Read them all" : "Add a calendar first", bad.length > 0);
+      data = await api("GET", "/admin/api/household");
+      links("calendars");
+    } catch (err) { toast(err.message, true); }
+  });
+
+  function briefing() {
+    $("#briefing-head").replaceChildren(el("tr", {}, el("th", {}, ""), ...Object.values(SECTIONS).map(s => el("th", {}, s))));
+    const row = (label, sections, own, onchange) => el("tr", {},
+      el("td", {}, label, own === null ? null : el("label", { class: "inline small" },
+        el("input", { type: "checkbox", checked: own, onchange: e => onchange(null, e.target.checked) }), " its own")),
+      ...Object.keys(SECTIONS).map(k => el("td", {}, el("input", { type: "checkbox", "aria-label": `${label}: ${SECTIONS[k]}`,
+        checked: sections.includes(k), disabled: own === false,
+        onchange: e => onchange(k, e.target.checked) }))));
+    const rows = [row("Everyone", settings.briefing_sections, null, (k, on) => {
+      settings.briefing_sections = on ? [...settings.briefing_sections, k] : settings.briefing_sections.filter(x => x !== k);
+      save().then(briefing);
+    })];
+    for (const g of data.groups) {
+      const own = g.id in settings.briefing_groups;
+      rows.push(row(g.name, own ? settings.briefing_groups[g.id] : settings.briefing_sections, own, (k, on) => {
+        if (k === null) {
+          if (on) settings.briefing_groups[g.id] = [...settings.briefing_sections];
+          else delete settings.briefing_groups[g.id];
+        } else {
+          const list = settings.briefing_groups[g.id];
+          settings.briefing_groups[g.id] = on ? [...list, k] : list.filter(x => x !== k);
+        }
+        save().then(briefing);
+      }));
+    }
+    $("#briefing-rows").replaceChildren(...rows);
+  }
+  const check = (id, key) => {
+    const box = $(id);
+    box.checked = settings[key];
+    box.addEventListener("change", () => { settings[key] = box.checked; save(); });
+  };
+  check("#briefing-after-alarm", "briefing_after_alarm");
+  check("#reminders-speak", "reminders_speak");
+  modules();
+  links("calendars");
+  links("news_feeds");
+  briefing();
+}
+
+function initHousehold() {
+  const module = document.body.dataset.module;
+  let data = jsonScript("household-items");
+  let editing = null;  // the item being edited, or null to add
+  const form = $("#item-form");
+  const fields = data.fields;
+  const shown = fields.filter(f => !f.form_only);
+  const editable = fields.filter(f => f.type !== "readonly" && !f.table_only);
+
+  function input(f) {
+    const common = { name: f.key, placeholder: f.placeholder || "", required: f.required || false };
+    switch (f.type) {
+      case "textarea": return el("textarea", { ...common, rows: 2, maxlength: 500 });
+      case "bool": return el("input", { type: "checkbox", name: f.key });
+      case "date": return el("input", { ...common, type: "date" });
+      case "time": return el("input", { ...common, type: "time" });
+      case "datetime": return el("input", { ...common, type: "datetime-local" });
+      case "select": return el("select", { name: f.key }, ...f.options.map(([v, label]) => el("option", { value: v }, label)));
+      case "owner": return el("select", { name: f.key }, el("option", { value: "" }, "Household"),
+        ...data.people.map(p => el("option", { value: p.id }, p.name)));
+      case "speaker": return el("select", { name: f.key }, el("option", { value: "all" }, "All speakers"),
+        ...data.speakers.map(s => el("option", { value: s.id }, s.name)));
+      case "person": return el("input", { ...common, list: "people-list", maxlength: 40 });
+      default: return el("input", { ...common, maxlength: 300 });
+    }
+  }
+
+  function buildForm() {
+    form.replaceChildren(
+      el("datalist", { id: "people-list" }, ...data.people.map(p => el("option", { value: p.name }))),
+      ...editable.map(f => f.type === "bool"
+        ? el("label", { class: "inline" }, input(f), el("span", {}, f.label))
+        : el("label", { class: f.type === "textarea" ? "wide" : "" }, f.label, input(f))),
+      el("div", { class: "buttons wide" },
+        el("button", { type: "submit" }, "Add"),
+        el("button", { type: "button", class: "secondary", hidden: true, onclick: () => edit(null) }, "Cancel")));
+  }
+
+  function edit(item) {
+    editing = item;
+    form.reset();
+    $("#item-form-title").textContent = item ? "Change" : "Add";
+    $("button[type=submit]", form).textContent = item ? "Save" : "Add";
+    $("button.secondary", form).hidden = !item;
+    if (!item) return;
+    for (const f of editable) {
+      const node = form.elements[f.key];
+      const value = f.key === "owner" ? item.owner : item.data[f.key];
+      if (f.type === "bool") node.checked = !!value;
+      else if (f.type === "list") node.value = (value || []).join(", ");
+      else if (f.type === "datetime") node.value = (value || "").slice(0, 16);
+      else if (f.type === "speaker") node.value = value || "all";
+      else node.value = value ?? "";
+    }
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  function read() {
+    const out = { data: {} };
+    for (const f of editable) {
+      const node = form.elements[f.key];
+      const value = f.type === "bool" ? node.checked : node.value;
+      if (f.key === "owner") out.owner = value;
+      else out.data[f.key] = value;
+    }
+    return out;
+  }
+
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      data = editing ? await api("PATCH", `/admin/api/household/${module}/${editing.id}`, read())
+        : await api("POST", `/admin/api/household/${module}`, read());
+      toast(editing ? "Saved" : "Added");
+      edit(null);
+      render();
+    } catch (err) { toast(err.message, true); }
+  });
+
+  function cell(item, f) {
+    if (f.type === "bool") {
+      return el("td", { class: "center" }, el("input", { type: "checkbox", checked: !!item.data[f.key], "aria-label": f.label,
+        onchange: async e => {
+          try { data = await api("PATCH", `/admin/api/household/${module}/${item.id}`, { data: { [f.key]: e.target.checked } }); render(); }
+          catch (err) { e.target.checked = !e.target.checked; toast(err.message, true); }
+        } }));
+    }
+    return el("td", { class: f.type === "textarea" ? "text" : "" }, item.view[f.key] || "");
+  }
+
+  function render() {
+    $("#item-head").replaceChildren(el("tr", {}, ...shown.map(f => el("th", {}, f.label)), el("th", {}, "")));
+    const finished = i => i.data.done || i.data.got || i.data.delivered_at;
+    $("#item-rows").replaceChildren(...data.items.map(item => el("tr", { class: finished(item) ? "finished" : "" },
+      ...shown.map(f => cell(item, f)),
+      el("td", { class: "row-actions" },
+        el("button", { type: "button", class: "secondary small", onclick: () => edit(item) }, "Change"),
+        el("button", { type: "button", class: "danger small", onclick: async () => {
+          if (!confirm("Delete this?")) return;
+          try { data = await api("DELETE", `/admin/api/household/${module}/${item.id}`); render(); }
+          catch (err) { toast(err.message, true); }
+        } }, "Delete")))));
+    if (!data.items.length) {
+      $("#item-rows").append(el("tr", {}, el("td", { colspan: shown.length + 1, class: "hint" }, "Nothing yet.")));
+    }
+    if (data.upcoming) {
+      let day = "";
+      const rows = [];
+      for (const e of data.upcoming) {
+        if (e.date !== day) { day = e.date; rows.push(el("h4", { class: "day" }, e.when.split(" ")[0] === "today" ? "Today" : new Date(e.date + "T12:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }))); }
+        rows.push(el("div", { class: "event" },
+          el("span", { class: "event-time" }, e.when.includes(":") ? e.when.split(" ").at(-1) : "all day"),
+          el("span", { class: "event-title" }, e.title, e.where ? el("small", {}, ` · ${e.where}`) : null),
+          el("span", { class: "badge" }, e.calendar), e.for !== "Household" ? el("span", { class: "badge own" }, e.for) : null));
+      }
+      $("#upcoming").replaceChildren(...(rows.length ? rows : [el("p", { class: "hint" }, "Nothing in the next 31 days.")]));
+    }
+  }
+
+  subscribe(msg => {
+    if (msg.type === "household" && msg.module === module && !editing) {
+      api("GET", `/admin/api/household/${module}`).then(d => { data = d; render(); }).catch(() => {});
+    }
+  });
+  buildForm();
+  edit(null);
+  render();
+}
+
 const page = document.body.dataset.page;
 initNav();
 initTabs();
@@ -1349,3 +1597,5 @@ if (page === "agents") initAgents();
 if (page === "sounds") initSounds();
 if (page === "people") initPeople();
 if (page === "screen") initScreen();
+if (page === "modules") initModules();
+if (page.startsWith("household-")) initHousehold();

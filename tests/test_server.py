@@ -788,7 +788,8 @@ def test_mcp_needs_a_token(client):
     assert init["serverInfo"]["name"] == "harkenn" and "presume no one heard" in init["instructions"].lower()
     tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
     assert set(tools) == {"list_speakers", "speak", "ring", "get_weather", "show_weather", "list_timers", "set_timer",
-                          "set_alarm", "cancel_timer", "notify"}
+                          "set_alarm", "cancel_timer", "notify", "household_items", "household_change",
+                          "calendar_events", "news_headlines", "morning_briefing"}
     assert "freezing_rain" in tools["show_weather"]["description"]
     assert "no one answers" in tools["ring"]["description"]
     agents = client.get("/admin/api/agents", headers=ADMIN).json()
@@ -2511,3 +2512,203 @@ def test_adopt_into_a_group(client):
     assert r.status_code == 200, r.text
     d = client.get(f"/admin/api/devices/{MAC}").json()
     assert d["group"]["id"] == "kids-rooms" and d["overrides"] == [] and d["config_version"] == 1
+
+
+# household modules (household/)
+
+def _household(client, *modules):
+    login(client)
+    hh = client.app.state.ctx.household
+    body = {"settings": {**hh.settings().model_dump(), "enabled": {m: True for m in modules}}}
+    r = client.put("/admin/api/household", json=body, headers=ADMIN)
+    assert r.status_code == 200, r.text
+    return hh
+
+
+def test_household_modules_are_off_except_memories(client):
+    login(client)
+    out = client.get("/admin/api/household").json()
+    assert [m["name"] for m in out["modules"] if m["enabled"]] == ["memories"]
+    page = client.get("/admin/modules").text
+    assert "Modules" in page and '/admin/household/memories"' in page and '/admin/household/todo"' not in page
+    hh = client.app.state.ctx.household
+    assert "[[memory" in hh.prompt() and "[[todo" not in hh.prompt()
+    _household(client, "memories", "todo", "shopping")
+    assert '/admin/household/todo"' in client.get("/admin/modules").text
+    for m in ("memories", "todo", "shopping", "reminders", "calendar", "messages", "chores"):
+        assert client.get(f"/admin/household/{m}").status_code == 200, m
+    assert client.get("/admin/household/nope").status_code == 404
+
+
+def test_the_assistant_keeps_household_things(client, monkeypatch):
+    import asyncio
+    from datetime import datetime
+
+    from app.voice import brain
+
+    hh = _household(client, "memories", "todo", "shopping", "reminders", "calendar", "messages", "chores")
+    marika = client.app.state.ctx.voice.voiceprints.add_person("Marika")["id"]
+    client.app.state.ctx.voice.voiceprints.add_person("Jules")
+    seen = []
+    answers = iter([
+        'Got it. [[memory {"remember": "my sister is Anna", "for": "me"}]] [[shopping {"add": ["milk", "2 lemons"]}]]',
+        '[[todo {"add": "call the plumber", "due": "2026-11-05"}]] [[reminder {"text": "bins", "at": "19:00", '
+        '"repeat": "weekly"}]] [[calendar {"add": "Dentist", "start": "2026-11-06 14:30", "end": "15:30", '
+        '"for": "me"}]] [[message {"to": "jules", "text": "dinner is ready"}]] Done, all of it.',
+    ])
+
+    def post(url, body, headers, timeout):
+        seen.append(body)
+        return {"choices": [{"message": {"content": next(answers)}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    conv = brain.Conversations()
+    now = datetime(2026, 11, 3, 9)
+    kw = dict(device_id="d", speaker="Kitchen", character="Janet", now=now, conversations=conv,
+              settings={"assistant_url": "http://llm/v1"}, household=hh, person=marika)
+    for heard in ("remember my sister is Anna, and we need milk and two lemons", "and the rest"):
+        r = brain.ask(heard, **kw)
+        for module, body in r.household:
+            asyncio.run(hh.apply(module, body, "d", marika))
+    assert r == "Done, all of it." and not r.household_problems
+    assert "[[shopping" in seen[0]["messages"][0]["content"]  # the instructions
+    assert [i["data"]["text"] for i in hh.items("shopping")] == ["milk", "2 lemons"]
+    memory = hh.items("memories")[0]
+    assert memory["owner"] == marika and memory["data"]["text"] == "my sister is Anna"
+    assert hh.items("todo")[0]["data"]["due"] == "2026-11-05"
+    reminder = hh.items("reminders")[0]["data"]
+    assert reminder["repeat"] == "weekly" and reminder["due"].endswith("T19:00") and reminder["speaker"] == "d"
+    event = hh.items("calendar")[0]
+    assert event["owner"] == marika and event["data"]["end"] == "2026-11-06T15:30"
+    assert hh.items("messages")[0]["data"] == {"to": "Jules", "from": "Marika", "text": "dinner is ready",
+                                               "delivered_at": None}
+
+    # what the assistant is told: hers, the household's, but not someone else's
+    notes = hh.notes("d", marika, now)
+    assert "Remembered for Marika: my sister is Anna." in notes["memories"]
+    assert "milk, 2 lemons" in notes["shopping"] and "call the plumber (due Thursday)" in notes["todo"]
+    assert "Dentist" not in hh.notes("d", "", now)["calendar"]  # hers
+    assert "Dentist at" not in notes["calendar"]  # Nov 6 isn't today or tomorrow
+    assert "Messages waiting for: Jules" in notes["messages"]
+    jules = hh.people()[1]["id"]
+    assert 'from Marika: "dinner is ready"' in hh.notes("d", jules, now)["messages"]
+    assert hh.items("messages")[0]["data"]["delivered_at"]  # passed on
+
+    # in the admin pages
+    page = client.get("/admin/api/household/shopping").json()
+    assert [i["view"]["text"] for i in page["items"]] == ["milk", "2 lemons"]
+    milk = page["items"][0]["id"]
+    page = client.patch(f"/admin/api/household/shopping/{milk}", json={"data": {"got": True}}, headers=ADMIN).json()
+    assert page["items"][-1]["data"]["got"] is True  # got it: at the bottom
+    assert "already got: milk" in hh.notes("d", "", now)["shopping"]
+    r = client.post("/admin/api/household/chores", headers=ADMIN,
+                    json={"data": {"name": "Dishes", "people": "Marika, Jules", "every": "daily"}})
+    assert r.status_code == 201 and r.json()["items"][0]["view"]["turn"] == "Marika"
+    asyncio.run(hh.apply("chores", {"done": "dishes", "by": "Marika"}, "d", marika))
+    assert "Dishes: Jules's turn" in hh.notes("d", "", now)["chores"]
+    assert client.post("/admin/api/household/reminders", json={"data": {"text": "x", "due": "whenever"}},
+                       headers=ADMIN).status_code == 422
+    # markers for modules that are off do nothing
+    _household(client, "memories")
+    text, actions, problems = hh.split('Sure. [[shopping {"add": "eggs"}]]')
+    assert text == "Sure." and actions == [] and problems == ["shopping is turned off"]
+
+
+def test_household_lookups_take_a_second_request(client, monkeypatch):
+    from datetime import datetime
+
+    from app import household
+
+    from app.voice import brain
+
+    hh = _household(client, "news", "calendar", "briefing")
+    hh.save_settings(hh.settings().model_copy(update={"news_feeds": [household.Link(name="CBC",
+                                                                                    url="https://example.com/rss")]}))
+    rss = b"""<?xml version="1.0"?><rss><channel><item><title>Oilers win in overtime</title>
+      <description>&lt;p&gt;A late goal.&lt;/p&gt;</description></item>
+      <item><title>Snow on the way</title></item></channel></rss>"""
+    monkeypatch.setattr("app.household.feeds.fetch", lambda url: rss)
+    hh.add("calendar", {"title": "Hockey", "start": "2026-11-10 19:00"})
+    hh.add("calendar", {"title": "Mum's birthday", "start": "1960-11-12", "repeat": "yearly"})
+    seen = []
+    answers = iter(["[[news]]", "The Oilers won in overtime.", '[[calendar {"find": "2026-11-10", "to": "2026-11-12"}]]',
+                    "Hockey on Tuesday, and your mum's birthday on Thursday."])
+
+    def post(url, body, headers, timeout):
+        seen.append(body["messages"])
+        return {"choices": [{"message": {"content": next(answers)}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    conv = brain.Conversations()
+    kw = dict(device_id="d", speaker="Kitchen", character="Janet", now=datetime(2026, 11, 3, 9), conversations=conv,
+              settings={"assistant_url": "http://llm/v1"}, household=hh)
+    assert brain.ask("what's in the news?", **kw) == "The Oilers won in overtime."
+    found = seen[1][-1]["content"]
+    assert "[CBC] Oilers win in overtime - A late goal." in found and "Snow on the way" in found
+    assert seen[1][-2] == {"role": "assistant", "content": "[[news]]"}
+    r = brain.ask("what's on next week?", **kw)
+    assert r.startswith("Hockey") and not r.household
+    found = seen[3][-1]["content"]
+    assert "19:00: Hockey" in found and "Mum's birthday" in found
+    assert "Morning briefing" in hh.briefing("", "", datetime(2026, 11, 10, 7))
+    assert "Hockey" in hh.briefing("", "", datetime(2026, 11, 10, 7))
+
+
+def test_ics_subscriptions_and_events(client, monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app import household
+
+    hh = _household(client, "calendar")
+    ics = b"""BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:1\r\nSUMMARY:Swimming\r\n\
+DTSTART:20261102T230000Z\r\nDTEND:20261103T000000Z\r\nRRULE:FREQ=WEEKLY\r\nLOCATION:Pool\r\nEND:VEVENT\r\n\
+END:VCALENDAR\r\n"""
+    monkeypatch.setattr("app.household.feeds.fetch", lambda url: ics)
+    hh.save_settings(hh.settings().model_copy(update={"calendars": [household.Link(
+        name="Family", url="webcal://example.com/family.ics")]}))
+    tz = hh.tz()
+    events = hh.events(datetime(2026, 11, 1), datetime(2026, 11, 20))
+    assert [e["title"] for e in events] == ["Swimming"] * 3 and events[0]["where"] == "Pool"
+    assert events[0]["start"] == datetime(2026, 11, 2, 23).replace(tzinfo=ZoneInfo("UTC")).astimezone(tz) \
+        .replace(tzinfo=None)
+    upcoming = client.get("/admin/api/household/calendar").json()["upcoming"]
+    assert upcoming and upcoming[0]["calendar"] == "Family"
+
+
+def test_reminders_ring_on_time(client):
+    from datetime import datetime, timedelta
+
+    token = adopt(client)
+    hh = _household(client, "reminders", "chores")
+    now = hh.now()
+    hh.add("reminders", {"text": "take the pills", "due": (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M"),
+                         "speaker": MAC, "alarm": True, "repeat": "daily"})
+    hh.add("reminders", {"text": "later", "due": (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M")})
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        client.portal.call(hh.tick)
+        card = ws.receive_json()
+        assert card == {"type": "notify", "title": "Reminder", "text": "take the pills", "seconds": 20}
+        ring = ws.receive_json()
+        assert ring["type"] == "timer" and ring["seconds"] == 1 and ring["label"] == "take the pills"
+    pills, later = sorted(hh.items("reminders"), key=lambda i: i["data"]["text"])[::-1]
+    assert pills["data"]["due"] > now.strftime("%Y-%m-%dT%H:%M") and not pills["data"]["done"]  # tomorrow
+    assert not later["data"]["fired_at"]
+
+
+def test_agents_use_the_household_modules_through_mcp(client):
+    token = mcp_token(client)
+    off = mcp_tool(client, token, "household_change", module="shopping", action={"add": ["eggs"]})
+    assert "turned off" in off["problem"]
+    _household(client, "shopping", "calendar")
+    client.app.state.ctx.voice.voiceprints.add_person("Marika")
+    assert mcp_tool(client, token, "household_change", module="shopping", action={"add": ["eggs", "flour"]}) ==         {"done": "added 2 to the shopping list"}
+    items = mcp_tool(client, token, "household_items", module="shopping")["items"]
+    assert [i["text"] for i in items] == ["eggs", "flour"]
+    done = mcp_tool(client, token, "household_change", module="calendar", person="Marika",
+                    action={"add": "Yoga", "start": "2026-11-05 18:00", "for": "me"})
+    assert done["done"].startswith("added event Yoga")
+    events = mcp_tool(client, token, "calendar_events", start="2026-11-05", person="Marika")["events"]
+    assert events[0]["title"] == "Yoga" and events[0]["for"] == "Marika"
+    assert mcp_tool(client, token, "calendar_events", start="2026-11-05")["events"] == []  # hers
