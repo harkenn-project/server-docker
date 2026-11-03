@@ -5,63 +5,107 @@
 {% block body_attrs %}data-device-id="{{ device.id }}"{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h1><span class="dot" id="online-dot"></span> <span id="device-name">{{ device.name }}</span></h1>
+  <div>
+    <p class="crumbs"><a href="/admin">Speakers</a> › <a href="/admin/groups/{{ group.id }}" id="group-link">{{ group.name }}</a></p>
+    <h1><span class="dot" id="online-dot"></span> <span id="device-name">{{ device.name }}</span>
+      <span class="state-chip" id="state-chip"></span></h1>
+  </div>
   <div class="buttons">
-    <button class="secondary" data-command="identify">Identify</button>
-    <button class="secondary" data-command="refresh_config">Resend config</button>
-    <button class="secondary" data-command="reboot">Reboot</button>
-    <button class="danger" id="factory-reset">Factory reset</button>
-    <button class="danger" id="forget">Forget</button>
+    <button class="secondary" data-command="identify" title="Makes it chime and show its name">Identify</button>
+    <button class="secondary" data-command="reboot">Restart</button>
+    <details class="menu">
+      <summary class="button secondary" aria-label="More actions">⋯</summary>
+      <div class="menu-items">
+        <button class="secondary" data-command="refresh_config">Send its settings again</button>
+        <button class="danger" id="factory-reset">Factory reset…</button>
+        <button class="danger" id="forget">Forget this speaker…</button>
+      </div>
+    </details>
   </div>
 </div>
+
 <section class="card warn" id="remote-warning" hidden>
   <h2>⚠ Connected remotely, through the relay</h2>
   <p>This speaker can't reach Harkenn directly, so it's connected through the relay. It keeps trying the direct way
     and switches back by itself. Everything works, a little slower.</p>
 </section>
-<section class="card"><h2>Live status</h2><dl class="status" id="status"></dl></section>
-<section class="card">
-  <div class="section-head"><h2>Timers and alarms</h2>
-    <button class="secondary" id="cancel-all-timers" hidden>Cancel all</button></div>
-  <ul class="timers" id="timers"></ul>
-  <div id="notes-box" hidden><h3>Unread notifications</h3><ul class="timers" id="notes"></ul>
-    <button class="secondary" id="clear-notes">Mark as read</button></div>
-</section>
-<section class="card">
-  <h2>Speaker's own page</h2>
-  <p class="hint">For break-glass access: at <span class="mono">http://&lt;speaker's IP&gt;</span> on its network, or on
-    its hotspot <span class="mono" id="hotspot-name"></span> (at 192.168.4.1) when it can't join any of its Wi-Fi
-    networks. It accepts the Harkenn admin password or the speaker password, which is also the hotspot's password.
-    Needs firmware 0.13 or later.</p>
-  <dl class="status" id="local-access"></dl>
-  <div class="inline-form">
-    <button class="secondary" id="show-speaker-password" hidden>Show password</button>
-    <button class="secondary" id="new-speaker-password">New random password</button>
-    <input type="password" id="speaker-password" placeholder="or type one (8-63 characters)" maxlength="63" autocomplete="new-password">
-    <button class="secondary" id="set-speaker-password">Set</button>
-    <button class="secondary" id="unlock" hidden>Unlock its page</button>
+
+<nav class="tabs" role="tablist">
+  <a href="#overview" role="tab">Overview</a>
+  <a href="#settings" role="tab">Settings</a>
+  <a href="#access" role="tab">Speaker's own page</a>
+  <a href="#firmware" role="tab">Firmware</a>
+  <a href="#logs" role="tab">Logs</a>
+</nav>
+
+<div class="tab-panel" id="overview" role="tabpanel">
+  <div class="tiles" id="tiles"></div>
+  <div class="two-col">
+    <section class="card">
+      <div class="section-head"><h2>Timers and alarms</h2>
+        <button class="secondary small" id="cancel-all-timers" hidden>Cancel all</button></div>
+      <ul class="timers" id="timers"></ul>
+      <div id="notes-box" hidden><h3>Unread notifications</h3><ul class="timers" id="notes"></ul>
+        <button class="secondary small" id="clear-notes">Mark as read</button></div>
+    </section>
+    <section class="card"><h2>Details</h2><dl class="status" id="status"></dl></section>
   </div>
-</section>
-<section class="card">
-  <h2>Firmware update</h2>
-  {% if builds %}
-  <div class="inline-form">
-    <select id="firmware-build">
-      {% for b in builds %}<option value="{{ b.id }}">{{ b.version }} ({{ b.sha256[:8] }})</option>{% endfor %}
-    </select>
-    <button class="secondary" data-install-device="{{ device.id }}">Install</button>
-  </div>
-  {% else %}
-  <p class="hint">No firmware for this speaker yet. Upload one on the <a href="/admin/firmware">Firmware</a> page.</p>
-  {% endif %}
-</section>
-<section><h2>Configuration</h2>{{ config_form("/admin/api/devices/" ~ device.id, catalog, True) }}</section>
-<section class="card">
-  <div class="section-head"><h2>Logs</h2><label class="inline"><input type="checkbox" id="follow-logs" checked> Follow</label></div>
-  <div id="logs" class="logs"></div>
-</section>
-<section class="card"><h2>Recordings</h2>
-  <table class="recordings"><thead><tr><th>When</th><th>Kind</th><th>Size</th><th></th></tr></thead><tbody id="recordings"></tbody></table>
-</section>
+</div>
+
+<div class="tab-panel" id="settings" role="tabpanel" hidden>
+  {{ config_form("/admin/api/devices/" ~ device.id, catalog, "device") }}
+</div>
+
+<div class="tab-panel" id="access" role="tabpanel" hidden>
+  <section class="card">
+    <h2>Speaker's own page</h2>
+    <p class="hint">For break-glass access: at <span class="mono">http://&lt;speaker's IP&gt;</span> on its network, or on
+      its hotspot <span class="mono" id="hotspot-name"></span> (at 192.168.4.1) when it can't join any of its Wi-Fi
+      networks. It accepts the Harkenn admin password or the speaker password, which is also the hotspot's password.
+      Needs firmware 0.13 or later.</p>
+    <dl class="status" id="local-access"></dl>
+    <div class="inline-form">
+      <button class="secondary" id="show-speaker-password" hidden>Show password</button>
+      <button class="secondary" id="new-speaker-password">New random password</button>
+      <input type="password" id="speaker-password" placeholder="or type one (8-63 characters)" maxlength="63" autocomplete="new-password">
+      <button class="secondary" id="set-speaker-password">Set</button>
+      <button class="secondary" id="unlock" hidden>Unlock its page</button>
+    </div>
+  </section>
+</div>
+
+<div class="tab-panel" id="firmware" role="tabpanel" hidden>
+  <section class="card">
+    <h2>Firmware</h2>
+    <p class="hint">Now: <strong id="firmware-now">{{ device.firmware or "unknown" }}</strong>. Speakers also offer
+      updates on their screen when they start, from the release channel on the <a href="/admin/firmware">Firmware</a> page.</p>
+    {% if builds %}
+    <div class="inline-form">
+      <label>Install
+        <select id="firmware-build">
+          {% for b in builds %}<option value="{{ b.id }}">{{ b.version }} ({{ b.sha256[:8] }})</option>{% endfor %}
+        </select></label>
+      <button class="secondary" data-install-device="{{ device.id }}">Install</button>
+    </div>
+    {% else %}
+    <p class="hint">No firmware files for this speaker here yet: upload one on the <a href="/admin/firmware">Firmware</a> page.</p>
+    {% endif %}
+  </section>
+</div>
+
+<div class="tab-panel" id="logs" role="tabpanel" hidden>
+  <section class="card">
+    <div class="section-head"><h2>Logs</h2>
+      <div class="buttons">
+        <input type="search" id="log-filter" placeholder="Filter" aria-label="Filter the logs">
+        <label class="inline"><input type="checkbox" id="follow-logs" checked> Follow</label>
+      </div></div>
+    <div id="logs" class="logs"></div>
+  </section>
+  <section class="card"><h2>Recordings</h2>
+    <p class="hint">Kept while <em>Keep what speakers hear</em> is on (<a href="/admin/voice">Voice and assistant</a>).</p>
+    <table class="recordings"><thead><tr><th>When</th><th>Kind</th><th>Size</th><th></th></tr></thead><tbody id="recordings"></tbody></table>
+  </section>
+</div>
 <script type="application/json" id="form-data">{{ form_data | tojson }}</script>
 {% endblock %}

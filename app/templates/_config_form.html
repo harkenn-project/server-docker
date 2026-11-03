@@ -1,109 +1,175 @@
-{% macro config_form(endpoint, catalog, with_name) %}
-<div class="config-editor">
-  <form class="card config-form" data-endpoint="{{ endpoint }}" novalidate>
-    {% if with_name %}
-    <fieldset><legend>General</legend>
-      <label>Name <input data-path="name" maxlength="48" required></label>
-    </fieldset>
-    {% endif %}
-    <fieldset><legend>Screen</legend>
-      <label>Character
+{#- The settings of a speaker or a group. mode "device": each setting follows the speaker's group until it's changed
+    here (data-key: the override path(s) in groups.py); mode "group": the group's own values. -#}
+{% macro setting(key, label="", wide=False) %}
+<div class="setting{{ ' wide' if wide }}" data-key="{{ key }}">
+  <div class="setting-head">{% if label %}<span class="setting-label">{{ label }}</span>{% endif %}<span class="origin"></span></div>
+  {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro config_form(endpoint, catalog, mode) %}
+<div class="config-editor" data-mode="{{ mode }}">
+  <form class="config-form" data-endpoint="{{ endpoint }}" novalidate>
+    <nav class="section-nav" aria-label="Sections">
+      <a href="#s-general">General</a><a href="#s-screen">Screen</a><a href="#s-sleep">Sleep and clock</a>
+      <a href="#s-listening">Listening and sound</a><a href="#s-wifi">Wi-Fi and IP</a><a href="#s-agents">Agents</a>
+      <a href="#s-advanced">Advanced</a>
+    </nav>
+
+    <section class="card form-section" id="s-general"><h2>General</h2>
+      <div class="settings">
+        <label class="setting">Name <input data-path="name" maxlength="{{ 48 if mode == 'device' else 40 }}" required></label>
+        {% if mode == "device" %}
+        <label class="setting">Group
+          <select data-path="group">
+            {% for g in catalog.groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+          </select>
+          <small>Its settings come from its group, except the ones you change here: those are marked
+            <span class="badge own">This speaker</span>. <a href="/admin/groups">Groups</a></small></label>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="card form-section" id="s-screen"><h2>Screen</h2>
+      <div class="settings">
+        {% call setting("character", "Character") %}
         <select data-path="config.character">
           {% for c in catalog.characters %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Layout
+        </select>{% endcall %}
+        {% call setting("display.layout", "Layout") %}
         <select data-path="config.display.layout">
           {% for id, l in catalog.layouts.items() %}<option value="{{ id }}">{{ l.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Colour scheme
+        </select>{% endcall %}
+        {% call setting("display.theme", "Colour scheme") %}
         <select data-path="config.display.theme">
           {% for id, t in catalog.themes.items() %}<option value="{{ id }}">{{ t.name }}</option>{% endfor %}
-        </select>
-      </label>
-      <div class="colors">
-        <span class="label">Custom colours</span>
-        {% for key in ["background", "surface", "primary", "accent", "text", "muted"] %}
-        <label class="color"><input type="checkbox" data-color-enable="{{ key }}"> {{ key }}
-          <input type="color" data-color="{{ key }}"></label>
-        {% endfor %}
+        </select>{% endcall %}
+        {% call setting("display.brightness", "Brightness") %}
+        <span class="range"><input type="range" min="5" max="100" data-path="config.display.brightness" data-type="int"><output data-unit="%"></output></span>
+        {% endcall %}
+        {% call setting("display.colors", "Custom colours", wide=True) %}
+        <div class="colors">
+          {% for key in ["background", "surface", "primary", "accent", "text", "muted"] %}
+          <label class="color"><input type="checkbox" data-color-enable="{{ key }}"> {{ key }}
+            <input type="color" data-color="{{ key }}"></label>
+          {% endfor %}
+        </div>
+        <small>Ticked colours replace the colour scheme's.</small>{% endcall %}
       </div>
-      <label>Brightness <span class="range"><input type="range" min="5" max="100" data-path="config.display.brightness" data-type="int"><output></output></span></label>
-      <label>Sleep after (seconds without a touch, 0 = never) <input type="number" min="0" max="86400" data-path="config.display.sleep_after_s" data-type="int"></label>
-      <label>While asleep
+    </section>
+
+    <section class="card form-section" id="s-sleep"><h2>Sleep and clock</h2>
+      <div class="settings">
+        {% call setting("display.sleep_after_s", "Sleep after") %}
+        <select data-path="config.display.sleep_after_s" data-type="int" class="sleep-after">
+          <option value="0">Never</option><option value="30">30 seconds</option><option value="60">1 minute</option>
+          <option value="120">2 minutes</option><option value="300">5 minutes</option><option value="600">10 minutes</option>
+          <option value="900">15 minutes</option><option value="1800">30 minutes</option><option value="3600">1 hour</option>
+        </select>
+        <small>Without a touch or a conversation.</small>{% endcall %}
+        {% call setting("display.sleep_display", "While asleep") %}
         <select data-path="config.display.sleep_display">
           <option value="character">Dim, the character sleeping</option>
           <option value="clock">Dim, only a big clock</option>
           <option value="off">Screen off</option>
         </select>
-        <small>A touch, the wake word or anything the speaker has to show wakes it. Needs firmware 0.13 or later.</small></label>
-      <label class="inline"><input type="checkbox" data-path="config.display.clock_24h" data-type="bool"> 24-hour clock</label>
-      <label>Time zone (POSIX TZ) <input data-path="config.timezone" maxlength="64"></label>
-    </fieldset>
-    <fieldset><legend>Audio</legend>
-      <label>Volume <span class="range"><input type="range" min="0" max="100" data-path="config.audio.volume" data-type="int"><output></output></span></label>
-      <label>Stop listening after this many seconds of silence <span class="range"><input type="range" min="1" max="30" data-path="config.audio.silence_s" data-type="int"><output></output></span></label>
-      <label>Wake word
+        <small>A touch, the wake word or anything to show wakes it.</small>{% endcall %}
+        {% call setting("timezone,timezone_name", "Time zone") %}
+        <select data-path="config.timezone_name" class="tz-name">
+          <option value="">Custom rule…</option>
+          {% for z in catalog.timezones %}<option value="{{ z }}">{{ z.replace("_", " ") }}</option>{% endfor %}
+        </select>
+        <input data-path="config.timezone" maxlength="64" class="tz-rule mono" placeholder="POSIX rule, e.g. MST7MDT,M3.2.0,M11.1.0">
+        <small><button type="button" class="link tz-browser">Use this browser's time zone</button>. Harkenn turns it
+          into the speaker's clock rule, and keeps it up to date when the rules change.</small>{% endcall %}
+        {% call setting("display.clock_24h") %}
+        <label class="inline"><input type="checkbox" data-path="config.display.clock_24h" data-type="bool"> 24-hour clock</label>
+        {% endcall %}
+      </div>
+    </section>
+
+    <section class="card form-section" id="s-listening"><h2>Listening and sound</h2>
+      <div class="settings">
+        {% call setting("audio.wake_word", "Wake word") %}
         <select data-path="config.audio.wake_word">
           <option value="">None (tap to talk)</option>
           {% for id, name in catalog.wake_words.items() %}<option value="{{ id }}">{{ name }}</option>{% endfor %}
         </select>
-        <small>Heard by the speaker itself: nothing leaves it until it hears the wake word. Needs firmware 0.12 or later.</small></label>
-      <label class="inline"><input type="checkbox" data-path="config.audio.wake_arbitration" data-type="bool"> Only the
-        nearest speaker answers
-        <small>When several speakers hear the wake word, the one that heard it loudest answers and tells the others,
-          with a sound too high for people to hear. Needs firmware 0.13 or later.</small></label>
-      <label>Wake word sensitivity
+        <small>Heard by the speaker itself: nothing leaves it until it hears the wake word.</small>{% endcall %}
+        {% call setting("audio.wake_sensitivity", "Wake word sensitivity") %}
         <select data-path="config.audio.wake_sensitivity">
           <option value="low">Low: fewer false wakes</option>
           <option value="normal">Normal</option>
           <option value="high">High: wakes more easily, from further away</option>
-        </select></label>
-      <label>Sounds
+        </select>{% endcall %}
+        {% call setting("audio.wake_arbitration", wide=True) %}
+        <label class="inline"><input type="checkbox" data-path="config.audio.wake_arbitration" data-type="bool"> Only the
+          nearest speaker answers</label>
+        <small>When several speakers hear the wake word, the one that heard it loudest answers and tells the others,
+          with a sound too high for people to hear.</small>{% endcall %}
+        {% call setting("audio.silence_s", "Stop listening after a pause of") %}
+        <span class="range"><input type="range" min="1" max="30" data-path="config.audio.silence_s" data-type="int"><output data-unit=" s"></output></span>
+        {% endcall %}
+        {% call setting("audio.volume", "Volume") %}
+        <span class="range"><input type="range" min="0" max="100" data-path="config.audio.volume" data-type="int"><output data-unit="%"></output></span>
+        <small>Also set on the speaker, around the edge of its screen.</small>{% endcall %}
+        {% call setting("audio.sound_pack", "Sounds") %}
         <select data-path="config.audio.sound_pack">
           {% for p in catalog.sound_packs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
         </select>
-        <small>Starting up, waking, finishing listening, errors and shutting down. Hear them and make your own on the <a href="/admin/sounds">Sounds</a> page.</small></label>
-    </fieldset>
-    <fieldset><legend>Wi-Fi networks</legend>
-      <p class="hint">The speaker adds these to its saved networks. It only drops the network it's on after it has connected to one of these.</p>
-      <div class="wifi-list"></div>
+        <small>Hear them and make your own on the <a href="/admin/sounds">Sounds</a> page.</small>{% endcall %}
+      </div>
+    </section>
+
+    <section class="card form-section" id="s-wifi"><h2>Wi-Fi and IP</h2>
+      <p class="hint">The speaker adds these to the networks it knows, and only forgets the one it's on once it has
+        connected to one of these. Each network can get its address automatically (DHCP) or use a fixed one.</p>
+      {% if mode == "device" %}
+      <h3 class="subhead">From the group</h3>
+      <div class="wifi-list group-wifi"></div>
+      <h3 class="subhead">This speaker's own</h3>
+      {% endif %}
+      <div class="wifi-list own-wifi"></div>
       <button type="button" class="secondary add-wifi">Add network</button>
-    </fieldset>
-    <fieldset><legend>Remote connection</legend>
-      <label class="inline"><input type="checkbox" data-path="config.remote" data-type="bool"> Connect through the relay
-        when it can't reach Harkenn</label>
-      <p class="hint">For a speaker away from home. It keeps trying Harkenn directly, shows a remote icon while it uses
-        the relay, and everything through the relay is encrypted between the speaker and Harkenn.
-        {% if catalog.relay %}Relay: <span class="mono">{{ catalog.relay }}</span>. It takes effect once the speaker has
-        had its settings (firmware 0.13 or later).{% else %}Not available yet: set <span class="mono">HARKENN_RELAY_URL</span>
-        on the server.{% endif %}</p>
-    </fieldset>
-    <fieldset><legend>Agents</legend>
-      <p class="hint">What AI agents may do on this speaker through Harkenn's MCP server (the <a href="/admin/agents">Agents</a> page).</p>
-      <label>Agents may
+      <div class="settings">
+        {% call setting("remote", wide=True) %}
+        <label class="inline"><input type="checkbox" data-path="config.remote" data-type="bool"> Connect through the relay
+          when it can't reach Harkenn</label>
+        <small>For a speaker away from home. It keeps trying Harkenn directly, shows a remote icon while it uses
+          the relay, and everything through the relay is encrypted between the speaker and Harkenn.
+          {% if catalog.relay %}Relay: <span class="mono">{{ catalog.relay }}</span>.{% else %}Not available yet: set
+          <span class="mono">HARKENN_RELAY_URL</span> on the server.{% endif %}</small>{% endcall %}
+      </div>
+    </section>
+
+    <section class="card form-section" id="s-agents"><h2>Agents</h2>
+      <p class="hint">What AI agents may do on the speaker through Harkenn's MCP server (<a href="/admin/agents">Agents</a>).</p>
+      <div class="settings">
+        {% call setting("agents.access", "Agents may") %}
         <select data-path="config.agents.access">
           <option value="ring_and_speak">Ring it and speak on it</option>
           <option value="speak_only">Speak on it, but not ring it</option>
           <option value="do_not_disturb">Nothing: do not disturb</option>
-        </select>
-      </label>
-      <label>Quiet hours (do not disturb) from <input type="time" data-path="config.agents.quiet_from"> to
-        <input type="time" data-path="config.agents.quiet_to">
-        <small>In the server's time zone. Leave empty for none.</small></label>
-    </fieldset>
-    <fieldset><legend>Assistant</legend>
-      <label>Hermes URL <input data-path="config.assistant.url" maxlength="256" placeholder="not configured yet"></label>
-      <label>Log level
+        </select>{% endcall %}
+        {% call setting("agents.quiet_from,agents.quiet_to", "Quiet hours") %}
+        <span class="time-range"><input type="time" data-path="config.agents.quiet_from"> to
+          <input type="time" data-path="config.agents.quiet_to"></span>
+        <small>No agents then, in the server's time zone. Leave empty for none.</small>{% endcall %}
+      </div>
+    </section>
+
+    <section class="card form-section" id="s-advanced"><h2>Advanced</h2>
+      <div class="settings">
+        {% call setting("log_level", "Log level") %}
         <select data-path="config.log_level">
-          {% for l in ["error", "warn", "info", "debug"] %}<option>{{ l }}</option>{% endfor %}
+          <option value="error">Errors only</option><option value="warn">Warnings</option>
+          <option value="info">Normal</option><option value="debug">Everything (debug)</option>
         </select>
-      </label>
-    </fieldset>
-    <div class="actions"><button type="submit">Save</button><span class="form-message"></span></div>
+        <small>What the speaker sends to its log here.</small>{% endcall %}
+      </div>
+    </section>
   </form>
-  <div class="card preview">
+  <aside class="card preview">
     <h3>Preview</h3>
     <div class="screen-wrap"><div class="screen"></div></div>
     <label>State
@@ -111,7 +177,7 @@
         {% for s in catalog.states %}<option>{{ s }}</option>{% endfor %}
       </select>
     </label>
-  </div>
+  </aside>
 </div>
 <script type="application/json" id="catalog">{{ catalog | tojson }}</script>
 {% endmacro %}

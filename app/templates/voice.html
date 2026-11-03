@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Voice{% endblock %}
+{% block title %}Voice and assistant{% endblock %}
 {% block page %}voice{% endblock %}
 {% block content %}
 {% macro choices(name, options, current, empty=None) %}
@@ -9,7 +9,7 @@
   {% if current and current not in options %}<option value="{{ current }}">{{ current }} (set elsewhere)</option>{% endif %}
 </select>
 {% endmacro %}
-<h1>Voice</h1>
+<h1>Voice and assistant</h1>
 <p class="hint">How speakers understand you and answer. Everything runs inside Harkenn by default: Whisper turns speech
   into text and Piper speaks the reply. Models download into Harkenn's data folder the first time they're used, so
   the first answer takes a while. You can point either at an existing Wyoming service instead.</p>

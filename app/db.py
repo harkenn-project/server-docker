@@ -72,6 +72,7 @@ def _device(row: sqlite3.Row | None) -> dict[str, Any] | None:
     d = dict(row)
     d["config"] = json.loads(d["config"])
     d["status"] = json.loads(d["status"])
+    d["overrides"] = json.loads(d.get("overrides") or "[]")
     return d
 
 
@@ -87,6 +88,10 @@ class Database:
         with self._conn() as c:
             c.execute("PRAGMA journal_mode=WAL")
             c.executescript(SCHEMA)
+            columns = {r[1] for r in c.execute("PRAGMA table_info(devices)")}
+            if "group_id" not in columns:  # speaker groups (groups.py)
+                c.execute("ALTER TABLE devices ADD COLUMN group_id TEXT")
+                c.execute("ALTER TABLE devices ADD COLUMN overrides TEXT NOT NULL DEFAULT '[]'")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -157,18 +162,30 @@ class Database:
                 return None
             return c.execute("SELECT config_version FROM devices WHERE id=?", (device_id,)).fetchone()[0]
 
-    def note_device_setting(self, device_id: str, section: str, key: str, value: Any) -> bool:
-        """Record a setting the speaker changed itself (e.g. volume from the touch screen). The config version is not
-        bumped, so nothing is pushed back to the speaker, which already has the value."""
+    def set_device_group(self, device_id: str, group_id: str, overrides: list[str] | None) -> None:
+        """A speaker's group and its own settings (groups.py); None keeps the overrides."""
         with self._conn() as c:
-            row = c.execute("SELECT config FROM devices WHERE id=?", (device_id,)).fetchone()
+            if overrides is None:
+                c.execute("UPDATE devices SET group_id=? WHERE id=?", (group_id, device_id))
+            else:
+                c.execute("UPDATE devices SET group_id=?, overrides=? WHERE id=?",
+                          (group_id, json.dumps(overrides), device_id))
+
+    def note_device_setting(self, device_id: str, section: str, key: str, value: Any) -> bool:
+        """Record a setting the speaker changed itself (e.g. volume from the touch screen). It becomes the speaker's
+        own (not its group's). The config version is not bumped, so nothing is pushed back to the speaker, which
+        already has the value."""
+        with self._conn() as c:
+            row = c.execute("SELECT config, overrides FROM devices WHERE id=?", (device_id,)).fetchone()
             if row is None:
                 return False
             config = json.loads(row[0])
             if config.get(section, {}).get(key) == value:
                 return False
             config.setdefault(section, {})[key] = value
-            c.execute("UPDATE devices SET config=? WHERE id=?", (json.dumps(config), device_id))
+            overrides = sorted(set(json.loads(row[1] or "[]")) | {f"{section}.{key}"})
+            c.execute("UPDATE devices SET config=?, overrides=? WHERE id=?",
+                      (json.dumps(config), json.dumps(overrides), device_id))
             return True
 
     def touch_device(self, device_id: str, *, now: float, ip: str | None = None,

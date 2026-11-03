@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, kani, local_access, relay
+from . import __version__, about, groups, kani, local_access, relay, timezones
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
@@ -38,7 +38,7 @@ from .sounds import SLOT_LABELS, SLOTS, decode_audio, decode_upload, trim
 from .voice import voiceprint
 from .updates import CHANNEL_LABELS
 from .wakewords import WAKE_WORDS
-from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn, SpeakerPasswordIn,
+from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DeviceConfig, GroupIn, GroupMembersIn, GroupUpdateIn, DeviceUpdateIn, FirmwareUpdateIn, SayIn, SpeakerPasswordIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn, WeatherPlaceIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
@@ -83,12 +83,18 @@ def catalog(c: Context) -> dict[str, Any]:
         "sound_packs": [{"id": p["id"], "name": p["name"]} for p in c.sounds.list()],
         "wake_words": c.wakewords.catalog(),
         "relay": c.settings.relay_url,
+        "timezones": timezones.names(),
+        "groups": [{"id": g["id"], "name": g["name"]} for g in groups.all_groups(c.db)],
+        "default_group": groups.default_id(c.db),
     }
 
 
 def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
+    group = groups.of_device(c.db, d)
     return {k: d[k] for k in ("id", "name", "hardware", "firmware", "adopted_at", "last_seen", "last_ip",
                               "status", "config_version")} | {"online": c.hub.online(d["id"]),
+                                                              "group": {"id": group["id"], "name": group["name"]},
+                                                              "overrides": d.get("overrides") or [],
                                                               "character": d["config"].get("character"),
                                                               "local_access": local_access.summary(c, d["id"]),
                                                               "via": c.hub.via(d["id"]),
@@ -207,7 +213,7 @@ async def logout(request: Request) -> Response:
 async def dashboard(request: Request) -> Response:
     if not is_admin(request):
         return _login_redirect(request)
-    return _page(request, "dashboard.html")
+    return _page(request, "dashboard.html", catalog=catalog(get_ctx(request)))
 
 
 @pages.get("/devices/{device_id}")
@@ -219,17 +225,38 @@ async def device_page(device_id: str, request: Request) -> Response:
     if device is None:
         raise HTTPException(404, "unknown device")
     builds = [b for b in c.firmware.list() if not device["hardware"] or b["hardware"] == device["hardware"]]
-    return _page(request, "device.html", device=device, catalog=catalog(c), builds=builds,
-                 form_data={"name": device["name"], "config": mask_secrets(_full_config(device))})
+    group = groups.of_device(c.db, device)
+    return _page(request, "device.html", device=device, catalog=catalog(c), builds=builds, group=group,
+                 form_data={"name": device["name"], "config": mask_secrets(_full_config(device)),
+                            "group": group["id"], "overrides": device.get("overrides") or [],
+                            "connected_ssid": (device.get("status") or {}).get("ssid") or "",
+                            "groups": {g["id"]: {"name": g["name"], "config": mask_secrets(g["config"])}
+                                       for g in groups.all_groups(c.db)}})
 
 
 @pages.get("/defaults")
 async def defaults_page(request: Request) -> Response:
+    return RedirectResponse("/admin/groups", status_code=301)  # groups took over from the defaults
+
+
+@pages.get("/groups")
+async def groups_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "groups.html", catalog=catalog(get_ctx(request)))
+
+
+@pages.get("/groups/{group_id}")
+async def group_page(group_id: str, request: Request) -> Response:
     if not is_admin(request):
         return _login_redirect(request)
     c = get_ctx(request)
-    return _page(request, "defaults.html", catalog=catalog(c),
-                 form_data={"config": mask_secrets(default_config(c).model_dump())})
+    group = groups.get(c.db, group_id)
+    if group is None:
+        raise HTTPException(404, "unknown group")
+    return _page(request, "group.html", group=group, catalog=catalog(c),
+                 is_default=group_id == groups.default_id(c.db),
+                 form_data={"name": group["name"], "config": mask_secrets(group["config"])})
 
 
 @pages.get("/characters")
@@ -367,11 +394,19 @@ async def approve_adoption(request_id: str, body: ApproveIn, request: Request) -
         raise HTTPException(403, f"wrong code ({MAX_ADOPTION_ATTEMPTS - attempts} tries left)")
 
     existing = c.db.get_device(req["device_id"])
-    config = existing["config"] if existing else default_config(c).model_dump()
+    group = groups.get(c.db, body.group) if body.group else None
+    if body.group and group is None:
+        raise HTTPException(422, f"unknown group '{body.group}'")
+    group = group or (None if existing else groups.get(c.db, groups.default_id(c.db)))
+    config = existing["config"] if existing else (group["config"] if group else default_config(c).model_dump())
     name = body.name.strip() or (existing["name"] if existing else f"Speaker {req['device_id'][-4:]}")
     token = secrets.token_urlsafe(32)
     c.db.adopt_device(device_id=req["device_id"], name=name, hardware=req["hardware"], firmware=req["firmware"],
                       token_hash=hash_token(token), config=config, now=now)
+    if group and not existing:  # a new speaker follows its group in everything
+        c.db.set_device_group(req["device_id"], group["id"], [])
+    elif group:  # one adopted again, into another group: it keeps its own settings
+        _move(c, req["device_id"], group["id"])
     c.db.set_adoption_state(request_id, "approved", token=token)
     # A new speaker password every adoption: shown this once, only its hashes are kept (local_access.py)
     speaker_password = local_access.generate_password()
@@ -429,7 +464,10 @@ async def update_device(device_id: str, body: DeviceUpdateIn, request: Request) 
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     _check_character(c, config)
-    version = c.db.update_device(device_id, name=body.name.strip(), config=config.model_dump())
+    if body.group and groups.get(c.db, body.group) is None:
+        raise HTTPException(422, f"unknown group '{body.group}'")
+    version = groups.save_device(c.db, device_id, config.model_dump(), name=body.name.strip(), group_id=body.group,
+                                 overrides=body.overrides)
     pushed = await push_config(c, device_id)
     c.hub.publish({"type": "device", "id": device_id})
     return {"version": version, "pushed": pushed}
@@ -579,21 +617,107 @@ async def device_recordings(device_id: str, request: Request) -> list[dict]:
 
 # JSON API: defaults and characters
 
-@api.get("/defaults")
-async def get_defaults(request: Request) -> dict[str, Any]:
-    return {"config": mask_secrets(default_config(get_ctx(request)).model_dump())}
+def _group_out(c: Context, g: dict[str, Any]) -> dict[str, Any]:
+    members = [d for d in c.db.list_devices() if groups.of_device(c.db, d)["id"] == g["id"]]
+    return {"id": g["id"], "name": g["name"], "default": g["id"] == groups.default_id(c.db),
+            "config": mask_secrets(g["config"]),
+            "members": [{"id": d["id"], "name": d["name"], "online": c.hub.online(d["id"]),
+                         "overrides": len(d.get("overrides") or [])} for d in members]}
 
 
-@api.put("/defaults")
-async def put_defaults(body: DefaultsIn, request: Request) -> dict[str, Any]:
+def _move(c: Context, device_id: str, group_id: str) -> None:
+    """Into another group, keeping its own settings and networks."""
+    device = c.db.get_device(device_id)
+    overrides = device.get("overrides") or []
+    own_wifi = [n for n in device["config"]["wifi"] if f"wifi:{n['ssid']}" in overrides]
+    groups.save_device(c.db, device_id, {**device["config"], "wifi": own_wifi}, group_id=group_id,
+                       overrides=overrides)
+
+
+async def _push_each(c: Context, device_ids: list[str]) -> int:
+    pushed = 0
+    for device_id in device_ids:
+        pushed += await push_config(c, device_id)
+        c.hub.publish({"type": "device", "id": device_id})
+    return pushed
+
+
+@api.get("/groups")
+async def list_groups(request: Request) -> list[dict[str, Any]]:
+    c = get_ctx(request)
+    return [_group_out(c, g) for g in groups.all_groups(c.db)]
+
+
+@api.post("/groups", status_code=201)
+async def create_group(body: GroupIn, request: Request) -> dict[str, Any]:
     c = get_ctx(request)
     try:
-        config = restore_secrets(body.config, default_config(c).model_dump())
+        return _group_out(c, groups.create(c.db, body.name, body.copy_from))
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@api.get("/groups/{group_id}")
+async def get_group(group_id: str, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    group = groups.get(c.db, group_id)
+    if group is None:
+        raise HTTPException(404, "unknown group")
+    return _group_out(c, group)
+
+
+@api.put("/groups/{group_id}")
+async def update_group(group_id: str, body: GroupUpdateIn, request: Request) -> dict[str, Any]:
+    """New settings for a group: every speaker in it gets them, except the settings it has its own."""
+    c = get_ctx(request)
+    group = groups.get(c.db, group_id)
+    if group is None:
+        raise HTTPException(404, "unknown group")
+    try:
+        config = restore_secrets(body.config, group["config"])
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     _check_character(c, config)
-    c.db.set_setting("default_config", config.model_dump())
+    changed = groups.save(c.db, group_id, name=body.name, config=config.model_dump())
+    return {"saved": True, "speakers": len(changed), "pushed": await _push_each(c, changed)}
+
+
+@api.delete("/groups/{group_id}", status_code=204)
+async def delete_group(group_id: str, request: Request) -> Response:
+    c = get_ctx(request)
+    try:
+        changed = groups.delete(c.db, group_id)
+    except KeyError:
+        raise HTTPException(404, "unknown group") from None
+    except ValueError as e:
+        raise HTTPException(409, str(e)) from e
+    await _push_each(c, changed)
+    return Response(status_code=204)
+
+
+@api.post("/groups/{group_id}/default")
+async def make_default_group(group_id: str, request: Request) -> dict[str, bool]:
+    c = get_ctx(request)
+    try:
+        groups.set_default(c.db, group_id)
+    except KeyError:
+        raise HTTPException(404, "unknown group") from None
     return {"saved": True}
+
+
+@api.post("/groups/{group_id}/members")
+async def move_to_group(group_id: str, body: GroupMembersIn, request: Request) -> dict[str, int]:
+    """Move speakers into a group. They keep the settings they have their own and follow the group for the rest."""
+    c = get_ctx(request)
+    if groups.get(c.db, group_id) is None:
+        raise HTTPException(404, "unknown group")
+    moved = []
+    for device_id in dict.fromkeys(body.devices):
+        if c.db.get_device(device_id) is None:
+            raise HTTPException(404, f"unknown speaker {device_id}")
+        _move(c, device_id, group_id)
+        moved.append(device_id)
+    return {"moved": len(moved), "pushed": await _push_each(c, moved)}
 
 
 @api.get("/catalog")

@@ -120,16 +120,21 @@ def test_admin_api_needs_login_and_csrf_header(client):
     assert client.get("/admin/api/overview").status_code == 401
     login(client)
     assert client.get("/admin/api/overview").status_code == 200
-    assert client.put("/admin/api/defaults", json={"config": {}}).status_code == 403
-    assert client.put("/admin/api/defaults", json={"config": {}}, headers=ADMIN).status_code == 200
+    body = {"name": "Home", "config": {}}
+    assert client.put("/admin/api/groups/home", json=body).status_code == 403
+    assert client.put("/admin/api/groups/home", json=body, headers=ADMIN).status_code == 200
 
 
 def test_admin_pages_render(client):
     assert client.get("/admin", follow_redirects=False).status_code == 303
     adopt(client)
-    for path in ("/admin", f"/admin/devices/{MAC}", "/admin/defaults", "/admin/characters"):
+    for path in ("/admin", f"/admin/devices/{MAC}", "/admin/groups", "/admin/groups/home", "/admin/characters",
+                 "/admin/sounds", "/admin/people", "/admin/voice", "/admin/screen", "/admin/firmware", "/admin/agents",
+                 "/admin/server", "/admin/about", "/admin/password"):
         r = client.get(path)
         assert r.status_code == 200, path
+        assert 'class="active"' in r.text or path == "/admin/password" or path == "/admin/about", path
+    assert client.get("/admin/defaults", follow_redirects=False).headers["location"] == "/admin/groups"
 
 
 def test_bad_token_rejected(client):
@@ -2378,3 +2383,131 @@ def test_news_only_once_per_conversation():
     convs.add("d", "hi", "hello")
     convs.start("d")  # a new conversation hears it all again
     assert convs.news("d", t + timedelta(minutes=10), {"weather": "Snow, -5.", "timers": ""}).startswith("Tue")
+
+
+# speaker groups (groups.py)
+
+def test_groups_share_settings_and_speakers_keep_their_own(client):
+    token = adopt(client)
+    home = client.get("/admin/api/groups/home").json()
+    assert home["default"] and [m["id"] for m in home["members"]] == [MAC]
+    config = home["config"]
+    config["audio"]["volume"] = 40
+    config["display"]["theme"] = "ocean"
+    config["wifi"] = [{"ssid": "Home", "password": "hunter2hunter2"}]
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.put("/admin/api/groups/home", json={"name": "Home", "config": config}, headers=ADMIN)
+        assert r.json() == {"saved": True, "speakers": 1, "pushed": 1}
+        pushed = ws.receive_json()
+        assert pushed["config"]["audio"]["volume"] == 40 and pushed["config"]["wifi"][0]["ssid"] == "Home"
+
+        # the speaker's own: brightness, and its own network (with a fixed IP), on top of the group's
+        device = client.get(f"/admin/api/devices/{MAC}").json()
+        mine = device["config"]
+        mine["display"]["brightness"] = 30
+        mine["wifi"] = [{"ssid": "Cabin", "password": "", "ip": "10.0.0.9", "subnet": "255.255.255.0",
+                         "gateway": "10.0.0.1", "dns": ""}]
+        r = client.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                       json={"name": "Kitchen", "config": mine, "overrides": ["display.brightness"]})
+        assert r.status_code == 200, r.text
+        pushed = ws.receive_json()["config"]
+        assert pushed["display"]["brightness"] == 30
+        assert [n["ssid"] for n in pushed["wifi"]] == ["Cabin", "Home"]
+        assert pushed["wifi"][1]["password"] == "hunter2hunter2"  # the group's, not the mask
+        assert client.get(f"/admin/api/devices/{MAC}").json()["overrides"] == ["display.brightness", "wifi:Cabin"]
+
+        # the group changes: the speaker follows, except for its own
+        config = client.get("/admin/api/groups/home").json()["config"]
+        config["display"]["brightness"] = 90
+        config["audio"]["volume"] = 55
+        client.put("/admin/api/groups/home", json={"name": "Home", "config": config}, headers=ADMIN)
+        pushed = ws.receive_json()["config"]
+        assert pushed["display"]["brightness"] == 30 and pushed["audio"]["volume"] == 55
+
+        # another group: it keeps its own, takes the rest from there
+        cabin = client.post("/admin/api/groups", json={"name": "Cabin"}, headers=ADMIN).json()
+        assert cabin["id"] == "cabin" and cabin["config"]["audio"]["volume"] == 55  # a copy of the default group
+        config = cabin["config"]
+        config["audio"]["volume"] = 20
+        config["wifi"] = []
+        client.put("/admin/api/groups/cabin", json={"name": "Cabin", "config": config}, headers=ADMIN)
+        r = client.post("/admin/api/groups/cabin/members", json={"devices": [MAC]}, headers=ADMIN)
+        assert r.json() == {"moved": 1, "pushed": 1}
+        pushed = ws.receive_json()["config"]
+        assert pushed["audio"]["volume"] == 20 and pushed["display"]["brightness"] == 30
+        assert [n["ssid"] for n in pushed["wifi"]] == ["Cabin"]
+
+        # deleting a group moves its speakers to the default group; the default group can't go
+        assert client.delete("/admin/api/groups/home", headers=ADMIN).status_code == 409
+        assert client.delete("/admin/api/groups/cabin", headers=ADMIN).status_code == 204
+        pushed = ws.receive_json()["config"]
+        assert pushed["audio"]["volume"] == 55 and pushed["display"]["brightness"] == 30
+    d = client.get(f"/admin/api/devices/{MAC}").json()
+    assert d["group"] == {"id": "home", "name": "Home"}
+
+
+def test_settings_changed_elsewhere_become_the_speakers_own(client):
+    from app import groups
+    token = adopt(client)
+    db = client.app.state.ctx.db
+    db.note_device_setting(MAC, "audio", "volume", 12)  # from its touch screen
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "local_changes", "changes": {"log_level": "debug"}})  # from its own page
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+    assert set(db.get_device(MAC)["overrides"]) == {"audio.volume", "log_level"}
+    config = groups.get(db, "home")["config"]
+    config["audio"]["volume"] = 99
+    config["log_level"] = "warn"
+    config["display"]["brightness"] = 44
+    groups.save(db, "home", config=config)
+    after = db.get_device(MAC)["config"]
+    assert after["audio"]["volume"] == 12 and after["log_level"] == "debug" and after["display"]["brightness"] == 44
+
+
+def test_old_defaults_become_the_first_group(tmp_path, prebuilt):
+    from app import groups
+    from app.db import Database
+    from app.models import DeviceConfig
+    db = Database(tmp_path / "harkenn.db")
+    defaults = DeviceConfig().model_dump()
+    defaults["audio"]["volume"] = 61
+    db.set_setting("default_config", defaults)
+    mine = DeviceConfig().model_dump()
+    mine["audio"]["volume"] = 61
+    mine["display"]["brightness"] = 20
+    db.adopt_device(device_id=MAC, name="Office", hardware="", firmware="", token_hash="x", config=mine, now=1)
+    groups.ensure(db)
+    assert groups.get(db, "home")["config"]["audio"]["volume"] == 61
+    device = db.get_device(MAC)
+    assert device["group_id"] == "home" and device["overrides"] == ["display.brightness"]
+    assert device["config"] == mine and device["config_version"] == 1  # nothing changes for the speaker
+
+
+def test_time_zone_by_name(client):
+    from app import timezones
+    token = adopt(client)
+    rule = timezones.posix("Europe/Paris")
+    assert rule.startswith("CET-1CEST")
+    assert timezones.posix("../../etc/passwd") == "" and timezones.posix("Nowhere/Town") == ""
+    config = client.get(f"/admin/api/devices/{MAC}").json()["config"]
+    config["timezone_name"] = "Europe/Paris"
+    r = client.put(f"/admin/api/devices/{MAC}", headers=ADMIN,
+                   json={"name": "Kitchen", "config": config, "overrides": ["timezone", "timezone_name"]})
+    assert r.status_code == 200, r.text
+    sent = client.get("/api/v1/device/config", headers=bearer(token)).json()["config"]
+    assert sent["timezone"] == rule and sent["timezone_name"] == "Europe/Paris"
+    assert "Europe/Paris" in client.get("/admin/api/catalog").json()["timezones"]
+
+
+def test_adopt_into_a_group(client):
+    login(client)
+    client.post("/admin/api/groups", json={"name": "Kids rooms"}, headers=ADMIN)
+    req = request_adoption(client)
+    r = client.post(f"/admin/api/adoptions/{req['request_id']}/approve", headers=ADMIN,
+                    json={"code": req["code"], "name": "Nursery", "group": "kids-rooms"})
+    assert r.status_code == 200, r.text
+    d = client.get(f"/admin/api/devices/{MAC}").json()
+    assert d["group"]["id"] == "kids-rooms" and d["overrides"] == [] and d["config_version"] == 1

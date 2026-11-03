@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Groups{% endblock %}
+{% block page %}groups{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Groups</h1>
+</div>
+<p class="hint">Speakers in a group share its settings: change the group and they all follow. A speaker can still
+  have some settings of its own, set on its page, and its own Wi-Fi networks on top of the group's.
+  New speakers join the group marked <span class="badge">new speakers</span>.</p>
+<div id="groups" class="cards"></div>
+<section class="card">
+  <h2>New group</h2>
+  <form id="new-group" class="inline-form">
+    <label class="grow">Name <input name="name" maxlength="40" required placeholder="e.g. Bedrooms, Cabin"></label>
+    <label>Start with the settings of
+      <select name="copy_from">{% for g in catalog.groups %}<option value="{{ g.id }}"{% if g.id == catalog.default_group %} selected{% endif %}>{{ g.name }}</option>{% endfor %}</select></label>
+    <button type="submit">Make group</button>
+  </form>
+</section>
+{% endblock %}

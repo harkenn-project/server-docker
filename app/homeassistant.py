@@ -258,6 +258,7 @@ class Bridge:
 
     async def command(self, device_id: str, what: str, value: str) -> None:
         """A command from Home Assistant."""
+        from . import groups
         from .context import push_config
         from .models import DeviceConfig
 
@@ -269,7 +270,7 @@ class Bridge:
             volume = max(0, min(100, round(float(value))))
             config = DeviceConfig.model_validate(device["config"])
             config.audio.volume = volume
-            c.db.update_device(device_id, name=device["name"], config=config.model_dump())
+            groups.save_device(c.db, device_id, config.model_dump())
             await push_config(c, device_id)
         elif what == "agents":
             access = next((k for k, v in AGENT_OPTIONS.items() if v == value or k == value), None)
@@ -277,7 +278,7 @@ class Bridge:
                 return
             config = DeviceConfig.model_validate(device["config"])
             config.agents.access = access
-            c.db.update_device(device_id, name=device["name"], config=config.model_dump())
+            groups.save_device(c.db, device_id, config.model_dump())
         elif what == "say":
             if value:
                 await c.voice.say(device_id, value[:500])

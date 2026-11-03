@@ -42,6 +42,9 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted, ringing.
   Four come built in (Kotodama, Obake, Neko and Robo) and you can upload your own. While a speaker sleeps, its screen
   shows the character sleeping, only a big clock, or nothing: your choice per speaker.
+- **Groups.** Speakers in a group share their settings: change the group and they all follow. Any speaker can
+  still have settings of its own, and its own Wi-Fi networks (with a fixed IP address if you like) on top of the
+  group's. Time zones are picked by place and kept up to date when the rules change.
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
 - **Setup without fuss.** Install the firmware from your browser at [flash.mylife.ninja](https://flash.mylife.ninja).
@@ -142,10 +145,10 @@ Environment variables.
 | `HARKENN_MCP_TOKEN` | unset | An extra access token for the MCP server, besides those made on the **Agents** page |
 | `HARKENN_MQTT_URL` | unset | Home Assistant's MQTT broker, `mqtt://user:password@host:1883`, until the **Server** page sets one |
 
-Everything else is in the admin UI: speakers on **Speakers** (and **Defaults** for new ones), the assistant, speech
-and wake words on **Voice**, voiceprints on **People**, the assistant's screens on **Screen**, MCP tokens on
-**Agents**, firmware and its release channel on **Firmware**, and the public address and Home Assistant on
-**Server**.
+Everything else is in the admin UI: speakers on **Speakers**, their shared settings on **Groups** (new speakers
+join the group marked for them), the assistant, speech and wake words on **Voice and assistant**, voiceprints on
+**People**, the assistant's screens on **Screens**, MCP tokens on **Agents**, firmware and its release channel on
+**Firmware**, and the public address, weather and Home Assistant on **Server**.
 
 Run **one replica**: speaker connections are held in memory, and SQLite has a single writer.
 
@@ -163,6 +166,8 @@ app/
   main.py        app factory
   device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
+  groups.py      speaker groups: shared settings, each speaker's own on top
+  timezones.py   time zones by name, turned into the speakers' POSIX rules
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
   relay.py       speakers away from home, through the relay (docs/RELAY.md)
   timers.py      timers, alarms and notifications: the assistant's markers and what each speaker has

@@ -1,40 +1,81 @@
+{% set page = self.page() %}
+{% macro icon(name) %}<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">{{ {
+  "speakers": '<rect x="6" y="3" width="12" height="18" rx="3"/><circle cx="12" cy="14" r="3"/><circle cx="12" cy="7.5" r=".6"/>',
+  "groups": '<rect x="3" y="4" width="7" height="7" rx="2"/><rect x="14" y="4" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+  "characters": '<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><circle cx="9" cy="10" r=".6"/><circle cx="15" cy="10" r=".6"/>',
+  "sounds": '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+  "screen": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/>',
+  "voice": '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  "people": '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  "agents": '<path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M16 16l2 2M6 18l2-2M16 8l2-2"/><circle cx="12" cy="12" r="3"/>',
+  "firmware": '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  "server": '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r=".6"/><circle cx="7" cy="16.5" r=".6"/>',
+  "about": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/>',
+  "password": '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/>',
+  "logout": '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4"/>',
+}[name] | safe }}</svg>{% endmacro %}
+{% macro link(href, name, label, pages) %}<a href="{{ href }}"{% if page in pages %} class="active" aria-current="page"{% endif %}>{{ icon(name) }}<span>{{ label }}</span></a>{% endmacro %}
+{% set mark %}<svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.4"/><path d="M10 7.5a6.5 6.5 0 0 1 0 9M14 4.5a10.5 10.5 0 0 1 0 15"/></svg>{% endset %}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
   <title>{% block title %}Harkenn{% endblock %} · Harkenn</title>
   <link rel="stylesheet" href="{{ static_url['admin.css'] }}">
 </head>
-<body data-page="{% block page %}{% endblock %}" {% block body_attrs %}{% endblock %}>
-  <header class="topbar">
-    <a class="brand" href="/admin"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.4"/><path d="M10 7.5a6.5 6.5 0 0 1 0 9M14 4.5a10.5 10.5 0 0 1 0 15"/></svg> Harkenn</a>
-    {% if admin %}
-    <nav>
-      <a href="/admin">Speakers</a>
-      <a href="/admin/characters">Characters</a>
-      <a href="/admin/sounds">Sounds</a>
-      <a href="/admin/people">People</a>
-      <a href="/admin/voice">Voice</a>
-      <a href="/admin/screen">Screen</a>
-      <a href="/admin/defaults">Defaults</a>
-      <a href="/admin/firmware">Firmware</a>
-      <a href="/admin/agents">Agents</a>
-      <a href="/admin/server">Server</a>
-      <a href="/admin/about">About</a>
-      <a href="/admin/password">Password</a>
-      <form method="post" action="/admin/logout"><button class="link">Log out</button></form>
-    </nav>
-    {% endif %}
+<body data-page="{% block page %}{% endblock %}" class="{{ 'with-nav' if admin else 'no-nav' }}" {% block body_attrs %}{% endblock %}>
+  {% if admin %}
+  <header class="mobilebar">
+    <button class="menu-button" type="button" aria-label="Menu" aria-controls="sidebar" aria-expanded="false">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <a class="brand" href="/admin">{{ mark }} Harkenn</a>
   </header>
-  <main>{% block content %}{% endblock %}</main>
-  <footer class="footer">
-    <img class="pip" src="/static/pip-64.png" alt="" width="20" height="20"> Harkenn, by Master Magic and Pip (AI) ·
-    <a href="https://github.com/sponsors/harkenn-project" target="_blank" rel="noopener">☕ Support Harkenn</a>
-    (half goes to the <a href="https://github.com/harkenn-project/server-docker/blob/main/SUPPORT.md" target="_blank" rel="noopener">projects it's built on</a>) ·
-    <a href="https://github.com/harkenn-project/server-docker/blob/main/THANKS.md" target="_blank" rel="noopener">Thank you</a> ·
-    <a href="/admin/about">About and credits</a>
-  </footer>
+  <nav class="sidebar" id="sidebar" aria-label="Main">
+    <a class="brand" href="/admin">{{ mark }} Harkenn</a>
+    <div class="nav-section">
+      {{ link("/admin", "speakers", "Speakers", ["dashboard", "device"]) }}
+      {{ link("/admin/groups", "groups", "Groups", ["groups", "group"]) }}
+    </div>
+    <div class="nav-section"><h2>Look and sound</h2>
+      {{ link("/admin/characters", "characters", "Characters", ["characters"]) }}
+      {{ link("/admin/sounds", "sounds", "Sounds", ["sounds"]) }}
+      {{ link("/admin/screen", "screen", "Screens", ["screen"]) }}
+    </div>
+    <div class="nav-section"><h2>Assistant</h2>
+      {{ link("/admin/voice", "voice", "Voice and assistant", ["voice"]) }}
+      {{ link("/admin/people", "people", "People", ["people"]) }}
+      {{ link("/admin/agents", "agents", "Agents", ["agents"]) }}
+    </div>
+    <div class="nav-section"><h2>System</h2>
+      {{ link("/admin/firmware", "firmware", "Firmware", ["firmware"]) }}
+      {{ link("/admin/server", "server", "Server", ["server"]) }}
+    </div>
+    <div class="nav-section nav-bottom">
+      {{ link("/admin/about", "about", "About", ["about"]) }}
+      {{ link("/admin/password", "password", "Password", ["password"]) }}
+      <form method="post" action="/admin/logout"><button class="nav-button">{{ icon("logout") }}<span>Log out</span></button></form>
+    </div>
+  </nav>
+  <div class="nav-backdrop" hidden></div>
+  {% endif %}
+  <div class="page">
+    {% if not admin %}<header class="plainbar"><a class="brand" href="/admin">{{ mark }} Harkenn</a></header>{% endif %}
+    <main>{% block content %}{% endblock %}</main>
+    <footer class="footer">
+      <img class="pip" src="/static/pip-64.png" alt="" width="20" height="20"> Harkenn, by Master Magic and Pip (AI) ·
+      <a href="https://github.com/sponsors/harkenn-project" target="_blank" rel="noopener">☕ Support Harkenn</a>
+      (half goes to the <a href="https://github.com/harkenn-project/server-docker/blob/main/SUPPORT.md" target="_blank" rel="noopener">projects it's built on</a>) ·
+      <a href="https://github.com/harkenn-project/server-docker/blob/main/THANKS.md" target="_blank" rel="noopener">Thank you</a> ·
+      <a href="/admin/about">About and credits</a>
+    </footer>
+  </div>
+  <div class="savebar" id="savebar" hidden>
+    <span class="savebar-text">Unsaved changes</span>
+    <button type="button" class="secondary" data-savebar="discard">Discard</button>
+    <button type="button" data-savebar="save">Save</button>
+  </div>
   <div id="toast" role="status" aria-live="polite"></div>
   <dialog id="secret"><h3></h3><p class="secret mono"></p><p class="hint"></p>
     <form method="dialog"><button>Close</button></form></dialog>

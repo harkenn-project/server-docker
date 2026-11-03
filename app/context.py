@@ -21,6 +21,7 @@ from .timers import Board
 from .weather import WeatherService
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
+from . import timezones
 from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
 from .voice.service import VoiceService
@@ -48,6 +49,8 @@ class Context:
     homeassistant: Bridge = field(init=False)
 
     def __post_init__(self) -> None:
+        from . import groups
+        groups.ensure(self.db)
         self.weather = WeatherService(self.db)
         self.board = Board()
         self.screens = Screens(self.db, self.weather)
@@ -81,12 +84,14 @@ def base_url(conn: HTTPConnection) -> str:
 
 
 def default_config(ctx: Context) -> DeviceConfig:
-    raw = ctx.db.get_setting("default_config")
-    if raw:
+    """What a new speaker starts with: the settings of the group new speakers join (groups.py)."""
+    from . import groups
+    group = groups.get(ctx.db, groups.default_id(ctx.db))
+    if group:
         try:
-            return DeviceConfig.model_validate(raw)
+            return DeviceConfig.model_validate(group["config"])
         except ValidationError as e:
-            log.warning("stored default config is invalid, using built-in defaults: %s", e)
+            log.warning("the default group's settings are invalid, using built-in defaults: %s", e)
     return DeviceConfig()
 
 
@@ -136,7 +141,8 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         # The speaker remembers this as a second address, after the one it was adopted through.
         "server_url": ctx.public_url(),
         "device": {"id": device["id"], "name": device["name"]},
-        "config": config.model_dump(),
+        "config": config.model_dump() | ({"timezone": timezones.posix(config.timezone_name)}
+                                         if timezones.posix(config.timezone_name) else {}),
         "theme": theme,
         "layout": {"id": config.display.layout, "widgets": LAYOUTS[config.display.layout]["widgets"]},
         "character": character,

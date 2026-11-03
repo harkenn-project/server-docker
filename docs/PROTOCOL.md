@@ -116,6 +116,7 @@ changes.
     "audio": {"volume": 70, "wake_word": "ok_nabu"},
     "wifi": [{"ssid": "Thing Tank", "password": "…", "ip": "", "subnet": "", "gateway": "", "dns": ""}],
     "timezone": "MST7MDT,M3.2.0,M11.1.0",
+    "timezone_name": "America/Denver",
     "assistant": {"url": ""},
     "log_level": "info"
   },
@@ -148,7 +149,9 @@ What the firmware has to do with it:
 * **Layout.** Widgets sit on the 240×240 round panel, (0,0) is top-left, and they are drawn in list order.
   * `ring`: an arc around the edge whose colour shows the state. idle uses `surface`, listening `primary`, thinking `muted`, speaking `accent`, error `#ff5d5d`, sleeping is hidden.
   * `character`: the animation for the current state.
-  * `clock`, `date`: local time, using `timezone` and `clock_24h`.
+  * `clock`, `date`: local time, using `timezone` and `clock_24h`. `timezone` is always a POSIX rule; when the
+    zone was picked by name, `timezone_name` has it (for information) and Harkenn works out the rule from its own
+    time zone database each time it sends the config.
   * `status`: one or two lines of text for the current state, a transcript, or an error.
   * Fonts: `sm` 14 px, `md` 18 px, `lg` 30 px, `xl` 48 px.
 * **Character.** Every state always has an entry. A state without its own animation points at `idle` through

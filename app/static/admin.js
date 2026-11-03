@@ -110,39 +110,98 @@ function setPath(obj, path, value) {
   o[keys.at(-1)] = value;
 }
 
-// dashboard
+// layout: the menu drawer on narrow screens, tabs, the unsaved-changes bar
+
+function initNav() {
+  const button = $(".menu-button");
+  if (!button) return;
+  const backdrop = $(".nav-backdrop");
+  const open = on => {
+    document.body.classList.toggle("nav-open", on);
+    button.setAttribute("aria-expanded", on);
+    backdrop.hidden = !on;
+  };
+  button.addEventListener("click", () => open(!document.body.classList.contains("nav-open")));
+  backdrop.addEventListener("click", () => open(false));
+  document.addEventListener("keydown", e => { if (e.key === "Escape") open(false); });
+}
+
+function initTabs() {
+  const tabs = $$(".tabs a");
+  if (!tabs.length) return;
+  const panels = tabs.map(a => document.getElementById(a.hash.slice(1)));
+  function show() {
+    const target = location.hash && document.getElementById(location.hash.slice(1));
+    const panel = (target && target.closest(".tab-panel")) || panels[0];
+    for (const p of panels) p.hidden = p !== panel;
+    for (const a of tabs) a.classList.toggle("active", a.hash === `#${panel.id}`);
+    if (target && target !== panel) target.scrollIntoView();
+  }
+  window.addEventListener("hashchange", show);
+  show();
+}
+
+const savebar = {
+  dirty: false,
+  init(save) {
+    const bar = $("#savebar");
+    $("[data-savebar=save]", bar).onclick = save;
+    $("[data-savebar=discard]", bar).onclick = () => { this.dirty = false; location.reload(); };
+    window.addEventListener("beforeunload", e => { if (this.dirty) e.preventDefault(); });
+  },
+  set(on) { this.dirty = on; $("#savebar").hidden = !on; },
+};
+
+// speakers: grouped cards
+
+function wifiBars(rssi) {
+  const level = rssi == null ? 0 : rssi > -55 ? 4 : rssi > -65 ? 3 : rssi > -75 ? 2 : 1;
+  return el("span", { class: "bars", title: rssi == null ? "" : `${rssi} dBm` },
+    [4, 7, 10, 13].map((h, i) => el("i", { class: i < level ? "on" : "", style: { height: `${h}px` } })));
+}
+
+function stateText(d) {
+  const s = d.status || {};
+  return d.online ? (s.state || "connected") : `offline · seen ${ago(d.last_seen)}`;
+}
 
 function initDashboard() {
+  const catalog = jsonScript("catalog");
   const pendingCards = new Map();
+  const characters = Object.fromEntries(catalog.characters.map(c => [c.id, c]));
 
   function pendingCard(req) {
     const code = el("input", { inputmode: "numeric", maxlength: 3, pattern: "\\d{3}", placeholder: "000",
                                class: "code", "aria-label": "code shown on the speaker", required: true });
-    const name = el("input", { placeholder: req.known_as || "Name (e.g. Kitchen)", maxlength: 48 });
+    const name = el("input", { placeholder: req.known_as || "Name (e.g. Kitchen)", maxlength: 48, "aria-label": "Name" });
+    const group = el("select", { "aria-label": "Group" }, req.known_as ? el("option", { value: "" }, "Its group now") : null,
+      catalog.groups.map(g => el("option", { value: g.id, selected: !req.known_as && g.id === catalog.default_group },
+        `Group: ${g.name}`)));
     const expires = el("span", { class: "hint" });
     const form = el("form", {
       class: "card adopt",
       onsubmit: async e => {
         e.preventDefault();
         try {
-          const r = await api("POST", `/admin/api/adoptions/${req.id}/approve`, { code: code.value, name: name.value });
+          const r = await api("POST", `/admin/api/adoptions/${req.id}/approve`,
+            { code: code.value, name: name.value, group: group.value || null });
           toast(`Adopted ${r.name}`);
           if (r.speaker_password) showSecret(`${r.name}'s speaker password`, r.speaker_password, PASSWORD_HINT);
           refresh();
         } catch (err) { toast(err.message, true); code.select(); }
       },
     },
-      el("h3", {}, req.known_as ? `${req.known_as} (re-adopting)` : "New speaker"),
-      el("p", { class: "mono" }, mac(req.device_id)),
-      el("p", { class: "hint" }, `${req.hardware || "unknown hardware"} · firmware ${req.firmware || "?"} · ${req.ip || ""}`),
+      el("h3", {}, req.known_as ? `${req.known_as} (adopting again)` : "New speaker"),
+      el("p", { class: "hint" }, `${mac(req.device_id)} · ${req.hardware || "unknown hardware"} · firmware ${req.firmware || "?"} · ${req.ip || ""}`),
       el("div", { class: "row" }, code, name),
+      el("div", { class: "row" }, group),
       el("div", { class: "row" },
         el("button", { type: "submit" }, "Adopt"),
         el("button", { type: "button", class: "secondary", onclick: async () => {
           await api("POST", `/admin/api/adoptions/${req.id}/reject`); refresh();
         } }, "Reject"),
         expires));
-    form.update = r => { expires.textContent = `expires in ${Math.max(0, Math.round(r.expires_in / 60))} min`; };
+    form.update = r => { expires.textContent = `code expires in ${Math.max(0, Math.round(r.expires_in / 60))} min`; };
     return form;
   }
 
@@ -161,24 +220,39 @@ function initDashboard() {
     $("#pending-section").hidden = pending.length === 0;
   }
 
+  function speakerCard(d) {
+    const s = d.status || {};
+    const c = characters[d.character] || characters.default;
+    return el("a", { class: `card speaker-card ${d.online ? "" : "offline"}`, href: `/admin/devices/${d.id}` },
+      c ? el("img", { class: "avatar", alt: "", loading: "lazy",
+                      src: `/assets/characters/${c.id}/${d.online && s.state === "sleeping" ? "sleeping" : "idle"}.gif?size=144&v=${c.version}` })
+        : el("span", { class: "avatar" }),
+      el("div", {},
+        el("div", { class: "name" },
+          el("span", { class: `dot ${d.online ? (d.via === "relay" ? "remote" : "on") : ""}` }), d.name,
+          d.via === "relay" ? el("span", { class: "badge warn", title: "connected through the relay" }, "remote") : null),
+        el("div", { class: "meta" },
+          el("span", {}, stateText(d)),
+          s.rssi != null ? el("span", {}, wifiBars(s.rssi), " ", s.ssid || "") : null,
+          s.battery != null ? el("span", {}, `${s.battery}%${s.charging ? " ⚡" : ""}`) : null,
+          d.timers && d.timers.length ? el("span", {}, `⏱ ${d.timers.length}`) : null,
+          d.notifications && d.notifications.length ? el("span", {}, `✉ ${d.notifications.length}`) : null),
+        el("div", { class: "meta" },
+          d.last_ip ? el("span", { class: "mono" }, d.last_ip) : null,
+          d.firmware ? el("span", {}, `firmware ${d.firmware}`) : null,
+          d.overrides.length ? el("span", {}, `${d.overrides.length} own setting${d.overrides.length > 1 ? "s" : ""}`) : null)));
+  }
+
   function renderDevices(devices) {
-    const rows = devices.map(d => {
-      const s = d.status || {};
-      const wifi = s.rssi != null ? `${s.ssid || ""} ${s.rssi} dBm` : "";
-      const battery = s.battery != null ? `${s.battery}%${s.charging ? " ⚡" : ""}` : "";
-      return el("tr", { class: d.online ? "online" : "offline" },
-        el("td", {}, el("span", { class: `dot ${d.online ? (d.via === "relay" ? "remote" : "on") : ""}`,
-                                  title: d.online ? (d.via === "relay" ? "online through the relay" : "online") : "offline" })),
-        el("td", {}, el("a", { href: `/admin/devices/${d.id}` }, d.name)),
-        el("td", {}, d.online ? (s.state || "connected") : "offline",
-          d.via === "relay" ? el("span", { class: "tag warn", title: "connected through the relay" }, "remote") : null),
-        el("td", {}, wifi),
-        el("td", {}, battery),
-        el("td", {}, d.firmware),
-        el("td", { class: "mono" }, d.last_ip || ""),
-        el("td", {}, d.online ? "now" : ago(d.last_seen)));
+    const blocks = catalog.groups.map(g => {
+      const members = devices.filter(d => d.group.id === g.id);
+      if (!members.length) return null;
+      return el("section", { class: "group-block" },
+        el("h2", { class: "group-title" }, el("a", { href: `/admin/groups/${g.id}` }, g.name),
+          el("small", {}, `${members.filter(d => d.online).length} of ${members.length} online`)),
+        el("div", { class: "cards" }, members.map(speakerCard)));
     });
-    $("#devices").replaceChildren(...rows);
+    $("#speaker-groups").replaceChildren(...blocks.filter(Boolean));
     $("#no-devices").hidden = devices.length > 0;
   }
 
@@ -195,7 +269,7 @@ function initDashboard() {
   setInterval(refresh, 30000);
 }
 
-// config editor (device page and defaults page)
+// the settings editor (a speaker's page and a group's page)
 
 const FONT_PX = { sm: 14, md: 18, lg: 30, xl: 48 };
 const SAMPLE_STATUS = {
@@ -208,41 +282,101 @@ function ringColor(state, theme) {
            error: "#ff5d5d", sleeping: "transparent" }[state];
 }
 
+const STATIC_FIELDS = [["ip", "IP address", "192.168.1.50"], ["subnet", "Subnet mask", "255.255.255.0"],
+                       ["gateway", "Gateway", "192.168.1.1"], ["dns", "DNS (optional)", "the gateway"]];
+let wifiCount = 0;
+
 function initConfigForm() {
   const form = $(".config-form");
-  if (!form) return;
+  if (!form) return null;
+  const editor = form.closest(".config-editor");
+  const deviceMode = editor.dataset.mode === "device";
   const catalog = jsonScript("catalog");
   const data = jsonScript("form-data");
-  const wifiList = $(".wifi-list", form);
+  const own = new Set(data.overrides || []);
+  const ownWifi = $(".own-wifi", form);
+  const groupWifi = $(".group-wifi", form);
+  const groupSelect = $("[data-path=group]", form);
 
-  const STATIC_FIELDS = [["ip", "static IP (empty = DHCP)"], ["subnet", "subnet mask"], ["gateway", "gateway"],
-                         ["dns", "DNS (optional)"]];
+  const keysOf = setting => setting.dataset.key.split(",");
+  const isOwn = setting => keysOf(setting).some(k => own.has(k));
+  const group = () => data.groups[groupSelect.value];
 
-  function wifiRow(network = { ssid: "", password: "" }) {
-    const row = el("div", { class: "row wifi" },
-      el("input", { class: "ssid", placeholder: "SSID", maxlength: 32, value: network.ssid }),
-      el("input", { class: "password", type: "password", placeholder: "password (empty = open)", maxlength: 64,
-                    value: network.password, autocomplete: "new-password" }),
-      el("button", { type: "button", class: "secondary", onclick: () => { row.remove(); preview(); } }, "Remove"),
-      el("div", { class: "static" }, STATIC_FIELDS.map(([key, label]) =>
-        el("input", { class: key, placeholder: label, maxlength: 15, inputmode: "decimal", value: network[key] || "" }))));
-    return row;
+  // Wi-Fi networks
+  function wifiCard(n = { ssid: "", password: "" }) {
+    const id = `ipmode-${wifiCount++}`;
+    const fixed = !!n.ip;
+    const statics = el("div", { class: "static", hidden: !fixed }, STATIC_FIELDS.map(([key, label, placeholder]) =>
+      el("label", {}, label, el("input", { class: key, placeholder, maxlength: 15, inputmode: "decimal", value: n[key] || "" }))));
+    const card = el("div", { class: "wifi-net" },
+      el("div", { class: "top" },
+        el("label", {}, "Network name (SSID)", el("input", { class: "ssid", maxlength: 32, value: n.ssid, required: true })),
+        el("label", {}, "Password", el("input", { class: "password", type: "password", placeholder: "empty: an open network",
+                                                    maxlength: 64, value: n.password, autocomplete: "new-password" })),
+        el("button", { type: "button", class: "secondary", onclick: () => { card.remove(); changed(); } }, "Remove")),
+      el("div", { class: "ipmode" }, el("span", {}, "IP address:"),
+        el("label", {}, el("input", { type: "radio", name: id, value: "auto", checked: !fixed }), "Automatic (DHCP)"),
+        el("label", {}, el("input", { type: "radio", name: id, value: "fixed", checked: fixed }), "Fixed"),
+        n.ssid && n.ssid === data.connected_ssid ? el("span", { class: "badge ok" }, "connected now") : null),
+      statics);
+    for (const radio of $$("input[type=radio]", card)) {
+      radio.addEventListener("change", () => {
+        statics.hidden = radio.value !== "fixed" || !radio.checked;
+        if (!statics.hidden && !$(".subnet", card).value) $(".subnet", card).value = "255.255.255.0";
+      });
+    }
+    return card;
   }
 
-  function fill() {
-    for (const input of $$("[data-path]", form)) {
-      const v = getPath(data, input.dataset.path);
-      if (input.type === "checkbox") input.checked = !!v;
-      else input.value = v ?? "";
-    }
-    const theme = catalog.themes[data.config.display.theme];
+  function readWifi(card) {
+    const fixed = $("input[value=fixed]", card).checked;
+    return { ssid: $(".ssid", card).value.trim(), password: $(".password", card).value,
+             ...Object.fromEntries(STATIC_FIELDS.map(([key]) => [key, fixed ? $(`.${key}`, card).value.trim() : ""])) };
+  }
+
+  function renderGroupWifi() {
+    if (!groupWifi) return;
+    const mine = new Set($$(".wifi-net", ownWifi).map(c => $(".ssid", c).value.trim()));
+    groupWifi.replaceChildren(...group().config.wifi.map(n => el("div", { class: "wifi-net readonly" },
+      el("div", {},
+        el("div", { class: "title" }, n.ssid, n.ssid === data.connected_ssid ? el("span", { class: "badge ok" }, "connected now") : null,
+          mine.has(n.ssid) ? el("span", { class: "badge own" }, "changed on this speaker") : null),
+        el("div", { class: "sub" }, `${n.password ? "Password" : "Open"} · ${n.ip ? `fixed IP ${n.ip}` : "automatic IP"} · from ${group().name}`)),
+      mine.has(n.ssid) ? null : el("button", { type: "button", class: "secondary small", onclick: () => {
+        ownWifi.append(wifiCard(n)); changed(); renderGroupWifi();
+      } }, "Change on this speaker"))));
+  }
+
+  // filling and reading the fields
+  function setInput(input, v) {
+    if (input.type === "checkbox") input.checked = !!v;
+    else if (input.classList.contains("sleep-after") && v != null && !$$("option", input).some(o => o.value === String(v))) {
+      input.append(el("option", { value: v }, `${v} seconds`));
+      input.value = v;
+    } else input.value = v ?? "";
+  }
+
+  function fillColors(config) {
+    const theme = catalog.themes[config.display.theme];
     for (const input of $$("[data-color]", form)) {
       const key = input.dataset.color;
-      const custom = data.config.display.colors[key];
+      const custom = config.display.colors[key];
       input.value = custom || theme[key];
       $(`[data-color-enable="${key}"]`, form).checked = !!custom;
     }
-    wifiList.replaceChildren(...data.config.wifi.map(wifiRow));
+  }
+
+  function tzState() {
+    const setting = $(".tz-name", form).closest(".setting");
+    setting.classList.toggle("tz-custom", !$(".tz-name", form).value);
+  }
+
+  // Fill fields from `source` ({name, group, config}); with `only`, just the fields in those settings.
+  function fill(source, only = null) {
+    const scope = only ? only.flatMap(s => $$("[data-path]", s)) : $$("[data-path]", form);
+    for (const input of scope) setInput(input, getPath(source, input.dataset.path));
+    if (!only || only.some(s => s.dataset.key === "display.colors")) fillColors(source.config);
+    tzState();
   }
 
   function read() {
@@ -255,20 +389,47 @@ function initConfigForm() {
     }
     out.config.display.colors = Object.fromEntries($$("[data-color]", form).map(input => [
       input.dataset.color, $(`[data-color-enable="${input.dataset.color}"]`, form).checked ? input.value : null]));
-    out.config.wifi = $$(".wifi", wifiList)
-      .map(row => ({ ssid: $(".ssid", row).value.trim(), password: $(".password", row).value,
-                     ...Object.fromEntries(STATIC_FIELDS.map(([key]) => [key, $(`.${key}`, row).value.trim()])) }))
-      .filter(n => n.ssid);
+    out.config.wifi = $$(".wifi-net", ownWifi).map(readWifi).filter(n => n.ssid);
+    out.config.timezone ||= "UTC0";
+    if (deviceMode) {
+      out.overrides = [...own].filter(k => !k.startsWith("wifi:"));
+      // what a speaker doesn't set itself comes from its group; send the group's, so nothing is lost
+      out.config.assistant = data.config.assistant;
+    } else delete out.group;
     return out;
   }
 
+  // where each setting comes from (a speaker's page)
+  function origin(setting) {
+    if (!deviceMode) return;
+    const mine = isOwn(setting);
+    setting.classList.toggle("own", mine);
+    $(".origin", setting).replaceChildren(...[mine
+      ? el("span", { class: "badge own" }, "This speaker")
+      : el("span", { class: "badge", title: "Change it to give this speaker its own" }, `From ${group().name}`),
+      mine ? el("button", { type: "button", class: "link", onclick: () => {
+        for (const k of keysOf(setting)) own.delete(k);
+        fill({ config: group().config }, [setting]);
+        origin(setting);
+        changed();
+      } }, "Use group's") : null].filter(Boolean));
+  }
+
+  function changed() {
+    savebar.set(true);
+    preview();
+  }
+
+  // the screen preview
   function preview() {
-    for (const range of $$("input[type=range]", form)) range.nextElementSibling.textContent = range.value;
+    for (const range of $$("input[type=range]", form)) {
+      const out = range.nextElementSibling;
+      out.textContent = range.value + (out.dataset.unit || "");
+    }
     const { config } = read();
     const theme = { ...catalog.themes[config.display.theme] };
     for (const [k, v] of Object.entries(config.display.colors)) if (v) theme[k] = v;
-    // untouched colour pickers follow the selected theme
-    for (const input of $$("[data-color]", form)) {
+    for (const input of $$("[data-color]", form)) {  // untouched colour pickers follow the scheme
       if (!$(`[data-color-enable="${input.dataset.color}"]`, form).checked) input.value = theme[input.dataset.color];
     }
     const layout = catalog.layouts[config.display.layout];
@@ -305,29 +466,66 @@ function initConfigForm() {
     screen.replaceChildren(...widgets.filter(Boolean));
   }
 
-  fill();
-  preview();
-  form.addEventListener("input", preview);
-  form.addEventListener("change", preview);
-  $(".preview-state").addEventListener("change", preview);
-  $(".add-wifi", form).addEventListener("click", () => { wifiList.append(wifiRow()); });
-  form.addEventListener("submit", async e => {
-    e.preventDefault();
-    const message = $(".form-message", form);
-    message.textContent = "";
+  async function save() {
+    if (!form.reportValidity()) return;
     try {
       const body = read();
       const r = await api("PUT", form.dataset.endpoint, body);
-      if (body.name) $("#device-name").textContent = body.name;
-      message.textContent = r.version
-        ? `Saved as version ${r.version}${r.pushed ? ", sent to speaker" : ", the speaker will get it when it reconnects"}`
-        : "Saved";
-      message.className = "form-message ok";
-    } catch (err) {
-      message.textContent = err.message;
-      message.className = "form-message error";
+      $("#device-name").textContent = body.name;
+      savebar.set(false);
+      if (deviceMode) {
+        toast(r.pushed ? "Saved and sent to the speaker" : "Saved: the speaker gets it when it connects");
+        $("#group-link").textContent = group().name;
+        $("#group-link").href = `/admin/groups/${groupSelect.value}`;
+      } else {
+        toast(r.speakers ? `Saved: sent to ${r.pushed} of ${r.speakers} speakers that changed` : "Saved");
+      }
+    } catch (err) { toast(err.message, true); }
+  }
+
+  // set up
+  fill(data);
+  ownWifi.replaceChildren(...data.config.wifi.filter(n => !deviceMode || own.has(`wifi:${n.ssid}`)).map(wifiCard));
+  renderGroupWifi();
+  const settings = $$(".setting[data-key]", form);
+  settings.forEach(origin);
+  preview();
+  savebar.init(save);
+
+  form.addEventListener("input", e => {
+    const setting = e.target.closest(".setting[data-key]");
+    if (deviceMode && setting && !isOwn(setting)) {  // changing a setting makes it this speaker's own
+      for (const k of keysOf(setting)) own.add(k);
+      origin(setting);
     }
+    if (e.target.classList.contains("tz-name")) tzState();
+    if (e.target.classList.contains("ssid")) renderGroupWifi();
+    changed();
   });
+  form.addEventListener("change", e => {
+    if (e.target === groupSelect) {  // another group: everything this speaker doesn't set itself follows it
+      fill({ config: group().config }, settings.filter(s => !isOwn(s)));
+      settings.forEach(origin);
+      renderGroupWifi();
+    }
+    changed();
+  });
+  form.addEventListener("submit", e => { e.preventDefault(); save(); });
+  $(".preview-state").addEventListener("change", preview);
+  $(".add-wifi", form).addEventListener("click", () => {
+    const card = wifiCard();
+    ownWifi.append(card);
+    $(".ssid", card).focus();
+    changed();
+  });
+  $(".tz-browser", form).addEventListener("click", () => {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const select = $(".tz-name", form);
+    if (!$$("option", select).some(o => o.value === zone)) { toast(`${zone} isn't in Harkenn's list`, true); return; }
+    select.value = zone;
+    select.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  return { save };
 }
 
 // device page
@@ -344,6 +542,21 @@ function initDevice() {
     const d = await api("GET", `/admin/api/devices/${id}`);
     const s = d.status || {};
     $("#online-dot").className = `dot ${d.online ? (d.via === "relay" ? "remote" : "on") : ""}`;
+    $("#state-chip").textContent = stateText(d);
+    $("#firmware-now").textContent = d.firmware || "unknown";
+    const tile = (k, v, sub) => v == null || v === "" ? null
+      : el("div", { class: "tile" }, el("div", { class: "k" }, k), el("div", { class: "v" }, v), sub ? el("div", { class: "s" }, sub) : null);
+    $("#tiles").replaceChildren(...[
+      tile("State", d.online ? (s.state || "connected") : "offline", d.online ? (d.via === "relay" ? "through the relay" : "")
+        : `seen ${ago(d.last_seen)}`),
+      tile("Wi-Fi", s.rssi != null ? el("span", {}, wifiBars(s.rssi), " ", s.ssid || "?") : null, s.rssi != null ? `${s.rssi} dBm` : ""),
+      tile("IP address", d.last_ip, s.hotspot ? "hotspot on" : ""),
+      tile("Volume", s.volume != null ? `${s.volume}%` : null, s.muted ? "mic muted" : ""),
+      tile("Battery", s.battery != null ? `${s.battery}%` : null, s.charging ? "charging" : ""),
+      tile("Firmware", d.firmware, d.hardware),
+      tile("Up for", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)} h ${Math.floor(s.uptime_s / 60) % 60} min` : null),
+      tile("Own settings", String(d.overrides.length), `the rest from ${d.group.name}`),
+    ].filter(Boolean));
     $("#remote-warning").hidden = d.via !== "relay";
     const applied = s.config_version != null
       ? (s.config_version === d.config_version ? `v${s.config_version} (current)` : `v${s.config_version}, v${d.config_version} pending`)
@@ -351,21 +564,13 @@ function initDevice() {
     $("#status").replaceChildren(
       ...statusItem("Connection", d.online ? (d.via === "relay" ? "online, REMOTELY through the relay" : "online")
         : `offline, last seen ${ago(d.last_seen)}` + (d.relay_ready ? " (waiting for it at the relay)" : "")),
-      ...statusItem("State", s.state),
       ...statusItem("Message", s.message),
-      ...statusItem("Wi-Fi", s.rssi != null ? `${s.ssid || "?"} (${s.rssi} dBm)` : undefined),
-      ...statusItem("IP", d.last_ip),
-      ...statusItem("Battery", s.battery != null ? `${s.battery}%${s.charging ? ", charging" : ""}` : undefined),
-      ...statusItem("Volume", s.volume != null ? `${s.volume}%${s.muted ? ", mic muted" : ""}` : undefined),
-      ...statusItem("Uptime", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)}h ${Math.floor(s.uptime_s / 60) % 60}m` : undefined),
       ...statusItem("Free memory", s.free_heap != null ? `${bytes(s.free_heap)} internal` +
         (s.largest_free != null ? ` (largest block ${bytes(s.largest_free)}, lowest ${bytes(s.min_free_heap)})` : "") +
         `, ${bytes(s.free_psram || 0)} PSRAM` : undefined),
       ...statusItem("Stack never used", s.stack_free
         ? Object.entries(s.stack_free).map(([task, n]) => `${task} ${bytes(n)}`).join(", ") : undefined),
-      ...statusItem("Firmware", d.firmware),
-      ...statusItem("Hardware", d.hardware),
-      ...statusItem("Config", applied),
+      ...statusItem("Settings", applied),
       ...statusItem("MAC", mac(d.id)),
       ...statusItem("Status received", s.received_at ? ago(s.received_at) : undefined));
     const la = d.local_access || {};
@@ -385,9 +590,13 @@ function initDevice() {
     $("#show-speaker-password").hidden = !la.viewable;
   }
 
+  const filter = $("#log-filter");
+  const matches = row => !filter.value || row.textContent.toLowerCase().includes(filter.value.toLowerCase());
+  filter.addEventListener("input", () => { for (const row of logs.children) row.hidden = !matches(row); });
+
   function appendLogs(lines) {
     const follow = $("#follow-logs").checked;
-    logs.append(...lines.map(l => el("div", { class: `log lvl-${l.level}` },
+    logs.append(...lines.map(l => el("div", { class: `log lvl-${l.level}`, hidden: !matches({ textContent: `${l.tag} ${l.message}` }) },
       el("span", { class: "ts" }, new Date(l.ts * 1000).toLocaleTimeString()),
       el("span", { class: "lvl" }, l.level),
       el("span", { class: "tag" }, l.tag),
@@ -507,6 +716,66 @@ function initDevice() {
     else if (ev.type === "recording") loadRecordings();
     else refreshSoon();
   });
+}
+
+// groups
+
+function initGroups() {
+  async function render() {
+    const groups = await api("GET", "/admin/api/groups");
+    $("#groups").replaceChildren(...groups.map(g => el("section", { class: "card group-card" },
+      el("h2", {}, el("a", { href: `/admin/groups/${g.id}` }, g.name), g.default ? el("span", { class: "badge" }, "new speakers") : null),
+      el("p", { class: "hint" }, `${g.members.length} speaker${g.members.length === 1 ? "" : "s"}` +
+        ` · ${g.config.wifi.length} Wi-Fi network${g.config.wifi.length === 1 ? "" : "s"}` +
+        (g.config.timezone_name ? ` · ${g.config.timezone_name.replace(/_/g, " ")}` : "")),
+      g.members.length ? el("ul", { class: "members" }, g.members.map(m => el("li", {},
+        el("span", { class: `dot ${m.online ? "on" : ""}` }), el("a", { href: `/admin/devices/${m.id}` }, m.name),
+        m.overrides ? el("small", { title: "settings of its own" }, `${m.overrides} own`) : null))) : null,
+      el("a", { class: "button secondary", href: `/admin/groups/${g.id}` }, "Settings"))));
+  }
+  $("#new-group").addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      const g = await api("POST", "/admin/api/groups", { name: f.name.value, copy_from: f.copy_from.value || null });
+      location.href = `/admin/groups/${g.id}`;
+    } catch (err) { toast(err.message, true); }
+  });
+  render().catch(err => toast(err.message, true));
+}
+
+function initGroup() {
+  const id = document.body.dataset.groupId;
+  initConfigForm();
+  async function members() {
+    const [g, o] = await Promise.all([api("GET", `/admin/api/groups/${id}`), api("GET", "/admin/api/overview")]);
+    $("#members").replaceChildren(...(g.members.length ? g.members.map(m => el("li", {},
+      el("span", { class: `dot ${m.online ? "on" : ""}` }), el("a", { href: `/admin/devices/${m.id}` }, m.name),
+      m.overrides ? el("small", {}, `${m.overrides} setting${m.overrides > 1 ? "s" : ""} of its own`) : null))
+      : [el("li", { class: "hint" }, "No speakers yet")]));
+    const others = o.devices.filter(d => d.group.id !== id);
+    $("#add-member").replaceChildren(...others.map(d => el("option", { value: d.id }, `${d.name} (now in ${d.group.name})`)));
+    $("#add-member").closest(".inline-form").hidden = !others.length;
+  }
+  $("#add-member-button").addEventListener("click", async () => {
+    const device = $("#add-member").value;
+    if (!device) return;
+    try {
+      await api("POST", `/admin/api/groups/${id}/members`, { devices: [device] });
+      toast("Moved: it keeps the settings it has of its own");
+      members();
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#make-default")?.addEventListener("click", async () => {
+    try { await api("POST", `/admin/api/groups/${id}/default`); location.reload(); }
+    catch (err) { toast(err.message, true); }
+  });
+  $("#delete-group")?.addEventListener("click", async () => {
+    if (!confirm("Delete this group? Its speakers move to the group new speakers join, and keep their own settings.")) return;
+    try { await api("DELETE", `/admin/api/groups/${id}`); savebar.dirty = false; location.href = "/admin/groups"; }
+    catch (err) { toast(err.message, true); }
+  });
+  members().catch(err => toast(err.message, true));
 }
 
 // characters page
@@ -1066,9 +1335,12 @@ Problems: ${out.warnings.join("; ")}` : "");
 }
 
 const page = document.body.dataset.page;
+initNav();
+initTabs();
 if (page === "dashboard") initDashboard();
 if (page === "device") { initConfigForm(); initDevice(); }
-if (page === "defaults") initConfigForm();
+if (page === "groups") initGroups();
+if (page === "group") initGroup();
 if (page === "characters") initCharacters();
 if (page === "firmware") initFirmware();
 if (page === "voice") initVoice();

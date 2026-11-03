@@ -224,7 +224,8 @@ def apply_local_changes(c: Context, device_id: str, changes: dict[str, Any]) -> 
         notes.append(f"brightness {brightness}%")
     if isinstance(changes.get("server_url"), str):  # the speaker's own setting; noted, nothing to store here
         notes.append(f"server address {changes['server_url'] or '(found automatically)'}")
-    c.db.update_device(device_id, name=device["name"], config=DeviceConfig.model_validate(config).model_dump())
+    from . import groups
+    groups.save_device(c.db, device_id, DeviceConfig.model_validate(config).model_dump())
     return notes
 
 

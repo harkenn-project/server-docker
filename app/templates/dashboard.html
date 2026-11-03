@@ -7,12 +7,11 @@
   <p class="hint">Each speaker below is showing a 3-digit code on its screen. Type that code to adopt it.</p>
   <div id="pending" class="cards"></div>
 </section>
-<section>
-  <h2>Speakers</h2>
-  <table class="devices">
-    <thead><tr><th></th><th>Name</th><th>State</th><th>Wi-Fi</th><th>Battery</th><th>Firmware</th><th>IP</th><th>Last seen</th></tr></thead>
-    <tbody id="devices"></tbody>
-  </table>
-  <p id="no-devices" class="hint" hidden>No speakers adopted yet. Power one on and it will appear above.</p>
-</section>
+<div class="page-head">
+  <h1>Speakers</h1>
+  <div class="buttons"><a class="button secondary" href="/admin/groups">Groups</a></div>
+</div>
+<div id="speaker-groups"></div>
+<p id="no-devices" class="hint empty" hidden>No speakers adopted yet. Power one on and it will appear here, showing a code.</p>
+<script type="application/json" id="catalog">{{ catalog | tojson }}</script>
 {% endblock %}

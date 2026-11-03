@@ -116,6 +116,8 @@ class DeviceConfig(Strict):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     wifi: list[WifiNetwork] = Field(default_factory=list, max_length=8)
     timezone: str = Field("MST7MDT,M3.2.0,M11.1.0", min_length=3, max_length=64, description="POSIX TZ string")
+    timezone_name: str = Field("", max_length=64, pattern=r"^$|^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$",
+                               description="the zone's name (America/Edmonton); when known, it sets `timezone`")
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     log_level: Literal["error", "warn", "info", "debug"] = "info"
@@ -305,15 +307,29 @@ class LogBatch(Lenient):
 class ApproveIn(Strict):
     code: str = Field(pattern=r"^\d{3}$")
     name: str = Field("", max_length=48)
+    group: str | None = Field(None, pattern=SLUG, description="the group it joins; empty = the default group")
 
 
 class DeviceUpdateIn(Strict):
     name: str = Field(min_length=1, max_length=48)
     config: DeviceConfig
+    group: str | None = Field(None, pattern=SLUG, description="its group; empty = stay in it")
+    overrides: list[str] | None = Field(None, max_length=200, description="its own settings (groups.py); with "
+                                        "these, config.wifi is its own networks. Empty = what differs from the group")
 
 
-class DefaultsIn(Strict):
+class GroupIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
+    copy_from: str | None = Field(None, pattern=SLUG)
+
+
+class GroupUpdateIn(Strict):
+    name: str = Field(min_length=1, max_length=40)
     config: DeviceConfig
+
+
+class GroupMembersIn(Strict):
+    devices: list[str] = Field(max_length=200)
 
 
 class CommandIn(Strict):

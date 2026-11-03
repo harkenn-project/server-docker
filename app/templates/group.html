@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_config_form.html" import config_form %}
+{% block title %}{{ group.name }}{% endblock %}
+{% block page %}group{% endblock %}
+{% block body_attrs %}data-group-id="{{ group.id }}"{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="crumbs"><a href="/admin/groups">Groups</a></p>
+    <h1><span id="device-name">{{ group.name }}</span>
+      {% if is_default %}<span class="badge">new speakers</span>{% endif %}</h1>
+  </div>
+  <div class="buttons">
+    {% if not is_default %}<button class="secondary" id="make-default">New speakers join this group</button>
+    <button class="danger" id="delete-group">Delete group…</button>{% endif %}
+  </div>
+</div>
+<section class="card">
+  <div class="section-head"><h2>Speakers in this group</h2>
+    <div class="inline-form"><select id="add-member" aria-label="Speaker to move here"></select>
+      <button class="secondary" id="add-member-button">Move here</button></div></div>
+  <ul class="members" id="members"></ul>
+</section>
+<p class="hint">These settings go to every speaker in the group, except settings a speaker has its own (shown on its
+  page). Saving sends them to the speakers that are online; the others get them when they connect.</p>
+{{ config_form("/admin/api/groups/" ~ group.id, catalog, "group") }}
+<script type="application/json" id="form-data">{{ form_data | tojson }}</script>
+{% endblock %}
