@@ -166,10 +166,15 @@ What the firmware has to do with it:
   `character` (dimmed, the character's sleeping animation), `clock` (dimmed, only a big clock) or `off`. A touch,
   the wake word or anything to show wakes it.
 * **Only the nearest answers.** With `audio.wake_arbitration`, speakers that hear the wake word together decide
-  among themselves, without Harkenn: each waits longer the quieter it heard the word (12 ms per dB below -10 dBFS,
-  at most 360 ms, plus up to 20 ms at random), then plays a 19 kHz tone for 80 ms, above hearing, and answers. A
-  speaker that hears another's tone first, or in the 1.5 s before it heard the word itself, stays quiet. The codec
-  runs at 48 kHz for this; everything else stays 16 kHz.
+  among themselves, without Harkenn, with *claims* above hearing (the codec runs at 48 kHz for this; everything else
+  stays 16 kHz):
+  * A speaker turns how loud it heard the word into a level: 0 at -10 dBFS or louder, one more per 2 dB quieter, up
+    to 15. It waits 25 ms per level (plus up to 20 ms at random), then plays its claim and answers.
+  * A claim is three 30 ms tones: 18.6 kHz; 19.2 kHz exactly 50 ms later (the signature, which a stray tone can't
+    match); then 19.8 kHz 40 ms + 10 ms per level after that. Listeners decode the level from that gap.
+  * Strongest wins. A speaker waiting to claim stays quiet if it hears a claim at its level or lower (stronger), and
+    claims at once on a weaker one. A claim heard up to 1.5 s before it caught the word counts too. A speaker that
+    has claimed stops answering and goes back to idle if a stronger claim comes within 1.5 s.
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
   keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a
