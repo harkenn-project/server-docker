@@ -75,6 +75,20 @@ Rings one speaker or all of them for 5–30 seconds, like a phone. The speaker p
 
 The call takes as long as the ringing plus the reply, so give your client a tool timeout of about 2 minutes.
 
+### `list_timers(speaker="all")`, `set_timer(duration, label, speaker)`, `set_alarm(time_of_day, label, days, date, speaker)`, `cancel_timer(which, speaker)`
+
+Timers and alarms live on each speaker and ring there, even if Harkenn is down. `duration` is like `"9m"`, `"1h30m"`
+or seconds; `time_of_day` `"07:30"` or `"7:30 am"`; `days` `"daily"`, `"weekdays"`, `"weekends"` or names
+(`"mon,wed"`), empty for once; `date` `"YYYY-MM-DD"` for one day. `which` is a label, an id, `"all"`, `"timers"` or
+`"alarms"`. `list_timers` also gives what happened to them in the last half hour (rang, stopped, missed) and unread
+notifications. With more than one speaker, name one.
+
+### `notify(text, title="", speaker="all", seconds=12)`
+
+A notification card on the speaker's screen: it drops in with a soft chime, and an envelope stays at the top of the
+screen until someone taps it. Nothing is spoken (use `speak` for that). The assistant on that speaker is told about
+unread notifications.
+
 ### `get_weather()`
 
 The weather where the speakers are (the place set on the admin **Server** page, from Open-Meteo, refreshed every 15

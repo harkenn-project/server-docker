@@ -238,7 +238,15 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         name = str(msg.get("name", ""))[:64]
         data = json.dumps(msg.get("data"))[:900] if msg.get("data") is not None else ""
         _store_logs(c, device_id, [LogLine(level="I", tag="event", message=f"{name} {data}".strip())])
+        if name.startswith("timer_") and isinstance(msg.get("data"), dict):
+            c.board.event(device_id, name, msg["data"])
         c.hub.publish({"type": "event", "id": device_id, "name": name})
+    elif kind == "timers":  # its timers and alarms (timers.py), whenever they change
+        c.board.report(device_id, msg)
+        c.hub.publish({"type": "device", "id": device_id})
+    elif kind == "notifications_seen":
+        c.board.seen(device_id)
+        c.hub.publish({"type": "device", "id": device_id})
     elif kind == "settings":
         # changed on the speaker itself (touch screen): keep the stored config in step without pushing it back
         volume = msg.get("volume")
@@ -297,6 +305,8 @@ async def serve_device(c: Context, ws: Any, device: dict[str, Any], ip: str | No
     keepalive = asyncio.create_task(_keepalive(c, device_id))
     try:
         await c.hub.send(device_id, device_payload(c, device, base))
+        for note in c.board.notes.get(device_id, []):  # unread ones again, quietly: the speaker may have restarted
+            await c.hub.send(device_id, {"type": "notify", "title": note["title"], "text": note["text"], "quiet": True})
         while True:
             frame = await ws.receive()
             if frame["type"] == "websocket.disconnect":
@@ -362,10 +372,11 @@ async def sound_clip(pid: str, slot: str, fmt: str, request: Request, v: int | N
 @assets_router.get("/assets/wakewords/{wid}.tflite")
 async def wake_word_model(wid: str, request: Request, v: str | None = None) -> FileResponse:
     """A wake word model, for speakers (they run it themselves)."""
-    if wid not in get_ctx(request).wakewords.catalog():
+    words = get_ctx(request).wakewords
+    if wid != "stop" and wid not in words.catalog():
         raise HTTPException(404)
     try:
-        path = await run_in_threadpool(get_ctx(request).wakewords.path, wid)
+        path = words.stop_path() if wid == "stop" else await run_in_threadpool(words.path, wid)
     except Exception as e:
         raise HTTPException(503, f"couldn't get the wake word model: {e}") from e
     return _asset(path, "application/octet-stream", v is not None)

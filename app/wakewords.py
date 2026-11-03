@@ -28,10 +28,16 @@ WAKE_WORDS = {"okay_nabu": "Okay Nabu", "hey_jarvis": "Hey Jarvis", "hey_mycroft
 # How much more or less readily a speaker wakes than the model's own cutoff.
 SENSITIVITY = {"low": +0.02, "normal": 0.0, "high": -0.05}
 MAX_MODEL_BYTES = 512 * 1024
+# "Stop": stops a ringing timer or alarm without the wake word (the speaker runs it only while ringing). Kevin
+# Ahrendt's microWakeWord model, Apache-2.0, as Home Assistant Voice uses it.
+STOP_RELEASE = "https://github.com/kahrendt/microWakeWord/releases/download/stop"
 
 
 def _fetch(name: str) -> bytes:
-    url = f"{MODELS_REPO}/{MODELS_COMMIT}/models/v2/{name}"
+    return _fetch_url(f"{MODELS_REPO}/{MODELS_COMMIT}/models/v2/{name}")
+
+
+def _fetch_url(url: str) -> bytes:
     with urllib.request.urlopen(url, timeout=60) as resp:
         data = resp.read(MAX_MODEL_BYTES + 1)
     if len(data) > MAX_MODEL_BYTES:
@@ -42,7 +48,7 @@ def _fetch(name: str) -> bytes:
 def download(directory: Path, wid: str) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     for ext in ("json", "tflite"):
-        data = _fetch(f"{wid}.{ext}")
+        data = _fetch(f"{wid}.{ext}") if wid != "stop" else _fetch_url(f"{STOP_RELEASE}/stop.{ext}")
         tmp = directory / f"{wid}.{ext}.part"
         tmp.write_bytes(data)
         tmp.replace(directory / f"{wid}.{ext}")
@@ -117,6 +123,28 @@ class WakeWords:
                 download(self.data_dir, wid)
         return self.data_dir / f"{wid}.tflite"
 
+    def stop_path(self) -> Path | None:
+        """The stop model, as bundled in the image (or put in the data folder); None without one. Never downloaded
+        here: config messages are built often and must stay quick."""
+        for d in self.dirs:
+            if (d / "stop.tflite").is_file() and (d / "stop.json").is_file():
+                return d / "stop.tflite"
+        return None
+
+    def stop_manifest(self, base_url: str) -> dict[str, Any] | None:
+        """The "stop" model for speakers (config "stop_word"); None if there isn't one."""
+        model = self.stop_path()
+        if model is None:
+            return None
+        try:
+            micro = json.loads(model.with_suffix(".json").read_text())["micro"]
+        except Exception as e:
+            log.warning("stop model unavailable: %s", e)
+            return None
+        return {"url": f"{base_url}/assets/wakewords/stop.tflite?v={int(model.stat().st_mtime)}",
+                "bytes": model.stat().st_size, "cutoff": float(micro.get("probability_cutoff", 0.5)),
+                "window": int(micro.get("sliding_window_size", 5)), "arena": int(micro.get("tensor_arena_size", 21000))}
+
     def speaker_manifest(self, wid: str, sensitivity: str, base_url: str) -> dict[str, Any] | None:
         """What a speaker needs for its wake word; None for none (or if the model can't be had)."""
         names = self.catalog()
@@ -138,6 +166,6 @@ class WakeWords:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     target = Path(sys.argv[1])
-    for wid in WAKE_WORDS:
+    for wid in [*WAKE_WORDS, "stop"]:
         download(target, wid)
-    print(f"{len(WAKE_WORDS)} wake word models in {target}")
+    print(f"{len(WAKE_WORDS)} wake word models and the stop model in {target}")

@@ -21,6 +21,13 @@
 </section>
 <section class="card"><h2>Live status</h2><dl class="status" id="status"></dl></section>
 <section class="card">
+  <div class="section-head"><h2>Timers and alarms</h2>
+    <button class="secondary" id="cancel-all-timers" hidden>Cancel all</button></div>
+  <ul class="timers" id="timers"></ul>
+  <div id="notes-box" hidden><h3>Unread notifications</h3><ul class="timers" id="notes"></ul>
+    <button class="secondary" id="clear-notes">Mark as read</button></div>
+</section>
+<section class="card">
   <h2>Speaker's own page</h2>
   <p class="hint">For break-glass access: at <span class="mono">http://&lt;speaker's IP&gt;</span> on its network, or on
     its hotspot <span class="mono" id="hotspot-name"></span> (at 192.168.4.1) when it can't join any of its Wi-Fi

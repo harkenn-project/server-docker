@@ -305,3 +305,37 @@ firmware, restart or factory reset the speaker.
   their passwords and static IP, newest first), `wifi_removed` (names), `log_level`, `brightness` and `server_url`.
   The server merges them into the stored config, logs what changed, and pushes the new config; `server_url` is only
   logged. Volume keeps going through `settings`.
+
+## 9. Timers, alarms and notifications
+
+Timers and alarms live on the speaker, so they ring on time without Harkenn and survive restarts (firmware 0.13).
+Harkenn sets and cancels them, and the speaker tells it what's set.
+
+```
+Harkenn → speaker  timer {action: "set", kind: "timer", seconds, label}
+                   timer {action: "set", kind: "alarm", time: "07:30", days, date?, label}
+                   timer {action: "cancel", what}      (an id, a label, "all", "timers" or "alarms")
+                   timer {action: "show"}               (the countdown, or the alarms, on the screen)
+                   timer {action: "stop"}               (stop what's ringing)
+                   notify {title, text, seconds?, quiet?}
+                   notifications_clear
+speaker → Harkenn  timers {items: [{id, kind, label, due, remaining_s, duration?, time?, days?}], ringing?}
+                   event {name: "timer_ringing" | "timer_stopped" | "timer_snoozed" | "timer_missed",
+                          data: {kind, id, label, how?}}
+                   notifications_seen
+```
+
+* `days` is a bit mask, bit 0 Sunday to bit 6 Saturday (`0` = once); `date` (`YYYY-MM-DD`) makes it one day. Alarms
+  follow the speaker's time zone.
+* `timers` comes at every connection and whenever the list changes. Harkenn trusts `remaining_s` over `due`, in
+  case the speaker's clock is off.
+* **Ringing** shows a shaking bell with Stop and Snooze (+1 minute for a timer, 9 for an alarm), and plays at least
+  half volume. It stops on a tap, the wake word, "stop", `timer {action: "stop"}`, or after 5 minutes (timers) or
+  15 minutes (alarms), which reports `timer_missed`.
+* **"Stop"** is heard by a second small model, from `stop_word` in the config (Kevin Ahrendt's microWakeWord model,
+  Apache-2.0), only while something rings. `stop_word` is null when the server doesn't bundle it.
+* **Notifications** drop in as a card with a chime; an envelope stays in the status row at the top of the screen
+  until the card is tapped (`notifications_seen`). `quiet` gives only the envelope: Harkenn sends unread ones again
+  when a speaker connects.
+* **The status row** at the top of every screen shows remote (through the relay), an alarm set, an unread
+  notification, and the next timer's time left.

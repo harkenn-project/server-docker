@@ -381,6 +381,7 @@ function initDevice() {
       ...statusItem("Hotspot", s.hotspot ? "ON: the speaker can't join its Wi-Fi" : undefined),
       ...statusItem("Lockout", locked));
     $("#unlock").hidden = !(s.local_locked || s.local_failures);
+    renderTimers(d);
     $("#show-speaker-password").hidden = !la.viewable;
   }
 
@@ -417,6 +418,41 @@ function initDevice() {
   for (const button of $$("[data-install-device]")) {
     button.addEventListener("click", () => installFirmware($("#firmware-build").value, id));
   }
+  function renderTimers(d) {
+    const days = { 127: "daily", 62: "weekdays", 65: "weekends" };
+    const names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const items = d.timers || [];
+    $("#timers").replaceChildren(...(d.timers == null ? [el("li", { class: "hint" }, "Not reported yet (firmware 0.13 or later).")]
+      : !items.length ? [el("li", { class: "hint" }, "None")]
+      : items.map(t => {
+        const left = Math.max(0, Math.round(t.due - Date.now() / 1000));
+        const leftText = left >= 3600 ? `${Math.floor(left / 3600)} h ${Math.floor(left / 60) % 60} min`
+          : `${Math.floor(left / 60)} min ${left % 60} s`;
+        const when = t.kind === "alarm"
+          ? `${t.time}, ${days[t.days] || (t.days ? names.filter((_, i) => t.days & (1 << i)).join(" ") : "once")}`
+          : `${leftText} left`;
+        return el("li", {}, el("span", {}, `${t.kind === "alarm" ? "⏰" : "⏱"} ${t.label || (t.kind === "alarm" ? "Alarm" : "Timer")}`),
+          el("span", { class: "when" }, when),
+          el("button", { class: "secondary", onclick: () => cancelTimer(String(t.id)) }, "Cancel"));
+      })));
+    $("#cancel-all-timers").hidden = !items.length;
+    const notes = d.notifications || [];
+    $("#notes-box").hidden = !notes.length;
+    $("#notes").replaceChildren(...notes.map(n => el("li", {}, el("span", {}, n.title ? `${n.title}: ${n.text}` : n.text),
+      el("span", { class: "when" }, ago(n.at)))));
+  }
+  async function cancelTimer(what) {
+    try { await api("POST", `/admin/api/devices/${id}/timers/cancel`, { what }); toast("Cancelled"); }
+    catch (err) { toast(err.message, true); }
+  }
+  $("#cancel-all-timers").addEventListener("click", () => {
+    if (confirm("Cancel every timer and alarm on this speaker?")) cancelTimer("all");
+  });
+  $("#clear-notes").addEventListener("click", async () => {
+    try { await api("POST", `/admin/api/devices/${id}/notifications/clear`); refreshSoon(); }
+    catch (err) { toast(err.message, true); }
+  });
+
   async function setSpeakerPassword(password) {
     try {
       const r = await api("POST", `/admin/api/devices/${id}/speaker-password`, { password });

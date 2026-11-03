@@ -27,6 +27,10 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   wrong or fooled.
 - **Shows as well as tells.** With an answer, the assistant can put a picture, chart or buttons on the speaker's
   screen, and tapping a button answers it ([how](docs/SCREEN.md)).
+- **Timers and alarms.** "Set a pasta timer for nine minutes", "wake me at 6:30 on weekdays". They live on the
+  speaker, so they ring on time even if the server is down, and survive restarts. Stop them with a tap, the wake word
+  or just "stop". A countdown ring, a ringing screen, and an icon on the screen while one is set. Agents can set them
+  and send notifications too.
 - **Knows the weather.** Set your town and the assistant knows the weather and forecast, and can show it as an
   animated weather screen: sun, clouds, rain, snow, fog, smoke and 30 more, with the temperature, wind and the rest
   ([how](docs/SCREEN.md#the-weather-screen)). Agents can show it too.
@@ -161,6 +165,7 @@ app/
   admin.py       admin pages and JSON API (session login, CSRF header check)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
   relay.py       speakers away from home, through the relay (docs/RELAY.md)
+  timers.py      timers, alarms and notifications: the assistant's markers and what each speaker has
   weather.py     the weather screen, and the live weather from Open-Meteo
   voice/         speech recognition, end of speech (vad.py), replies (brain.py), speech, ringing (calls.py),
                  voiceprints (voiceprint.py)

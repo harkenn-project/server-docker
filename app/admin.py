@@ -92,6 +92,8 @@ def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
                                                               "character": d["config"].get("character"),
                                                               "local_access": local_access.summary(c, d["id"]),
                                                               "via": c.hub.via(d["id"]),
+                                                              "timers": c.board.items.get(d["id"]),
+                                                              "notifications": c.board.notes.get(d["id"], []),
                                                               "relay_ready": bool(relay.credentials(c, d["id"])["ready"])
                                                               if relay.enabled(c, d) else False}
 
@@ -445,6 +447,7 @@ async def _forget(c: Context, device_id: str) -> None:
     c.db.delete_device(device_id)
     local_access.forget(c, device_id)
     relay.forget(c, device_id)
+    c.board.forget(device_id)
     shutil.rmtree(c.settings.recordings_dir / device_id, ignore_errors=True)
     await c.hub.kick(device_id)
     c.hub.publish({"type": "device", "id": device_id})
@@ -487,6 +490,27 @@ async def show_speaker_password(device_id: str, request: Request) -> Response:
         raise HTTPException(404, "no speaker password to show: make a new one")
     return Response(json.dumps({"password": password}), media_type="application/json",
                     headers={"Cache-Control": "no-store"})
+
+
+@api.post("/devices/{device_id}/timers/cancel")
+async def cancel_timer(device_id: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Cancel a timer or alarm on the speaker: {"what": id, label, "all", "timers" or "alarms"}."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    problem = await c.voice.timer_action(device_id, {"cancel": str(body.get("what", ""))})
+    if problem:
+        raise HTTPException(409, problem)
+    return {"sent": True}
+
+
+@api.post("/devices/{device_id}/notifications/clear", status_code=204)
+async def clear_notifications(device_id: str, request: Request) -> Response:
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    c.board.seen(device_id)
+    await c.hub.send(device_id, {"type": "notifications_clear"})
+    c.hub.publish({"type": "device", "id": device_id})
+    return Response(status_code=204)
 
 
 @api.post("/devices/{device_id}/unlock")

@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from . import __version__, weather
+from . import timers as timers_mod
 from .models import AgentsConfig
 from .voice.calls import MAX_RING_S, MIN_RING_S
 from .voice.engines import RATE
@@ -50,6 +51,8 @@ INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk 
 - ring: ring one speaker or all of them for up to {MAX_RING_S} seconds, like a phone. Someone taps a speaker to
   answer. You learn which speaker was answered; then you can have a message spoken there and, if you ask, hear their
   spoken reply. If no one answers, presume no one is there and no one heard anything.
+- list_timers / set_timer / set_alarm / cancel_timer: timers and alarms, which live on each speaker and ring there.
+- notify: show a notification card on a speaker's screen (a soft chime; an envelope stays until someone looks).
 - get_weather: the weather here now and for the coming days (when the place is set in Harkenn).
 - show_weather: show an animated weather screen on one speaker or all of them, with the numbers you give; anything
   you leave out comes from the weather here.
@@ -268,6 +271,84 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
         else:
             out["note"] = "They didn't say anything Harkenn understood."
         return out
+
+    def _online(speaker: str) -> tuple[list[dict[str, Any]], list[str], str | None]:
+        chosen, error = _targets(ctx, speaker)
+        if error:
+            return [], [], error
+        ok = [s for s in chosen if s["online"] and s["agents"] != "do_not_disturb"]
+        skipped = [f'{s["name"]} ({"do not disturb" if s["agents"] == "do_not_disturb" else "offline"})'
+                   for s in chosen if s not in ok]
+        return ok, skipped, None
+
+    @server.tool()
+    def list_timers(speaker: str = "all") -> dict[str, Any]:
+        """The timers and alarms on one speaker or all of them, as each last reported: id, kind (timer or alarm),
+        label, time left, and for alarms the time of day and days. Also what happened to timers in the last half hour
+        and each speaker's unread notifications."""
+        chosen, error = _targets(ctx, speaker)
+        if error:
+            return {"speakers": [], "note": error}
+        now = time.time()
+        return {"speakers": [{"name": s["name"], "online": s["online"],
+                              "timers": [timers_mod.describe_item(i, now) for i in ctx.board.items.get(s["id"], [])],
+                              "lately": [e for t, e in ctx.board.events.get(s["id"], []) if now - t < 1800],
+                              "unread_notifications": [n["text"] for n in ctx.board.notes.get(s["id"], [])]}
+                             for s in chosen]}
+
+    @server.tool()
+    async def set_timer(duration: str, label: str = "", speaker: str = "") -> dict[str, Any]:
+        """Start a timer on a speaker (its name or id): `duration` like "9m", "1h30m" or seconds. It rings there when
+        it's done, until someone stops it (or after 5 minutes)."""
+        return await _timer_on(speaker, {"start": duration, "label": label})
+
+    @server.tool()
+    async def set_alarm(time_of_day: str, label: str = "", days: str = "", date: str = "",
+                        speaker: str = "") -> dict[str, Any]:
+        """Set an alarm on a speaker: `time_of_day` "07:30" (24 h, or "7:30 am"); `days` "daily", "weekdays",
+        "weekends" or names ("mon,wed"), or empty for once; or `date` "YYYY-MM-DD" for that day."""
+        return await _timer_on(speaker, {"alarm": time_of_day, "label": label, "days": days, "date": date})
+
+    @server.tool()
+    async def cancel_timer(which: str, speaker: str = "") -> dict[str, Any]:
+        """Cancel timers or alarms on a speaker: by label, by id, or "all", "timers", "alarms". Also stops it if
+        it's ringing."""
+        return await _timer_on(speaker, {"cancel": which})
+
+    async def _timer_on(speaker: str, action: dict[str, Any]) -> dict[str, Any]:
+        if not speaker.strip():
+            names = [s["name"] for s in _speakers(ctx)]
+            if len(names) != 1:
+                return {"done": False, "note": "Say which speaker: " + ", ".join(names) + "."}
+            speaker = names[0]
+        chosen, error = _targets(ctx, speaker)
+        if error or len(chosen) != 1:
+            return {"done": False, "note": error or "Name one speaker."}
+        s = chosen[0]
+        if not s["online"]:
+            return {"done": False, "note": f'{s["name"]} is offline.'}
+        problem = await voice.timer_action(s["id"], action)
+        log_tool(f'timer on {s["name"]}: {action}')
+        return {"done": not problem, "speaker": s["name"], "note": problem or "Done. list_timers shows it in a moment."}
+
+    @server.tool()
+    async def notify(text: str, title: str = "", speaker: str = "all", seconds: int = 12) -> dict[str, Any]:
+        """Show a notification on one speaker or all of them: a card that drops in with a soft chime, shown for
+        `seconds`, then an envelope stays on the screen until someone taps it. Nothing is spoken (use speak for
+        that). The assistant there is told about unread ones."""
+        text = " ".join(text.split())[:300]
+        if not text:
+            return {"shown_on": [], "note": "Nothing to show."}
+        ok, skipped, error = _online(speaker)
+        if error:
+            return {"shown_on": [], "note": error}
+        for s in ok:
+            ctx.board.notify(s["id"], title, text)
+            await ctx.hub.send(s["id"], {"type": "notify", "title": title[:60], "text": text,
+                                         "seconds": max(3, min(120, seconds))})
+            ctx.hub.publish({"type": "device", "id": s["id"]})
+        log_tool(f'notify on {", ".join(s["name"] for s in ok) or "nothing"}: "{text}"')
+        return {"shown_on": [s["name"] for s in ok], "skipped": skipped}
 
     @server.tool()
     async def get_weather() -> dict[str, Any]:

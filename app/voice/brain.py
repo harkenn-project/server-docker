@@ -27,7 +27,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any
 
-from .. import screens, weather
+from .. import screens, timers, weather
 
 LISTEN_MARK = "[[listen]]"
 LISTEN_RE = re.compile(r"\[\[\s*listen\s*\]\]", re.I)
@@ -182,13 +182,18 @@ class Reply(str):
     listen: bool = False
     screen: dict[str, Any] | None = None
     screen_error: str = ""
+    timers: list[dict[str, Any]] = []  # timer markers (timers.py)
+    timer_problems: list[str] = []
 
     def __new__(cls, text: str, listen: bool = False, screen: dict[str, Any] | None = None,
-                screen_error: str = "") -> "Reply":
+                screen_error: str = "", timer_actions: list[dict[str, Any]] | None = None,
+                timer_problems: list[str] | None = None) -> "Reply":
         r = super().__new__(cls, text)
         r.listen = listen
         r.screen = screen
         r.screen_error = screen_error
+        r.timers = timer_actions or []
+        r.timer_problems = timer_problems or []
         return r
 
 
@@ -201,7 +206,7 @@ def request_context(speaker: str, device_id: str, who: str = "") -> str:
 
 def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetime, settings: dict[str, Any],
         conversations: Conversations, context: str = "", memory_key: str = "", screen_prompt: str = "",
-        voice_tag: str = "") -> Reply:
+        voice_tag: str = "", timer_prompt: str = "") -> Reply:
     api = settings.get("assistant_api") or "openai"
     url = (settings.get("assistant_url") or DEFAULT_URLS.get(api, "")).rstrip("/")
     if not url:
@@ -210,7 +215,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     # prompt, at the cost of that)
     system = (settings.get("system_prompt") or (AGENT_PROMPT if api == "hermes" else DEFAULT_PROMPT)).format(
         character=character, speaker=speaker, now=describe_time(now))
-    system += screen_prompt
+    system += screen_prompt + timer_prompt
     if settings.get("follow_up") == "assistant":
         system += LISTEN_PROMPT  # last, so it isn't lost under everything else
     # what changes every time goes on the newest message
@@ -231,6 +236,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
                                  {"X-Hermes-Session-Key": memory_key or f"harkenn-{device_id}"}, tokens)
     else:
         reply = chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
+    reply, timer_actions, timer_problems = timers.split_markers(reply) if timer_prompt else (reply, [], [])
     # the screen first: speakable() would mangle its JSON. It isn't kept in the history (an SVG would fill it up).
     reply, screen, screen_error = screens.split_marker(reply) if screen_prompt else (reply, None, "")
     if screen_prompt:
@@ -243,6 +249,7 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
     listen = bool(LISTEN_RE.search(reply)) or speakable(LISTEN_RE.sub("", reply)).rstrip().endswith("?")
     reply = speakable(LISTEN_RE.sub("", reply))
     conversations.add(device_id, text, reply + (f" {LISTEN_MARK}" if listen else ""))  # so it keeps doing it
-    if not reply and screen:
-        return Reply("", listen, screen, screen_error)  # just the screen
-    return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply), screen, screen_error)
+    if not reply and (screen or timer_actions):
+        return Reply("", listen, screen, screen_error, timer_actions, timer_problems)  # just a screen or a timer
+    return Reply(reply or "Sorry, I don't have an answer for that.", listen and bool(reply), screen, screen_error,
+                 timer_actions, timer_problems)

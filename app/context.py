@@ -17,6 +17,7 @@ from .models import DeviceConfig
 from .settings import Settings
 from .homeassistant import Bridge
 from .screens import Screens
+from .timers import Board
 from .weather import WeatherService
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
@@ -43,10 +44,12 @@ class Context:
     wakewords: WakeWords = field(init=False)
     screens: Screens = field(init=False)
     weather: WeatherService = field(init=False)
+    board: Board = field(init=False)
     homeassistant: Bridge = field(init=False)
 
     def __post_init__(self) -> None:
         self.weather = WeatherService(self.db)
+        self.board = Board()
         self.screens = Screens(self.db, self.weather)
         self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)
@@ -142,6 +145,8 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         if config.audio.sound_pack != CLASSIC else None,
         # The wake word model and its settings (wakewords.py); null = none. Detected on the speaker itself.
         "wake_word": ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base),
+        # "Stop", heard on the speaker while a timer or alarm rings (timers.py); null = none.
+        "stop_word": ctx.wakewords.stop_manifest(base),
         # The speaker's own web page: password hashes, its hotspot key and the lockout reset (local_access.py).
         "local_access": local_access.payload(ctx, device["id"]),
         # Remote connection through the relay: its address and this speaker's credentials (relay.py); null = none.

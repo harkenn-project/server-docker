@@ -62,6 +62,10 @@ th { color: var(--muted); font-weight: 500; font-size: .85em; }
 tr.offline td { color: var(--muted); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #555c78; vertical-align: middle; }
 .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.timers { list-style: none; padding: 0; margin: 0; }
+.timers li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0;
+             border-bottom: 1px solid var(--line); }
+.timers li .when { color: var(--muted); }
 .dot.remote { background: #ffb547; box-shadow: 0 0 8px #ffb547; }
 .card.warn { border-color: #ffb547; }
 .card.warn h2 { color: #ffb547; }

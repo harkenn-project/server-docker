@@ -783,7 +783,8 @@ def test_mcp_needs_a_token(client):
                                                   "clientInfo": {"name": "test", "version": "1"}})
     assert init["serverInfo"]["name"] == "harkenn" and "presume no one heard" in init["instructions"].lower()
     tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
-    assert set(tools) == {"list_speakers", "speak", "ring", "get_weather", "show_weather"}
+    assert set(tools) == {"list_speakers", "speak", "ring", "get_weather", "show_weather", "list_timers", "set_timer",
+                          "set_alarm", "cancel_timer", "notify"}
     assert "freezing_rain" in tools["show_weather"]["description"]
     assert "no one answers" in tools["ring"]["description"]
     agents = client.get("/admin/api/agents", headers=ADMIN).json()
@@ -2215,3 +2216,146 @@ def test_mcp_weather(client, monkeypatch):
         got = 0
         while got < shown["bytes"]:
             got += len(ws.receive_bytes())
+
+
+# timers, alarms and notifications (timers.py)
+
+def test_timer_markers_and_messages():
+    from app import timers
+    assert timers.duration_s("9m") == 540 and timers.duration_s("1h30m") == 5400 and timers.duration_s(90) == 90
+    assert timers.duration_s("90 seconds") == 90 and timers.duration_s("1.5 hours") == 5400
+    assert timers.duration_s("1:30") == 90 and timers.duration_s("soon") == 0
+    text, actions, problems = timers.split_markers(
+        'Done. [[timer {"start": "9m", "label": "pasta"}]] And [[timer {"alarm": "6:45 am", "days": "weekdays"}]]!')
+    assert text == "Done.  And !" and len(actions) == 2 and not problems
+    msg, _ = timers.message(actions[0])
+    assert msg == {"type": "timer", "action": "set", "kind": "timer", "seconds": 540, "label": "pasta"}
+    msg, _ = timers.message(actions[1])
+    assert msg["kind"] == "alarm" and msg["time"] == "06:45" and msg["days"] == 0x3E
+    assert timers.message({"alarm": "7pm", "days": "mon, wed"})[0]["time"] == "19:00"
+    assert timers.message({"alarm": "7pm", "days": "mon, wed"})[0]["days"] == 0b1010
+    assert timers.message({"alarm": "12 am"})[0]["time"] == "00:00"
+    assert timers.message({"alarm": "07:30", "date": "2026-12-24"})[0]["date"] == "2026-12-24"
+    assert timers.message({"alarm": "25:00"})[0] is None and timers.message({"alarm": "7", "date": "soon"})[0] is None
+    assert timers.message({"start": "forever"})[0] is None
+    assert timers.message({"cancel": "pasta"})[0] == {"type": "timer", "action": "cancel", "what": "pasta"}
+    assert timers.message({"show": True})[0]["action"] == "show"
+    assert timers.message({"stop": True})[0]["action"] == "stop"
+    assert timers.message({"nothing": 1})[0] is None
+    assert timers.split_markers("[[timer oops]] hi")[2] == ["a timer marker without an action"]
+
+
+def test_timer_board_summary():
+    import time
+    from app import timers
+    b = timers.Board()
+    assert b.summary("d") == ""
+    b.report("d", {"items": [{"id": 1, "kind": "timer", "label": "pasta", "remaining_s": 272, "duration": 540},
+                             {"id": 2, "kind": "alarm", "label": "", "remaining_s": 30000, "time": "07:30",
+                              "days": 0x3E}]})
+    b.event("d", "timer_missed", {"kind": "timer", "label": "tea"})
+    b.notify("d", "Package", "It's on the porch")
+    s = b.summary("d")
+    assert 'timer "pasta" (id 1) 4 min 3' in s and "of 9 min 0 s" in s
+    assert "alarm (id 2) at 07:30 weekdays" in s
+    assert 'timer "tea" rang unanswered' in s and '"Package: It\'s on the porch"' in s
+    b.seen("d")
+    assert "Unread" not in b.summary("d")
+    b.report("d", {"items": []})
+    assert "Timers and alarms on this speaker: none." in b.summary("d")
+
+
+def test_timer_from_the_assistant(client, monkeypatch):
+    from app.voice import brain, service
+    token = adopt(client)
+    fake_voice(client, heard="set a pasta timer for nine minutes")
+    seen = []
+
+    def post(url, body, headers, timeout):
+        seen.append(body)
+        return {"choices": [{"message": {"content": 'Pasta timer, nine minutes. [[timer {"start": "9m", "label": "pasta"}]]'}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    monkeypatch.setattr(service.VoiceService, "effective",
+                        lambda self: self.settings().model_copy(update={"assistant_url": "http://llm/v1"}))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "timers", "items": [{"id": 4, "kind": "alarm", "label": "work", "remaining_s": 3600,
+                                                   "time": "07:30", "days": 62}]})
+        ws.send_json({"type": "voice_start", "session": "s1"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "s1"})
+        msg = ws.receive_json()
+        assert msg == {"type": "timer", "action": "set", "kind": "timer", "seconds": 540, "label": "pasta"}
+        assert ws.receive_json()["reply"] == "Pasta timer, nine minutes."
+    assert "[[timer" in seen[0]["messages"][0]["content"]  # the instructions
+    assert 'alarm "work" (id 4) at 07:30 weekdays' in seen[0]["messages"][-1]["content"]  # what's set, on the message
+
+
+def test_mcp_timers_and_notifications(client):
+    device_token = adopt(client)
+    token = mcp_token(client)
+    tools = {t["name"] for t in mcp_call(client, token, "tools/list")["tools"]}
+    assert {"list_timers", "set_timer", "set_alarm", "cancel_timer", "notify"} <= tools
+    assert mcp_tool(client, token, "set_timer", duration="5m")["note"] == "Kitchen is offline."
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        out = mcp_tool(client, token, "set_alarm", time_of_day="6:30 am", days="weekends", label="hike")
+        assert out["done"] and out["speaker"] == "Kitchen"
+        assert ws.receive_json() == {"type": "timer", "action": "set", "kind": "alarm", "time": "06:30",
+                                     "label": "hike", "days": 0x41}
+        assert mcp_tool(client, token, "set_timer", duration="soon")["done"] is False
+        assert mcp_tool(client, token, "cancel_timer", which="hike")["done"]
+        assert ws.receive_json() == {"type": "timer", "action": "cancel", "what": "hike"}
+        out = mcp_tool(client, token, "notify", text="The dryer is done", title="Laundry")
+        assert out["shown_on"] == ["Kitchen"]
+        assert ws.receive_json() == {"type": "notify", "title": "Laundry", "text": "The dryer is done", "seconds": 12}
+        ws.send_json({"type": "timers", "items": []})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        listed = mcp_tool(client, token, "list_timers")["speakers"][0]
+        assert listed["timers"] == [] and listed["unread_notifications"] == ["The dryer is done"]
+        ws.send_json({"type": "notifications_seen"})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        assert mcp_tool(client, token, "list_timers")["speakers"][0]["unread_notifications"] == []
+    # unread notifications come back, quietly, when a speaker connects again
+    client.app.state.ctx.board.notify(MAC, "", "Call Mom")
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        assert ws.receive_json()["type"] == "config"
+        assert ws.receive_json() == {"type": "notify", "title": "", "text": "Call Mom", "quiet": True}
+
+
+def test_timers_in_the_admin_ui(client):
+    device_token = adopt(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "timers", "items": [{"id": 7, "kind": "timer", "label": "tea", "remaining_s": 60,
+                                                   "duration": 180}]})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        d = client.get(f"/admin/api/devices/{MAC}").json()
+        assert d["timers"][0]["label"] == "tea"
+        r = client.post(f"/admin/api/devices/{MAC}/timers/cancel", json={"what": "7"}, headers=ADMIN)
+        assert r.json() == {"sent": True}
+        assert ws.receive_json() == {"type": "timer", "action": "cancel", "what": "7"}
+        client.app.state.ctx.board.notify(MAC, "", "hello")
+        assert client.post(f"/admin/api/devices/{MAC}/notifications/clear", headers=ADMIN).status_code == 204
+        assert ws.receive_json() == {"type": "notifications_clear"}
+    assert client.get(f"/admin/api/devices/{MAC}").json()["notifications"] == []
+
+
+def test_stop_model_for_speakers(tmp_path, prebuilt):
+    words = tmp_path / "words"
+    words.mkdir()
+    (words / "stop.tflite").write_bytes(b"TFL3" + bytes(100))
+    (words / "stop.json").write_text('{"micro": {"probability_cutoff": 0.5, "sliding_window_size": 5, '
+                                     '"tensor_arena_size": 21000}}')
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        wakewords_dir=words)
+    with TestClient(create_app(settings)) as c:
+        token = adopt(c)
+        stop = c.get("/api/v1/device/config", headers=bearer(token)).json()["stop_word"]
+        assert stop["cutoff"] == 0.5 and stop["arena"] == 21000 and "/assets/wakewords/stop.tflite" in stop["url"]
+        assert c.get(stop["url"].replace("http://testserver", "")).content[:4] == b"TFL3"

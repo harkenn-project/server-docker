@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from .. import screens, weather
+from .. import screens, timers, weather
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad, voiceprint
 from .calls import Rings
@@ -341,13 +341,18 @@ class VoiceService:
             brain.ask, heard, device_id=device_id, speaker=speaker,
             character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
             settings=s.model_dump(), conversations=self.conversations,
-            context=brain.request_context(speaker, device_id, voiceprint.describe(who)) + weather_now,
+            context=brain.request_context(speaker, device_id, voiceprint.describe(who)) + weather_now
+            + self.ctx.board.summary(device_id), timer_prompt=timers.PROMPT,
             memory_key=f"harkenn-person-{person}" if person else "",
             screen_prompt=self.ctx.screens.prompt() + weather.PROMPT if s.screen else "",
             voice_tag=voiceprint.tag(who)))
         t2 = time.perf_counter()
         if reply.screen_error:
             self._log(device_id, "W", f"screen: {reply.screen_error}")
+        for problem in reply.timer_problems:
+            self._log(device_id, "W", f"timer: {problem}")
+        for action in reply.timers:
+            await self.timer_action(device_id, action)
         # Draw the screen while the speech is synthesized; it goes out before the speech, so it shows as the answer
         # starts. With only a screen (no words), the speaker learns it's done from the empty reply in voice_result.
         speech, _ = await asyncio.gather(
@@ -365,6 +370,25 @@ class VoiceService:
         if listen:
             self._awaiting_reply[device_id] = time.time()
         await self._stream(device_id, speech, reply, session, listen=listen, follow_up=listen)
+
+    async def timer_action(self, device_id: str, action: dict[str, Any]) -> str:
+        """Carry out a timer marker or tool call on the speaker (or the one it names). Returns a problem, or ""."""
+        target = device_id
+        if action.get("speaker"):
+            want = str(action["speaker"]).strip().lower()
+            found = [d for d in self.ctx.db.list_devices() if want in (d["id"], d["name"].lower())]
+            if not found:
+                problem = f'no speaker called "{action["speaker"]}"'
+                self._log(device_id, "W", f"timer: {problem}")
+                return problem
+            target = found[0]["id"]
+        msg, problem = timers.message(action)
+        if msg is None:
+            self._log(device_id, "W", f"timer: {problem}")
+            return problem
+        if not await self.ctx.hub.send(target, msg):
+            return "that speaker is offline"
+        return ""
 
     async def show_screen(self, device_id: str, spec: dict[str, Any]) -> list[str]:
         """Draw a screen and send it to the speaker. Returns the problems found (skipped overlays, ...)."""
