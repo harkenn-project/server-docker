@@ -1724,8 +1724,15 @@ def test_adoption_makes_a_speaker_password_kept_only_as_hashes(client):
     assert verify_password("pw", access["admin_hash"])  # logging in sent the admin password, hashed for speakers
     assert access["unlock"] == 0
     device = client.get(f"/admin/api/devices/{MAC}").json()
-    assert device["local_access"] == {"speaker_password": True, "admin_password": True}
+    assert device["local_access"] == {"speaker_password": True, "viewable": True, "admin_password": True}
     assert password not in json.dumps(client.get("/admin/api/overview").json())
+    # whoever can log in here can see it again; it's stored encrypted, not in the clear
+    assert client.get(f"/admin/api/devices/{MAC}/speaker-password").json() == {"password": password}
+    assert password not in json.dumps(client.get("/admin/api/devices/" + MAC).json())
+    from app.local_access import DEVICES_KEY
+    assert password not in json.dumps(client.app.state.ctx.db.get_setting(DEVICES_KEY))
+    client.post("/admin/logout")
+    assert client.get(f"/admin/api/devices/{MAC}/speaker-password").status_code == 401
 
 
 def test_set_speaker_password_and_unlock(client):
@@ -1741,6 +1748,7 @@ def test_set_speaker_password_and_unlock(client):
         assert verify_password("my own words", ws.receive_json()["local_access"]["speaker_hash"])
         r = client.post(f"/admin/api/devices/{MAC}/speaker-password", json={}, headers=ADMIN).json()
         assert verify_password(r["password"], ws.receive_json()["local_access"]["speaker_hash"])
+        assert client.get(f"/admin/api/devices/{MAC}/speaker-password").json() == {"password": r["password"]}
         assert client.post(f"/admin/api/devices/{MAC}/unlock", headers=ADMIN).json() == {"pushed": True}
         assert ws.receive_json()["local_access"]["unlock"] == 1
 

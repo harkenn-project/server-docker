@@ -277,7 +277,8 @@ firmware, restart or factory reset the speaker.
   has neither, so its page is open: that's the first-time Wi-Fi setup. `local_access` in the config carries:
   * `admin_hash`, `speaker_hash`: salted PBKDF2-SHA256, `pbkdf2_sha256$<rounds>$<salt>$<digest>` (base64). The admin
     one is a separate, lighter copy that the server makes whenever the admin password is entered, so a speaker can
-    check it in about a second. The speaker password is made at adoption (shown once in the admin UI) or set there.
+    check it in about a second. The speaker password is made at adoption or set in the admin UI, which can show it again (the server keeps it
+    encrypted; speakers only get its hashes).
   * `hotspot_psk`: the hotspot's WPA2 key as 64 hex digits, which is PBKDF2-SHA1 of the speaker password salted with
     the hotspot's name (IEEE 802.11i). Joining the hotspot needs the speaker password; without a key it's open.
   * `unlock`: a counter. When it changes, the speaker forgets its wrong passwords.

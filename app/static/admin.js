@@ -55,7 +55,7 @@ function toast(message, isError = false) {
   toast.timer = setTimeout(() => { t.className = ""; }, isError ? 6000 : 2500);
 }
 
-// A secret shown once (a new speaker password): stays up until dismissed.
+// A secret (a speaker password): stays up until closed.
 function showSecret(title, secret, hint) {
   const d = $("#secret");
   $("h3", d).textContent = title;
@@ -64,8 +64,8 @@ function showSecret(title, secret, hint) {
   d.showModal();
 }
 
-const PASSWORD_HINT = "It's shown only this once. You need it to open the speaker's own page or join its hotspot " +
-  "when it can't reach Harkenn (the Harkenn admin password works too, once the speaker has had it).";
+const PASSWORD_HINT = "For the speaker's own page and its hotspot, when it can't reach Harkenn (the Harkenn admin " +
+  "password works on the page too). You can see it again on the speaker's page here.";
 
 function ago(ts) {
   if (!ts) return "never";
@@ -366,12 +366,14 @@ function initDevice() {
       : s.local_failures ? `${s.local_failures} wrong password${s.local_failures > 1 ? "s" : ""} since the last right one`
       : s.local_failures === 0 ? "no wrong passwords" : undefined;
     $("#local-access").replaceChildren(
-      ...statusItem("Speaker password", la.speaker_password ? "set (shown only when it was made)" : "not set yet"),
+      ...statusItem("Speaker password", !la.speaker_password ? "not set yet"
+        : la.viewable ? "set" : "set, but made before Harkenn kept them: make a new one to see it"),
       ...statusItem("Admin password", la.admin_password ? "sent to speakers"
         : "not sent yet: log out and in again to send it"),
       ...statusItem("Hotspot", s.hotspot ? "ON: the speaker can't join its Wi-Fi" : undefined),
       ...statusItem("Lockout", locked));
     $("#unlock").hidden = !(s.local_locked || s.local_failures);
+    $("#show-speaker-password").hidden = !la.viewable;
   }
 
   function appendLogs(lines) {
@@ -416,6 +418,12 @@ function initDevice() {
       refreshSoon();
     } catch (err) { toast(err.message, true); }
   }
+  $("#show-speaker-password").addEventListener("click", async () => {
+    try {
+      const r = await api("GET", `/admin/api/devices/${id}/speaker-password`);
+      showSecret(`${$("#device-name").textContent}'s speaker password`, r.password, PASSWORD_HINT);
+    } catch (err) { toast(err.message, true); }
+  });
   $("#new-speaker-password").addEventListener("click", () => {
     if (confirm("Make a new speaker password? The old one stops working.")) setSpeakerPassword("");
   });

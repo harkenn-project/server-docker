@@ -37,6 +37,7 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 | [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) (Model Context Protocol) | The MCP server agents use | MIT |
 | [NumPy](https://numpy.org) | Animation encoding, audio resampling | BSD-3-Clause |
 | [python-zeroconf](https://github.com/python-zeroconf/python-zeroconf) | Announcing the server on the network (mDNS) | LGPL-2.1-or-later |
+| [pyca/cryptography](https://github.com/pyca/cryptography) | Keeping the speaker passwords encrypted | Apache-2.0 or BSD-3-Clause |
 | [SQLite](https://sqlite.org) | Database | public domain |
 
 ## Ideas and protocols

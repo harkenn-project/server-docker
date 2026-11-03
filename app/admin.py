@@ -462,6 +462,18 @@ async def set_speaker_password(device_id: str, body: SpeakerPasswordIn, request:
     return {"password": None if body.password else password, "pushed": pushed}
 
 
+@api.get("/devices/{device_id}/speaker-password")
+async def show_speaker_password(device_id: str, request: Request) -> Response:
+    """The speaker password, for getting into a speaker that can't reach Harkenn."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    password = local_access.speaker_password(c, device_id)
+    if password is None:
+        raise HTTPException(404, "no speaker password to show: make a new one")
+    return Response(json.dumps({"password": password}), media_type="application/json",
+                    headers={"Cache-Control": "no-store"})
+
+
 @api.post("/devices/{device_id}/unlock")
 async def unlock_speaker(device_id: str, request: Request) -> dict[str, bool]:
     """Clear the lockout on the speaker's web page; it takes effect when the speaker next gets its config."""
