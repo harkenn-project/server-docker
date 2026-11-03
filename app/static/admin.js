@@ -167,9 +167,11 @@ function initDashboard() {
       const wifi = s.rssi != null ? `${s.ssid || ""} ${s.rssi} dBm` : "";
       const battery = s.battery != null ? `${s.battery}%${s.charging ? " ⚡" : ""}` : "";
       return el("tr", { class: d.online ? "online" : "offline" },
-        el("td", {}, el("span", { class: `dot ${d.online ? "on" : ""}`, title: d.online ? "online" : "offline" })),
+        el("td", {}, el("span", { class: `dot ${d.online ? (d.via === "relay" ? "remote" : "on") : ""}`,
+                                  title: d.online ? (d.via === "relay" ? "online through the relay" : "online") : "offline" })),
         el("td", {}, el("a", { href: `/admin/devices/${d.id}` }, d.name)),
-        el("td", {}, d.online ? (s.state || "connected") : "offline"),
+        el("td", {}, d.online ? (s.state || "connected") : "offline",
+          d.via === "relay" ? el("span", { class: "tag warn", title: "connected through the relay" }, "remote") : null),
         el("td", {}, wifi),
         el("td", {}, battery),
         el("td", {}, d.firmware),
@@ -341,12 +343,14 @@ function initDevice() {
   async function refreshStatus() {
     const d = await api("GET", `/admin/api/devices/${id}`);
     const s = d.status || {};
-    $("#online-dot").className = `dot ${d.online ? "on" : ""}`;
+    $("#online-dot").className = `dot ${d.online ? (d.via === "relay" ? "remote" : "on") : ""}`;
+    $("#remote-warning").hidden = d.via !== "relay";
     const applied = s.config_version != null
       ? (s.config_version === d.config_version ? `v${s.config_version} (current)` : `v${s.config_version}, v${d.config_version} pending`)
       : undefined;
     $("#status").replaceChildren(
-      ...statusItem("Connection", d.online ? "online" : `offline, last seen ${ago(d.last_seen)}`),
+      ...statusItem("Connection", d.online ? (d.via === "relay" ? "online, REMOTELY through the relay" : "online")
+        : `offline, last seen ${ago(d.last_seen)}` + (d.relay_ready ? " (waiting for it at the relay)" : "")),
       ...statusItem("State", s.state),
       ...statusItem("Message", s.message),
       ...statusItem("Wi-Fi", s.rssi != null ? `${s.ssid || "?"} (${s.rssi} dBm)` : undefined),

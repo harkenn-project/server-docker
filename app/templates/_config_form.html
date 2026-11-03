@@ -60,6 +60,15 @@
       <div class="wifi-list"></div>
       <button type="button" class="secondary add-wifi">Add network</button>
     </fieldset>
+    <fieldset><legend>Remote connection</legend>
+      <label class="inline"><input type="checkbox" data-path="config.remote" data-type="bool"> Connect through the relay
+        when it can't reach Harkenn</label>
+      <p class="hint">For a speaker away from home. It keeps trying Harkenn directly, shows a remote icon while it uses
+        the relay, and everything through the relay is encrypted between the speaker and Harkenn.
+        {% if catalog.relay %}Relay: <span class="mono">{{ catalog.relay }}</span>. It takes effect once the speaker has
+        had its settings (firmware 0.13 or later).{% else %}Not available yet: set <span class="mono">HARKENN_RELAY_URL</span>
+        on the server.{% endif %}</p>
+    </fieldset>
     <fieldset><legend>Agents</legend>
       <p class="hint">What AI agents may do on this speaker through Harkenn's MCP server (the <a href="/admin/agents">Agents</a> page).</p>
       <label>Agents may

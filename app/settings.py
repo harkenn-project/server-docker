@@ -34,6 +34,10 @@ class Settings:
     assistant_key: str = ""
     mcp_token: str = ""  # an extra MCP access token (mcp.py), e.g. shared with an agent through a secret
     mqtt_url: str = ""  # Home Assistant's MQTT broker (homeassistant.py) until the admin UI sets one
+    # The relay for speakers away from home (relay.py): its address for speakers (wss://...), and for this server if
+    # that's different (e.g. inside the cluster). Empty = speakers can't be set up for remote connection.
+    relay_url: str = ""
+    relay_server_url: str = ""
 
     @property
     def db_path(self) -> Path:
@@ -94,4 +98,6 @@ def load_settings() -> Settings:
         assistant_key=env("ASSISTANT_KEY"),
         mcp_token=env("MCP_TOKEN"),
         mqtt_url=env("MQTT_URL"),
+        relay_url=env("RELAY_URL").rstrip("/"),
+        relay_server_url=(env("RELAY_SERVER_URL") or env("RELAY_URL")).rstrip("/"),
     )

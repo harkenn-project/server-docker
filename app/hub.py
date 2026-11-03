@@ -15,6 +15,7 @@ class Hub:
     def __init__(self) -> None:
         self._conns: dict[str, tuple[WebSocket, asyncio.Lock]] = {}
         self._bases: dict[str, str] = {}  # the address each speaker connected through
+        self._via: dict[str, str] = {}  # "direct", or "relay" for a speaker away from home (relay.py)
         self._subscribers: set[asyncio.Queue] = set()
         self._activity: dict[str, str] = {}  # what each speaker is doing: idle, listening, thinking, speaking, ringing
 
@@ -25,15 +26,20 @@ class Hub:
         """The address an online speaker used to reach the server (context.base_url)."""
         return self._bases.get(device_id) if device_id in self._conns else None
 
-    async def attach(self, device_id: str, ws: WebSocket, base: str = "") -> None:
+    def via(self, device_id: str) -> str | None:
+        """How an online speaker is connected: "direct", or "relay" when it's away from home."""
+        return self._via.get(device_id) if device_id in self._conns else None
+
+    async def attach(self, device_id: str, ws: Any, base: str = "", via: str = "direct") -> None:
         old = self._conns.get(device_id)
         self._conns[device_id] = (ws, asyncio.Lock())
         self._bases[device_id] = base
+        self._via[device_id] = via
         if old:
             with suppress(Exception):
                 await old[0].close(code=4000, reason="replaced by a newer connection")
 
-    def detach(self, device_id: str, ws: WebSocket) -> bool:
+    def detach(self, device_id: str, ws: Any) -> bool:
         """Forget the connection if it is still the current one. Returns True if it was."""
         conn = self._conns.get(device_id)
         if conn and conn[0] is ws:

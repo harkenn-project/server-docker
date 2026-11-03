@@ -116,7 +116,7 @@ def device_theme(device: dict[str, Any]) -> dict[str, str]:
 
 def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None) -> dict[str, Any]:
     """The config message for a speaker. `base` is the address it connected through (base_url)."""
-    from . import local_access  # imports auth, which imports this module
+    from . import local_access, relay  # they import this module
     config = DeviceConfig.model_validate(device["config"])
     theme = resolve_theme(config.display.theme, config.display.colors.model_dump())
     sizes = character_sizes(config.display.layout)
@@ -141,6 +141,8 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         "wake_word": ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base),
         # The speaker's own web page: password hashes, its hotspot key and the lockout reset (local_access.py).
         "local_access": local_access.payload(ctx, device["id"]),
+        # Remote connection through the relay: its address and this speaker's credentials (relay.py); null = none.
+        "remote": relay.payload(ctx, device),
     }
 
 

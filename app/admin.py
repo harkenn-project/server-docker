@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, kani, local_access
+from . import __version__, about, kani, local_access, relay
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
@@ -82,6 +82,7 @@ def catalog(c: Context) -> dict[str, Any]:
                        for m in c.characters.list()],
         "sound_packs": [{"id": p["id"], "name": p["name"]} for p in c.sounds.list()],
         "wake_words": c.wakewords.catalog(),
+        "relay": c.settings.relay_url,
     }
 
 
@@ -89,7 +90,10 @@ def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
     return {k: d[k] for k in ("id", "name", "hardware", "firmware", "adopted_at", "last_seen", "last_ip",
                               "status", "config_version")} | {"online": c.hub.online(d["id"]),
                                                               "character": d["config"].get("character"),
-                                                              "local_access": local_access.summary(c, d["id"])}
+                                                              "local_access": local_access.summary(c, d["id"]),
+                                                              "via": c.hub.via(d["id"]),
+                                                              "relay_ready": bool(relay.credentials(c, d["id"])["ready"])
+                                                              if relay.enabled(c, d) else False}
 
 
 def adoption_summary(c: Context, r: dict[str, Any], now: float) -> dict[str, Any]:
@@ -440,6 +444,7 @@ async def forget_device(device_id: str, request: Request) -> Response:
 async def _forget(c: Context, device_id: str) -> None:
     c.db.delete_device(device_id)
     local_access.forget(c, device_id)
+    relay.forget(c, device_id)
     shutil.rmtree(c.settings.recordings_dir / device_id, ignore_errors=True)
     await c.hub.kick(device_id)
     c.hub.publish({"type": "device", "id": device_id})

@@ -116,6 +116,8 @@ Environment variables.
 | `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
 | `HARKENN_RECORDINGS_PER_DEVICE` | `200` | Recordings kept per speaker (when keeping recordings is on); the oldest go first |
 | `HARKENN_FIRMWARE_KEPT` | `10` | Firmware images kept on the Firmware page, uploads and downloaded releases together; the oldest go first |
+| `HARKENN_RELAY_URL` | unset | The relay for speakers away from home, as speakers reach it (e.g. `wss://flash.mylife.ninja`). Unset: no remote connection. See [RELAY.md](docs/RELAY.md) |
+| `HARKENN_RELAY_SERVER_URL` | `HARKENN_RELAY_URL` | The relay as this server reaches it, if different (e.g. inside a cluster) |
 | `HARKENN_ASSISTANT_API` | `openai` | `openai`, `anthropic` or `hermes`: used with `HARKENN_ASSISTANT_URL` |
 | `HARKENN_ASSISTANT_URL`, `HARKENN_ASSISTANT_MODEL`, `HARKENN_ASSISTANT_KEY` | unset | The assistant, e.g. from a secret. The **Voice** page's own values win; these fill in what it leaves empty |
 | `HARKENN_MCP_TOKEN` | unset | An extra access token for the MCP server, besides those made on the **Agents** page |
@@ -143,6 +145,7 @@ app/
   device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
+  relay.py       speakers away from home, through the relay (docs/RELAY.md)
   voice/         speech recognition, end of speech (vad.py), replies (brain.py), speech, ringing (calls.py),
                  voiceprints (voiceprint.py)
   mcp_server.py  the MCP server for agents (docs/MCP.md, docs/skills/)

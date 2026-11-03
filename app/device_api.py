@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__
+from . import __version__, relay
 from .assets import STATES
 from .context import Context, base_url, device_payload, get_ctx, push_config, trim_recordings
 from .models import AdoptionRequestIn, DeviceConfig, LogBatch, LogLine, StatusIn, WifiNetwork
@@ -124,6 +124,8 @@ def _store_status(c: Context, device_id: str, status: StatusIn, ip: str | None) 
     data = status.model_dump(exclude_none=True)
     data["received_at"] = now
     c.db.touch_device(device_id, now=now, ip=data.get("ip") or ip, firmware=status.firmware, status=data)
+    if status.remote and relay.mark_ready(c, device_id, status.remote):
+        log.info("device %s can be reached through the relay now", device_id)
     c.hub.publish({"type": "device", "id": device_id})
 
 
@@ -281,12 +283,17 @@ async def device_ws(ws: WebSocket) -> None:
         await ws.close(code=4401, reason="unknown or revoked device token")
         return
     await ws.accept()
-    device_id, ip = device["id"], _client_ip(ws)
-    base = base_url(ws)
-    await c.hub.attach(device_id, ws, base)
+    log.info("device %s connected from %s", device["id"], _client_ip(ws))
+    await serve_device(c, ws, device, _client_ip(ws), base_url(ws))
+
+
+async def serve_device(c: Context, ws: Any, device: dict[str, Any], ip: str | None, base: str,
+                       via: str = "direct") -> None:
+    """A speaker's live connection, until it ends: its WebSocket, or the same through the relay (relay.py)."""
+    device_id = device["id"]
+    await c.hub.attach(device_id, ws, base, via)
     c.db.touch_device(device_id, now=time.time(), ip=ip)
     c.hub.publish({"type": "device", "id": device_id})
-    log.info("device %s connected from %s", device_id, ip)
     keepalive = asyncio.create_task(_keepalive(c, device_id))
     try:
         await c.hub.send(device_id, device_payload(c, device, base))

@@ -1845,3 +1845,200 @@ def test_recordings_and_firmware_are_capped(tmp_path, prebuilt):
     ids = [store.add(fake_firmware(f"0.4.{i}"))["id"] for i in range(4)]
     assert {m["id"] for m in store.list()} == set(ids[2:])
     assert len(list((tmp_path / "fw").glob("*.bin"))) == 2
+
+
+# remote speakers through the relay (relay.py)
+
+class FakeRelay:
+    """The relay's two ends in memory: Harkenn's websocket and the speaker's."""
+
+    def __init__(self):
+        import asyncio
+        self.to_speaker, self.to_harkenn = asyncio.Queue(), asyncio.Queue()
+
+    # Harkenn's side, as a websockets client connection
+    async def send(self, data):
+        await self.to_speaker.put(data)
+
+    async def recv(self):
+        frame = await self.to_harkenn.get()
+        if frame is None:
+            raise ConnectionError("closed")
+        return frame
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self.recv()
+        except ConnectionError:
+            raise StopAsyncIteration
+
+    async def close(self, code=1000, reason=""):
+        await self.to_speaker.put(None)
+
+
+class SpeakerEnd:
+    """What the firmware does at the relay (docs/RELAY.md), in Python."""
+
+    def __init__(self, relay, key):
+        self.relay, self.key = relay, key
+        self.sent = self.received = 0
+
+    async def handshake(self):
+        import secrets
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from app.relay import ANSWER, HELLO, OK, _mac
+        frame = await self.relay.to_speaker.get()
+        assert frame[0] == HELLO and len(frame) == 17
+        hn, sn = frame[1:], secrets.token_bytes(16)
+        await self.relay.to_harkenn.put(bytes([ANSWER]) + sn + _mac(self.key, b"harkenn-relay speaker", hn, sn)[:16])
+        ok = await self.relay.to_speaker.get()
+        assert ok == bytes([OK]) + _mac(self.key, b"harkenn-relay harkenn", hn, sn)[:16]
+        self.send_key = AESGCM(_mac(self.key, b"harkenn-relay s2h", hn, sn))
+        self.recv_key = AESGCM(_mac(self.key, b"harkenn-relay h2s", hn, sn))
+
+    async def send(self, kind, data):
+        import struct
+        self.sent += 1
+        counter = struct.pack(">Q", self.sent)
+        await self.relay.to_harkenn.put(b"\x10" + counter + self.send_key.encrypt(b"\0" * 4 + counter, kind + data, None))
+
+    async def recv(self):
+        import struct
+        frame = await self.relay.to_speaker.get()
+        assert frame[0] == 0x10
+        (counter,) = struct.unpack(">Q", frame[1:9])
+        assert counter > self.received
+        self.received = counter
+        plain = self.recv_key.decrypt(b"\0" * 4 + frame[1:9], frame[9:], None)
+        return plain[:1], plain[1:]
+
+    async def recv_text(self):
+        while True:
+            kind, data = await self.recv()
+            if kind == b"T":
+                return json.loads(data)
+
+
+@pytest.fixture
+def relay_client(tmp_path, prebuilt):
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        relay_url="wss://relay.example", relay_server_url="ws://relay.internal")
+    app = create_app(settings)
+    with TestClient(app) as c:
+        c.app_ref = app
+        yield c
+
+
+def remote_speaker(c):
+    token = adopt(c)
+    config = c.get(f"/admin/api/devices/{MAC}").json()["config"]
+    config["remote"] = True
+    c.put(f"/admin/api/devices/{MAC}", json={"name": "Kitchen", "config": config}, headers=ADMIN)
+    return token, c.get("/api/v1/device/config", headers=bearer(token)).json()["remote"]
+
+
+def test_remote_speaker_through_the_relay(relay_client, monkeypatch):
+    import asyncio
+    from contextlib import asynccontextmanager
+    from app import relay as relay_mod
+    c = relay_client
+    token, remote = remote_speaker(c)
+    assert remote["url"] == "wss://relay.example" and len(remote["id"]) == 32 and len(remote["key"]) == 64
+
+    ctx = c.app_ref.state.ctx
+    manager = relay_mod.RelayManager(ctx, c.app_ref)
+    manager.check()
+    assert manager.tasks == {}  # not yet: the speaker hasn't said it has the credentials
+    with c.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "status", "status": {"remote": remote["id"]}})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+    assert relay_mod._all(ctx)[MAC]["ready"] is True
+    assert c.get(f"/admin/api/devices/{MAC}").json()["relay_ready"] is True
+
+    fake = FakeRelay()
+    urls = []
+
+    @asynccontextmanager
+    async def fake_connect(url, **kw):
+        urls.append(url)
+        yield fake
+
+    monkeypatch.setattr(relay_mod, "connect", fake_connect)
+
+    async def scenario():
+        meet = asyncio.create_task(manager._meet(MAC))
+        await fake.to_harkenn.put('{"type":"paired"}')
+        speaker = SpeakerEnd(fake, bytes.fromhex(remote["key"]))
+        await speaker.handshake()
+        await speaker.send(b"T", json.dumps({"type": "hello", "token": token}).encode())
+        first = await speaker.recv_text()
+        assert first["type"] == "config" and first["remote"]["id"] == remote["id"]
+        assert ctx.hub.via(MAC) == "relay"
+        url = first["character"]["states"]["idle"]["urls"]["144"]
+        await speaker.send(b"T", json.dumps({"type": "fetch", "id": 7, "url": url}).encode())
+        result = await speaker.recv_text()
+        assert result["type"] == "fetch_result" and result["id"] == 7 and result["status"] == 200
+        got = b""
+        while len(got) < result["size"]:
+            kind, data = await speaker.recv()
+            assert kind == b"F" and data[:4] == (7).to_bytes(4, "big")
+            got += data[4:]
+        assert got[:4] == b"KANI"
+        await speaker.send(b"T", json.dumps({"type": "fetch", "id": 8, "url": "http://x/admin/api/overview"}).encode())
+        assert (await speaker.recv_text())["status"] == 403  # only what a speaker downloads
+        await fake.to_harkenn.put(None)  # the speaker goes away
+        for _ in range(100):
+            if not ctx.hub.online(MAC):
+                break
+            await asyncio.sleep(0.05)
+        assert not ctx.hub.online(MAC)
+        meet.cancel()
+
+    c.portal.call(scenario)
+    assert urls[0] == f"ws://relay.internal/relay/harkenn/{remote['id']}"
+
+
+def test_relay_rejects_a_wrong_key_and_tampering(relay_client):
+    import asyncio
+    from cryptography.exceptions import InvalidTag
+    from app import relay as relay_mod
+    c = relay_client
+    token, remote = remote_speaker(c)
+
+    async def handshake_with(key):
+        fake = FakeRelay()
+        task = asyncio.create_task(relay_mod.RelayManager._handshake(fake, bytes.fromhex(remote["key"])))
+        speaker = SpeakerEnd(fake, key)
+        speaker_task = asyncio.create_task(speaker.handshake())
+        result = await asyncio.gather(task, return_exceptions=True)
+        speaker_task.cancel()
+        return result
+
+    [result] = c.portal.call(handshake_with, b"\0" * 32)
+    assert isinstance(result, ConnectionError)  # the speaker didn't have the key
+
+    channel = relay_mod.Channel(b"k" * 32, b"h" * 16, b"s" * 16)
+    mirror = relay_mod.Channel(b"k" * 32, b"h" * 16, b"s" * 16)
+    mirror.recv_key, mirror.send_key = mirror.send_key, mirror.recv_key  # the speaker's side
+    frame = mirror.seal(b"T", b"hi")
+    assert channel.open(frame) == (b"T", b"hi")
+    with pytest.raises(ValueError):
+        channel.open(frame)  # played again
+    tampered = bytearray(mirror.seal(b"T", b"hi"))
+    tampered[-1] ^= 1
+    with pytest.raises(InvalidTag):
+        channel.open(bytes(tampered))
+
+
+def test_remote_needs_a_relay(client):
+    token = adopt(client)
+    config = client.get(f"/admin/api/devices/{MAC}").json()["config"]
+    config["remote"] = True
+    client.put(f"/admin/api/devices/{MAC}", json={"name": "Kitchen", "config": config}, headers=ADMIN)
+    assert client.get("/api/v1/device/config", headers=bearer(token)).json()["remote"] is None

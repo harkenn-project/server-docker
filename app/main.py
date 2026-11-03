@@ -25,6 +25,7 @@ from .device_api import router as device_router
 from .firmware import FirmwareStore
 from .hub import Hub
 from .mcp_server import build as build_mcp
+from .relay import RelayManager
 from .settings import Settings, load_settings
 from .starter import ensure_builtin_characters
 
@@ -51,8 +52,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.mdns:
             await app.state.announcer.start(app.state.ctx.public_url())
         app.state.ctx.homeassistant.start()
+        app.state.relay.start()
         async with app.state.mcp.session_manager.run():
             yield
+        await app.state.relay.stop()
         app.state.ctx.homeassistant.stop()
         await app.state.announcer.stop()
 
@@ -60,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
                             firmware=FirmwareStore(settings.firmware_dir, settings.firmware_kept))
     app.state.announcer = Announcer(settings)
+    app.state.relay = RelayManager(app.state.ctx, app)
     app.state.mcp, mcp_endpoint = build_mcp(app.state.ctx)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="harkenn_session",
                        same_site="lax", https_only=settings.secure_cookies, max_age=7 * 86400)

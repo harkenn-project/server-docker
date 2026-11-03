@@ -115,6 +115,7 @@ class DeviceConfig(Strict):
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     log_level: Literal["error", "warn", "info", "debug"] = "info"
+    remote: bool = Field(False, description="may connect through the relay when it can't reach Harkenn (relay.py)")
 
 
 # voice pipeline (server-wide; see app/voice)
@@ -275,6 +276,8 @@ class StatusIn(Lenient):
     largest_free: int | None = Field(None, description="largest free block of internal RAM")
     min_free_heap: int | None = Field(None, description="least internal RAM free since it started")
     stack_free: dict[str, int] | None = Field(None, description="per task: stack never used, in bytes")
+    remote: str | None = Field(None, max_length=64, description="the relay id the speaker holds (relay.py)")
+    via_relay: bool | None = None
 
 
 class LogLine(Lenient):

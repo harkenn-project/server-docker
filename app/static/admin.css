@@ -62,6 +62,10 @@ th { color: var(--muted); font-weight: 500; font-size: .85em; }
 tr.offline td { color: var(--muted); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #555c78; vertical-align: middle; }
 .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.remote { background: #ffb547; box-shadow: 0 0 8px #ffb547; }
+.card.warn { border-color: #ffb547; }
+.card.warn h2 { color: #ffb547; }
+.tag.warn { margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: .8em; color: #0b1020; background: #ffb547; }
 
 .status { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 6px 16px; margin: 0; }
 .status dt { color: var(--muted); }
