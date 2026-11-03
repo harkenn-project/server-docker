@@ -8,7 +8,7 @@ noted.
 
 The speaker tries these in order and uses the first that answers `/api/v1/ping`:
 
-1. The URL saved on the speaker: entered on its Wi-Fi setup page under *Advanced*, or sent by the server as
+1. The URL saved on the speaker: entered on its own page (§8) under *Settings*, or sent by the server as
    `server_url` in a config it has applied (so a server that moves takes its speakers along).
 2. mDNS service `_harkenn._tcp`: `http://<address>:<port>`, or the `url` in its TXT record.
 3. `http://harkenn.local:8000` (the server answers to that mDNS host name).

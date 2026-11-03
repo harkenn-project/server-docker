@@ -29,26 +29,36 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   screen, and tapping a button answers it ([how](docs/SCREEN.md)).
 - **Home Assistant.** Every speaker shows up as a device: what it's doing as it happens, its volume, a notifier for
   announcements, and more, through MQTT ([how](docs/HOMEASSISTANT.md)).
+- **Only the nearest answers.** With several speakers in earshot, the one that heard the wake word best answers: the
+  speakers tell each other how loudly they heard it with short tones too high for people to hear, and the rest stay
+  quiet.
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted, ringing.
-  Four come built in (Kotodama, Obake, Neko and Robo) and you can upload your own.
+  Four come built in (Kotodama, Obake, Neko and Robo) and you can upload your own. While a speaker sleeps, its screen
+  shows the character sleeping, only a big clock, or nothing: your choice per speaker.
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
-- **Setup without fuss.** Speakers find the server on the network, show a 3-digit code, and you enter it in the admin
-  page to adopt them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
+- **Setup without fuss.** Install the firmware from your browser at [flash.mylife.ninja](https://flash.mylife.ninja).
+  Speakers then find the server on the network, show a 3-digit code, and you enter it in the admin page to adopt
+  them. Screen layout, colours, volume, Wi-Fi and voice are all set from the admin page.
 - **Updates over Wi-Fi.** Speakers check for new firmware when they start and offer to install it. The server
   follows a release channel of your choice: stable, beta, alpha or development.
 - **Break glass.** Every speaker has its own web page, on its network or on its own hotspot when it can't join its
   Wi-Fi, for fixing Wi-Fi, static IP, the server address, logs and firmware. It takes the admin password or a speaker
   password made at adoption, and locks itself after too many wrong ones. Changes made there come back to Harkenn.
   Speakers can also be factory reset from the admin page. See [PROTOCOL.md](docs/PROTOCOL.md#8-the-speakers-own-web-page-break-glass).
+- **Away from home.** A speaker set up for remote connection keeps working when it's taken somewhere it can't reach
+  the server: it goes through a relay, end-to-end encrypted so the relay can't listen in, shows a remote icon, and
+  comes back by itself. The admin page warns you while it does ([how](docs/RELAY.md)).
 
 ## Get a speaker
 
 Harkenn runs on the **Spotpear ESP32-S3 1.28" BOX**: a small cylinder with a round 1.28" touch screen, a microphone,
 a speaker and a battery (CA$41 when we bought ours). On AliExpress it's sold as
 [*Superior-ESP32 S3 1.28 Inch LCD Touch Screen Mini Speaker ESP32 S3 Xiaozhi AI Mini Speaker Support Deepseek*](https://www.aliexpress.com/item/1005010093339429.html).
-It ships with XiaoZhi firmware, which you replace with Harkenn's over USB the first time:
-[speaker-firmware](https://github.com/harkenn-project/speaker-firmware) has the steps. Similar-looking Spotpear boxes
+It ships with XiaoZhi firmware, which you replace with Harkenn's over USB the first time: from Chrome or Edge at
+[flash.mylife.ninja](https://flash.mylife.ninja), which checks it's the right board first
+([harkenn-project/flash](https://github.com/harkenn-project/flash)), or by building it yourself
+([speaker-firmware](https://github.com/harkenn-project/speaker-firmware) has the steps). Similar-looking Spotpear boxes
 (a 1.85" round screen, or no screen) aren't supported, so check it's the 1.28" one.
 
 ## Screenshots
@@ -82,7 +92,8 @@ password. The first answer takes a while: the voice models download into the dat
 
 The server announces itself on the network as `harkenn.local`, so speakers on the same network find it on their own.
 If they can't (another VLAN, or a Kubernetes cluster), add a DNS record **`harkenn`** pointing at the server in your
-router, or type the address into the speaker's Wi-Fi setup page under *Advanced*.
+router, or type the address on the speaker's own page (its hotspot `Harkenn-XXXX`, at 192.168.4.1), under
+*Settings*.
 
 ## Develop
 

@@ -4,7 +4,7 @@
 #
 # Speakers find the server by themselves: it announces itself on the network as harkenn.local (mDNS), which is why it
 # shares the host's network. If speakers are on another network (VLAN), add a DNS record "harkenn" pointing at this
-# machine in your router, or enter the address in the speaker's Wi-Fi setup page under "Advanced".
+# machine in your router, or enter the address on the speaker's own page (its hotspot, at 192.168.4.1) under "Settings".
 services:
   harkenn:
     image: ghcr.io/harkenn-project/server-docker:latest
