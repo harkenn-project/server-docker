@@ -354,7 +354,11 @@ function initDevice() {
       ...statusItem("Battery", s.battery != null ? `${s.battery}%${s.charging ? ", charging" : ""}` : undefined),
       ...statusItem("Volume", s.volume != null ? `${s.volume}%${s.muted ? ", mic muted" : ""}` : undefined),
       ...statusItem("Uptime", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)}h ${Math.floor(s.uptime_s / 60) % 60}m` : undefined),
-      ...statusItem("Free memory", s.free_heap != null ? `${bytes(s.free_heap)} internal, ${bytes(s.free_psram || 0)} PSRAM` : undefined),
+      ...statusItem("Free memory", s.free_heap != null ? `${bytes(s.free_heap)} internal` +
+        (s.largest_free != null ? ` (largest block ${bytes(s.largest_free)}, lowest ${bytes(s.min_free_heap)})` : "") +
+        `, ${bytes(s.free_psram || 0)} PSRAM` : undefined),
+      ...statusItem("Stack never used", s.stack_free
+        ? Object.entries(s.stack_free).map(([task, n]) => `${task} ${bytes(n)}`).join(", ") : undefined),
       ...statusItem("Firmware", d.firmware),
       ...statusItem("Hardware", d.hardware),
       ...statusItem("Config", applied),

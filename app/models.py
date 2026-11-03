@@ -272,6 +272,9 @@ class StatusIn(Lenient):
     local_failures: int | None = Field(None, ge=0, description="wrong passwords on its web page since the last right one")
     local_locked: bool | None = Field(None, description="its web page is locked until unlocked from here")
     hotspot: bool | None = None
+    largest_free: int | None = Field(None, description="largest free block of internal RAM")
+    min_free_heap: int | None = Field(None, description="least internal RAM free since it started")
+    stack_free: dict[str, int] | None = Field(None, description="per task: stack never used, in bytes")
 
 
 class LogLine(Lenient):
