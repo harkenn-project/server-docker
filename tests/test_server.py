@@ -2712,3 +2712,97 @@ def test_agents_use_the_household_modules_through_mcp(client):
     events = mcp_tool(client, token, "calendar_events", start="2026-11-05", person="Marika")["events"]
     assert events[0]["title"] == "Yoga" and events[0]["for"] == "Marika"
     assert mcp_tool(client, token, "calendar_events", start="2026-11-05")["events"] == []  # hers
+
+
+# broadcast (broadcast.py)
+
+def adopt_another(c, mac, name):
+    req = request_adoption(c, mac)
+    r = c.post(f"/admin/api/adoptions/{req['request_id']}/approve", json={"code": req["code"], "name": name},
+               headers=ADMIN)
+    assert r.status_code == 200, r.text
+    return c.get(f"/api/v1/adoption/{req['request_id']}").json()["token"]
+
+
+def test_broadcast_requests_are_recognized(client):
+    from app import broadcast
+
+    adopt(client)
+    login(client)
+    client.post("/admin/api/groups", json={"name": "Bedrooms"}, headers=ADMIN)
+    db = client.app.state.ctx.db
+    assert broadcast.parse("Broadcast that dinner's ready.", db) == {"to": "all", "message": "Dinner's ready",
+                                                                     "skip": 2}
+    assert broadcast.parse("Okay, announce to the bedrooms that it's bedtime", db) == {
+        "to": "bedrooms", "message": "It's bedtime", "skip": 6}
+    assert broadcast.parse("broadcast to the kitchen speaker come down please", db)["to"] == MAC
+    assert broadcast.parse("Broadcast to everyone, the car's here", db)["message"] == "The car's here"
+    assert broadcast.parse("Broadcast.", db) == {"to": "all", "message": "", "skip": 1}
+    assert broadcast.parse("what's a broadcast?", db) is None
+    words = [(" Broadcast", 0.1, 0.6), (" that", 0.6, 0.8), (" dinner's", 1.0, 1.4), (" ready.", 1.4, 1.9)]
+    assert broadcast.message_span(words, 2, "Dinner's ready") == (1.0 - broadcast.LEAD_S, 1.9 + broadcast.TAIL_S)
+
+
+def test_broadcast_plays_the_recording_on_the_other_speakers(client):
+    from app import broadcast
+
+    kitchen = adopt(client)
+    office = adopt_another(client, "90:70:69:F4:66:B1", "Office")
+    got = fake_voice(client, heard="Broadcast that dinner's ready")
+    voice = client.app.state.ctx.voice
+    voice.stt.words = lambda pcm, **kw: [(" Broadcast", 0.0, 0.5), (" that", 0.5, 0.7), (" dinner's", 1.0, 1.3),
+                                         (" ready", 1.3, 1.5)]
+    spoken = np.full(16000 * 2, 3000, dtype="<i2").tobytes()  # 2 s, quiet
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(kitchen)) as k, \
+            client.websocket_connect("/api/v1/device/ws", headers=bearer(office)) as o:
+        k.receive_json()
+        o.receive_json()
+        k.send_json({"type": "voice_start", "session": "b1"})
+        k.send_bytes(spoken)
+        k.send_json({"type": "voice_end", "session": "b1"})
+        assert o.receive_json() == {"type": "notify", "title": "From Kitchen", "text": "Dinner's ready", "seconds": 20}
+        start, audio = receive_speech(o)
+        assert start["text"] == "Announcement from Kitchen. Dinner's ready"
+        intro = 8000  # the fake voice: 0.25 s
+        clip = audio[intro + len(broadcast.GAP):]
+        span = (1.0 - broadcast.LEAD_S, 1.5 + broadcast.TAIL_S)
+        assert len(clip) == (int(span[1] * 16000) - int(span[0] * 16000)) * 2  # from the message on
+        assert np.frombuffer(clip, "<i2").max() == 18000  # brought up (6x at most)
+        result = k.receive_json()
+        assert result["reply"] == "Sent to the Office." and result["heard"] == "Broadcast that dinner's ready"
+        receive_speech(k)
+
+        # "Broadcast" alone: it asks, and sends the next thing heard, whole
+        got_heard = iter(["Broadcast to the office", "Come and help me carry the shopping"])
+        voice.stt.transcribe = lambda pcm, **kw: next(got_heard)
+        k.send_json({"type": "voice_start", "session": "b2"})
+        k.send_bytes(spoken)
+        k.send_json({"type": "voice_end", "session": "b2"})
+        assert k.receive_json()["reply"] == "What's the message?"
+        start, _ = receive_speech(k)
+        assert start["listen"] and start["follow_up"]
+        k.send_json({"type": "voice_start", "session": "b3", "follow_up": True})
+        k.send_bytes(spoken)
+        k.send_json({"type": "voice_end", "session": "b3"})
+        assert o.receive_json()["text"] == "Come and help me carry the shopping"
+        _, audio = receive_speech(o)
+        assert len(audio) == intro + len(broadcast.GAP) + len(spoken)
+    history = client.get("/admin/api/broadcasts").json()["history"]
+    assert [(b["text"], b["heard_on"], b["voice"]) for b in history] == [
+        ("Come and help me carry the shopping", ["Office"], True), ("Dinner's ready", ["Office"], True)]
+    assert "Broadcast" in client.get("/admin/broadcast").text
+
+
+def test_broadcast_from_the_admin_page(client):
+    token = adopt(client)
+    got = fake_voice(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.post("/admin/api/broadcasts", json={"text": "Lunch!", "to": "home", "sender": "Mum"},
+                        headers=ADMIN)
+        assert r.json()["sent"]["heard_on"] == ["Kitchen"]
+        assert ws.receive_json()["title"] == "From Mum"
+        start, _ = receive_speech(ws)
+    assert got["tts"][0] == "Announcement from Mum. Lunch!"
+    assert client.post("/admin/api/broadcasts", json={"text": "hi", "to": "garage"}, headers=ADMIN).status_code == 422
+    assert client.post("/admin/api/broadcasts", json={"text": "", "to": "all"}, headers=ADMIN).status_code == 422

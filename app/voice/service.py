@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from .. import screens, timers, weather
+from .. import broadcast, screens, timers, weather
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad, voiceprint
 from .calls import Rings
@@ -88,6 +88,7 @@ class VoiceService:
         self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
         self._awaiting_reply: dict[str, float] = {}  # speaker -> when it was asked to listen for a reply (follow_up)
         self._binary: dict[str, asyncio.Lock] = {}  # speaker -> held while sending speech or a screen in binary frames
+        self._broadcast_next: dict[str, tuple[str, float]] = {}  # speaker -> (where to, when) after "Broadcast" alone
 
     # settings
 
@@ -297,6 +298,8 @@ class VoiceService:
                 return
             if who:
                 self._log(device_id, "I", f"voice: {voiceprint.tag(who)[7:-1]} ({who['score']:.2f})")
+            if await self._broadcast(device_id, u.session, heard, pcm, s, who):
+                return
             await self._answer(device_id, u.session, heard, s, who=who, local_time=u.local_time,
                                heard_note=f"({t1 - t0:.1f} s)")
         except asyncio.CancelledError:
@@ -403,6 +406,49 @@ class VoiceService:
         except Exception as e:
             log.exception("proactive reply failed for %s", device_id)
             self._log(device_id, "E", f"couldn't say it: {e}")
+
+    async def _broadcast(self, device_id: str, session: str, heard: str, pcm: bytes, s: VoiceSettings,
+                         who: dict | None) -> bool:
+        """A broadcast (broadcast.py), caught before the assistant: sent in the person's own voice. False if `heard`
+        isn't one."""
+        pending = self._broadcast_next.pop(device_id, None)
+        if pending and time.time() - pending[1] < FOLLOW_UP_WINDOW_S:  # the message, after "Broadcast" alone
+            to, text, clip = pending[0], heard[:1].upper() + heard[1:], pcm
+        else:
+            req = broadcast.parse(heard, self.ctx.db)
+            if not req:
+                return False
+            if not req["message"]:
+                self._broadcast_next[device_id] = (req["to"], time.time())
+                ask = "What's the message?"
+                self._awaiting_reply[device_id] = time.time()
+                await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": heard,
+                                                    "reply": ask})
+                await self._stream(device_id, await self.synthesize(ask), ask, session, listen=True, follow_up=True)
+                return True
+            to, text, clip = req["to"], req["message"], pcm
+            if s.stt_engine == "builtin":  # from where the message starts, not "broadcast that"
+                try:
+                    words = await run_in_threadpool(self.stt.words, pcm, model=s.stt_model, language=s.language)
+                    span = broadcast.message_span(words, req["skip"], text)
+                    if span:
+                        clip = pcm[int(span[0] * RATE) * 2:int(span[1] * RATE) * 2]
+                except Exception as e:  # the whole recording, then
+                    log.warning("broadcast: no word timings: %s", e)
+        device = self.ctx.db.get_device(device_id) or {}
+        sender = (who or {}).get("name") if who and who.get("sure") else device.get("name", "")
+        try:
+            sent = await broadcast.send(self.ctx, text=text, pcm=clip, to=to, sender=sender, exclude=device_id)
+            reply = broadcast.sent_reply(sent["heard_on"])
+            self._log(device_id, "I", f'broadcast "{text}" to {broadcast.to_name(self.ctx.db, to)}: '
+                                      f'{", ".join(sent["heard_on"]) or "no one online"}')
+        except ValueError as e:
+            reply = f"Sorry, {e}."
+            self._log(device_id, "W", f"broadcast: {e}")
+        await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": heard,
+                                            "reply": reply})
+        await self._stream(device_id, await self.synthesize(reply), reply, session)
+        return True
 
     async def timer_action(self, device_id: str, action: dict[str, Any]) -> str:
         """Carry out a timer marker or tool call on the speaker (or the one it names). Returns a problem, or ""."""

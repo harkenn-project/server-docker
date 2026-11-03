@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Broadcast{% endblock %}
+{% block page %}broadcast{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Broadcast</h1>
+</div>
+<p class="hint">An announcement on the speakers. On a speaker, say "Broadcast that dinner's ready" (or "broadcast to
+  the bedrooms…", or just "Broadcast" and then the message): the other speakers chime, show it, and play it in your
+  own voice. From here, type it for the assistant's voice to say, or record it.</p>
+
+<section class="card form">
+  <h2>Send one</h2>
+  <form id="broadcast-form" class="item-form">
+    <label class="wide">Message <textarea name="text" rows="2" maxlength="300"
+      placeholder="Dinner is ready! (or leave it empty and record one)"></textarea></label>
+    <label>On <select name="to" id="broadcast-to"></select></label>
+    <label>From <input name="sender" maxlength="40" placeholder="optional, e.g. Mum"></label>
+    <div class="buttons wide">
+      <button type="submit">Say it</button>
+      <button type="button" class="secondary" id="broadcast-record">🎙 Record and send</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Sent</h2>
+  <p class="hint">The last 30 days.</p>
+  <div class="table-wrap"><table class="table household-table">
+    <thead><tr><th>Sent</th><th>From</th><th>Message</th><th>On</th><th>Heard on</th></tr></thead>
+    <tbody id="broadcast-rows"></tbody></table></div>
+</section>
+<script type="application/json" id="broadcast-data">{{ data | tojson }}</script>
+{% endblock %}

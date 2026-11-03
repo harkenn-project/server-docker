@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, groups, household, kani, local_access, relay, timezones
+from . import __version__, about, broadcast, groups, household, kani, local_access, relay, timezones
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
@@ -42,7 +42,7 @@ from .wakewords import WAKE_WORDS
 from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DeviceConfig, GroupIn, GroupMembersIn, GroupUpdateIn, DeviceUpdateIn, FirmwareUpdateIn, SayIn, SpeakerPasswordIn,
                      ServerSettingsIn, VoiceSettings, VoiceSettingsIn, WeatherPlaceIn)
 from .themes import LAYOUTS, THEMES
-from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
+from .voice.engines import LANGUAGES, PIPER_VOICES, RATE, WHISPER_MODELS
 
 MAX_ADOPTION_ATTEMPTS = 5
 
@@ -1491,3 +1491,60 @@ async def household_delete(module: str, item_id: str, request: Request) -> dict[
     c = get_ctx(request)
     c.household.delete(_item_or_404(c, module, item_id))
     return await run_in_threadpool(_module_items_out, c, module)
+
+
+# broadcast (broadcast.py)
+
+def _broadcast_out(c: Context) -> dict[str, Any]:
+    return {"destinations": broadcast.destinations(c.db), "history": broadcast.history(c)}
+
+
+@pages.get("/broadcast")
+async def broadcast_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "broadcast.html", data=_broadcast_out(get_ctx(request)))
+
+
+@api.get("/broadcasts")
+async def get_broadcasts(request: Request) -> dict[str, Any]:
+    return _broadcast_out(get_ctx(request))
+
+
+@api.post("/broadcasts")
+async def send_broadcast(body: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Typed: said in the assistant's voice."""
+    c = get_ctx(request)
+    try:
+        sent = await broadcast.send(c, text=str(body.get("text") or ""), to=str(body.get("to") or "all"),
+                                    sender=" ".join(str(body.get("sender") or "").split())[:40])
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"sent": sent, **_broadcast_out(c)}
+
+
+@api.post("/broadcasts/recording")
+async def send_recorded_broadcast(request: Request, file: UploadFile, to: str = Form("all"),
+                                  sender: str = Form("")) -> dict[str, Any]:
+    """Recorded in the browser: played as it is, with what it says (as heard) on the card."""
+    c = get_ctx(request)
+    data = await file.read(c.settings.max_upload_bytes + 1)
+    if len(data) > c.settings.max_upload_bytes:
+        raise HTTPException(413, "that recording is too big")
+    try:
+        pcm = await run_in_threadpool(decode_audio, data, broadcast.MAX_S)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    if len(pcm) < RATE // 2:
+        raise HTTPException(422, "that recording is too short")
+    s = c.voice.effective()
+    try:
+        text = await run_in_threadpool(c.voice.stt.transcribe, pcm, engine=s.stt_engine, model=s.stt_model,
+                                       address=s.stt_address, language=s.language)
+    except Exception:
+        text = ""
+    try:
+        sent = await broadcast.send(c, text=text, pcm=pcm, to=to, sender=" ".join(sender.split())[:40])
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"sent": sent, **_broadcast_out(c)}

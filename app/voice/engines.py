@@ -111,6 +111,15 @@ class SpeechToText:
                                              condition_on_previous_text=False)
             return " ".join(s.text.strip() for s in segments).strip()
 
+    def words(self, pcm: bytes, *, model: str, language: str) -> list[tuple[str, float, float]]:
+        """Each word heard, with when it starts and ends (seconds): built-in Whisper only (broadcast.py)."""
+        with self._lock:
+            whisper = self._load(model)
+            lang = language if language and not model.endswith(".en") else None
+            segments, _ = whisper.transcribe(to_float(pcm), language=lang, beam_size=1, vad_filter=True,
+                                             condition_on_previous_text=False, word_timestamps=True)
+            return [(w.word, w.start, w.end) for s in segments for w in (s.words or [])]
+
 
 class TextToSpeech:
     """Built-in Piper; voices are cached once loaded."""

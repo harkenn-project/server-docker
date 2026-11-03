@@ -45,6 +45,9 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
 - **Groups.** Speakers in a group share their settings: change the group and they all follow. Any speaker can
   still have settings of its own, and its own Wi-Fi networks (with a fixed IP address if you like) on top of the
   group's. Time zones are picked by place and kept up to date when the rules change.
+- **Broadcast.** "Broadcast that dinner's ready" plays it in your own voice on the other speakers (all of them, a
+  group's, or one), with a card and a chime; any assistant, Hermes included. Or type or record one on the admin
+  Broadcast page.
 - **Household modules** for a plain chat model: memories (on by default), to-do and shopping lists, reminders
   (spoken, or rung like an alarm), a calendar (Harkenn's own events plus your Google, iCloud or Outlook calendars),
   messages for someone in the household, a chores rota, a morning briefing and news headlines. Each is off until you
@@ -177,6 +180,7 @@ app/
   device_api.py  speaker endpoints: ping, adoption, WebSocket, config, status, logs, firmware, assets
   admin.py       admin pages and JSON API (session login, CSRF header check)
   groups.py      speaker groups: shared settings, each speaker's own on top
+  broadcast.py   announcements in your own voice on the other speakers
   timezones.py   time zones by name, turned into the speakers' POSIX rules
   household/     memories, lists, reminders, calendar, messages, chores, briefing, news (feeds.py: ICS and RSS)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)

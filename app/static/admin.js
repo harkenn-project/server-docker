@@ -1147,7 +1147,7 @@ function initSounds() {
 // people (voiceprints)
 
 // Records from the browser's microphone until the button is pressed again (or 10 s), then resolves to a Blob.
-function recordClip(button) {
+function recordClip(button, maxMs = 10000) {
   return new Promise(async (resolve, reject) => {
     let stream;
     try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
@@ -1165,7 +1165,7 @@ function recordClip(button) {
     button.textContent = "⏹ Stop";
     button.onclick = () => rec.state === "recording" && rec.stop();
     rec.start();
-    setTimeout(() => rec.state === "recording" && rec.stop(), 10000);
+    setTimeout(() => rec.state === "recording" && rec.stop(), maxMs);
   });
 }
 
@@ -1582,6 +1582,52 @@ function initHousehold() {
   render();
 }
 
+// broadcast
+
+function initBroadcast() {
+  let data = jsonScript("broadcast-data");
+  const form = $("#broadcast-form");
+  $("#broadcast-to").replaceChildren(...data.destinations.map(d => el("option", { value: d.id },
+    d.kind === "group" ? `${d.name} (group)` : d.name)));
+  const show = () => {
+    $("#broadcast-rows").replaceChildren(...data.history.map(b => el("tr", {},
+      el("td", {}, new Date(b.sent_at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })),
+      el("td", {}, b.from || "—"),
+      el("td", { class: "text" }, b.voice ? "🎙 " : "", b.text || "(a voice message)"),
+      el("td", {}, b.to_name), el("td", {}, b.heard_on.join(", ") || "No speaker was on"))));
+    if (!data.history.length) $("#broadcast-rows").append(el("tr", {}, el("td", { colspan: 5, class: "hint" }, "None yet.")));
+  };
+  const sent = out => {
+    data = out;
+    show();
+    toast(out.sent.heard_on.length ? `Sent to ${out.sent.heard_on.join(", ")}` : "No speaker is on to hear it", !out.sent.heard_on.length);
+  };
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const f = form.elements;
+    if (!f.text.value.trim()) { toast("Type a message, or record one", true); return; }
+    try { sent(await api("POST", "/admin/api/broadcasts", { text: f.text.value, to: f.to.value, sender: f.sender.value })); form.text.value = ""; }
+    catch (err) { toast(err.message, true); }
+  });
+  $("#broadcast-record").addEventListener("click", async e => {
+    const button = e.currentTarget;
+    if (button.dataset.busy) return;
+    button.dataset.busy = "1";
+    try {
+      const blob = await recordClip(button, 30000);
+      const body = new FormData();
+      body.append("file", blob, "broadcast.webm");
+      body.append("to", form.elements.to.value);
+      body.append("sender", form.elements.sender.value);
+      button.textContent = "Sending…";
+      sent(await api("POST", "/admin/api/broadcasts/recording", body));
+    } catch (err) { toast(err.message, true); }
+    finally { delete button.dataset.busy; button.textContent = "🎙 Record and send"; }
+  });
+  subscribe(msg => { if (msg.type === "broadcast") api("GET", "/admin/api/broadcasts").then(d => { data = d; show(); }).catch(() => {}); });
+  show();
+}
+
 const page = document.body.dataset.page;
 initNav();
 initTabs();
@@ -1598,4 +1644,5 @@ if (page === "sounds") initSounds();
 if (page === "people") initPeople();
 if (page === "screen") initScreen();
 if (page === "modules") initModules();
+if (page === "broadcast") initBroadcast();
 if (page.startsWith("household-")) initHousehold();
