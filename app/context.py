@@ -17,6 +17,7 @@ from .models import DeviceConfig
 from .settings import Settings
 from .homeassistant import Bridge
 from .screens import Screens
+from .weather import WeatherService
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
 from .themes import LAYOUTS, character_sizes, resolve_theme
@@ -41,10 +42,12 @@ class Context:
     sounds: SoundStore = field(init=False)
     wakewords: WakeWords = field(init=False)
     screens: Screens = field(init=False)
+    weather: WeatherService = field(init=False)
     homeassistant: Bridge = field(init=False)
 
     def __post_init__(self) -> None:
-        self.screens = Screens(self.db)
+        self.weather = WeatherService(self.db)
+        self.screens = Screens(self.db, self.weather)
         self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)
         self.voice = VoiceService(self)

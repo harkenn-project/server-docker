@@ -237,6 +237,11 @@ class ServerSettingsIn(Strict):
         return v.strip().rstrip("/") if isinstance(v, str) else v
 
 
+class WeatherPlaceIn(Strict):
+    place: str = Field("", max_length=100, description="a town or city; empty = no live weather")
+    units: Literal["metric", "imperial"] = "metric"
+
+
 class SayIn(Strict):
     text: str = Field(min_length=1, max_length=600)
     voice: str = Field("", pattern=r"^[A-Za-z0-9._-]{0,80}$")

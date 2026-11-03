@@ -1,6 +1,6 @@
 ---
 name: harkenn-speakers
-description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring).
+description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring, mcp__harkenn__get_weather, mcp__harkenn__show_weather). Also for the weather at home, and to show the weather on a speaker's screen.
 ---
 
 # Harkenn speakers
@@ -12,6 +12,8 @@ Harkenn runs the smart speakers in this home. Its MCP server, `harkenn`, has thr
 | `mcp__harkenn__list_speakers` | See the speakers, their rooms (the names), and which are online |
 | `mcp__harkenn__speak` | Say something aloud when no response is needed |
 | `mcp__harkenn__ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
+| `mcp__harkenn__get_weather` | The weather where the speakers are, now and for the next four days |
+| `mcp__harkenn__show_weather` | Show an animated weather screen on a speaker: leave the fields out for the weather here, or give your own |
 
 ## Choosing between speak and ring
 

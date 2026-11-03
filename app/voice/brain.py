@@ -21,7 +21,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any
 
-from .. import screens
+from .. import screens, weather
 
 LISTEN_MARK = "[[listen]]"
 LISTEN_RE = re.compile(r"\[\[\s*listen\s*\]\]", re.I)
@@ -216,6 +216,10 @@ def ask(text: str, *, device_id: str, speaker: str, character: str, now: datetim
         reply = chat_completions(url, settings, system, messages, timeout, max_tokens=tokens)
     # the screen first: speakable() would mangle its JSON. It isn't kept in the history (an SVG would fill it up).
     reply, screen, screen_error = screens.split_marker(reply) if screen_prompt else (reply, None, "")
+    if screen_prompt:
+        reply, asked_weather, weather_error = weather.split_marker(reply)
+        if asked_weather is not None:  # the weather screen (weather.py) wins over a plain one
+            screen, screen_error = {"weather": asked_weather}, weather_error
     if screen_prompt and screen is None and not screen_error:
         screen = screens.bare_picture(reply)
     # the marker, or a question at the end (in case the assistant forgot it)

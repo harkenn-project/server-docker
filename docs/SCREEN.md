@@ -65,6 +65,30 @@ name: weather_card   box: 40, 40, 160 x 80   description: Today's weather: temp 
 
 The assistant would use it as `{"type": "weather_card", "temp": "18", "summary": "Light rain"}`.
 
+## The weather screen
+
+A ready-made screen: the assistant adds `[[weather]]` to its reply, or `[[weather {...}]]` with the fields it knows.
+Harkenn draws an animated picture of the weather (moving sun, clouds, rain, snow, fog...) with the numbers, and the
+speaker plays it like any other screen. Everything is drawn on the server.
+
+* **Live weather.** With a place set on the **Server** page, Harkenn fetches the weather from
+  [Open-Meteo](https://open-meteo.com) every 15 minutes and tells the assistant about it in every request. `[[weather]]`
+  alone shows it; fields the assistant gives win; a different `location` takes nothing from it.
+  `{"view": "forecast"}` shows the next four days. Very poor air quality on a clear day shows as smoke or haze.
+* **Fields** (all optional): `location`, `condition`, `description`, `temp`, `feels_like`, `high`, `low`,
+  `humidity`, `wind`, `wind_dir` (degrees or N/NE/...), `gust`, `precip_chance`, `rain`, `snow`, `uv`, `aqi`,
+  `visibility`, `pressure`, `is_day`, `units` (`metric` or `imperial`), `forecast` (up to 4 of
+  `{label, condition, high, low, precip_chance}`), `seconds`.
+* **Conditions:** clear, mostly_clear, partly_cloudy, mostly_cloudy, overcast; fog, freezing_fog, mist, haze, smoke,
+  smog, dust, sand; drizzle, freezing_drizzle, light_rain, rain, heavy_rain, showers, freezing_rain, sleet,
+  ice_pellets, hail; light_snow, snow, heavy_snow, snow_showers, blowing_snow, blizzard; thunderstorm,
+  thunderstorm_hail, dry_thunderstorm; windy, tornado, hot, cold, frost. Day and night have their own skies (sun or
+  moon and stars).
+* **Light for the speakers.** The background and the numbers stay still and only the weather moves, in a 16-frame
+  loop, so a weather screen is about 30-160 KB (at most 700 KB) of the speaker's PSRAM.
+
+Agents have the same screen through the MCP tools `get_weather` and `show_weather` ([MCP.md](MCP.md)).
+
 ## Limits and safety
 
 * Harkenn fetches picture URLs itself, up to 5 MB. Longer animations keep 48 frames spread over their length, and

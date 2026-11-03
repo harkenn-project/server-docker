@@ -75,6 +75,20 @@ Rings one speaker or all of them for 5–30 seconds, like a phone. The speaker p
 
 The call takes as long as the ringing plus the reply, so give your client a tool timeout of about 2 minutes.
 
+### `get_weather()`
+
+The weather where the speakers are (the place set on the admin **Server** page, from Open-Meteo, refreshed every 15
+minutes): condition, temperature, feels-like, high and low, wind and gusts, humidity, precipitation, UV, air quality,
+and `daily` for the next four days, in the units chosen there. `{"weather": {}}` when no place is set.
+
+### `show_weather(speaker="all", condition, location, temp, ..., view, forecast, seconds=60)`
+
+Shows the weather screen on one speaker or all of them: an animated picture of the weather with the numbers, drawn by
+Harkenn (the speaker only plays it). Every field is optional. With none it shows the weather here now;
+`view="forecast"` shows the next four days. Fields given win over the live weather, and a different `location`
+takes nothing from it, so an agent can show any weather it has. The conditions and fields are in
+[SCREEN.md](SCREEN.md#the-weather-screen). Skips speakers that are offline or set to do not disturb.
+
 ## Do not disturb
 
 Each speaker's page has an **Agents** section, set by the people who live there, and enforced by the server:

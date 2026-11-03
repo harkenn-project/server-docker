@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
-from . import __version__
+from . import __version__, weather
 from .models import AgentsConfig
 from .voice.calls import MAX_RING_S, MIN_RING_S
 from .voice.engines import RATE
@@ -49,6 +50,9 @@ INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk 
 - ring: ring one speaker or all of them for up to {MAX_RING_S} seconds, like a phone. Someone taps a speaker to
   answer. You learn which speaker was answered; then you can have a message spoken there and, if you ask, hear their
   spoken reply. If no one answers, presume no one is there and no one heard anything.
+- get_weather: the weather here now and for the coming days (when the place is set in Harkenn).
+- show_weather: show an animated weather screen on one speaker or all of them, with the numbers you give; anything
+  you leave out comes from the weather here.
 
 Words are spoken aloud by a text-to-speech voice: write short, plain sentences, with no lists, markdown, emoji or
 URLs. Don't ring at night or repeatedly unless it's urgent; ringing is loud and interrupts people."""
@@ -118,6 +122,15 @@ def agent_access(config: dict[str, Any], now: datetime) -> str:
     """What agents may do on a speaker now: ring_and_speak, speak_only or do_not_disturb (quiet hours included)."""
     a = AgentsConfig.model_validate(config.get("agents") or {})
     return "do_not_disturb" if in_quiet_hours(a.quiet_from, a.quiet_to, now) else a.access
+
+
+WEATHER_DESCRIPTION = (
+    "Show an animated weather screen (drawn by Harkenn) on one speaker (its name or id) or all of them. Every field is "
+    "optional: leave them all out to show the weather here now, or view=\"forecast\" for the coming days. Give fields "
+    "to show other weather (another place, a forecast you have); with a different location nothing is taken from the "
+    "weather here. condition is one of: " + ", ".join(weather.CONDITIONS) + ". forecast: up to 4 of {label, "
+    "condition, high, low, precip_chance}. units: \"metric\" (C, km/h, mm, cm) or \"imperial\" (F, mph, in). It's "
+    "shown for `seconds` (5-600), or until someone taps it.")
 
 
 def _speakers(ctx: Context) -> list[dict[str, Any]]:
@@ -255,6 +268,44 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
         else:
             out["note"] = "They didn't say anything Harkenn understood."
         return out
+
+    @server.tool()
+    async def get_weather() -> dict[str, Any]:
+        """The weather where the speakers are, now and for the next days: condition, temperature, feels-like, wind,
+        humidity, precipitation, air quality and so on (in the units given). Empty if Harkenn has no place set."""
+        w = await run_in_threadpool(ctx.weather.current)
+        return {"weather": w or {}, "note": "" if w else "No place is set on Harkenn's Server page, or the weather "
+                                                          "service couldn't be reached."}
+
+    @server.tool(description=WEATHER_DESCRIPTION)
+    async def show_weather(speaker: str = "all", condition: str = "", location: str = "",
+                           temp: float | None = None, feels_like: float | None = None, high: float | None = None,
+                           low: float | None = None, wind: float | None = None, wind_dir: str = "",
+                           gust: float | None = None, humidity: float | None = None,
+                           precip_chance: float | None = None, rain: float | None = None, snow: float | None = None,
+                           uv: float | None = None, aqi: float | None = None, description: str = "",
+                           units: str = "", is_day: bool | None = None, view: str = "",
+                           forecast: list[dict[str, Any]] | None = None, seconds: int = 60) -> dict[str, Any]:
+        chosen, error = _targets(ctx, speaker)
+        if error:
+            return {"shown_on": [], "note": error}
+        asked = {k: v for k, v in {
+            "condition": condition, "location": location, "temp": temp, "feels_like": feels_like, "high": high,
+            "low": low, "wind": wind, "wind_dir": wind_dir, "gust": gust, "humidity": humidity,
+            "precip_chance": precip_chance, "rain": rain, "snow": snow, "uv": uv, "aqi": aqi,
+            "description": description, "units": units, "is_day": is_day, "view": view, "forecast": forecast,
+            "seconds": seconds}.items() if v not in (None, "")}
+        shown, skipped, problems = [], [], []
+        for s in chosen:
+            if s["agents"] == "do_not_disturb":
+                skipped.append(f'{s["name"]} (do not disturb)')
+            elif not s["online"]:
+                skipped.append(f'{s["name"]} (offline)')
+            else:
+                issues = await voice.show_screen(s["id"], {"weather": asked})
+                (problems if issues else shown).append(s["name"] if not issues else f'{s["name"]}: {issues[0]}')
+        log_tool(f'weather on {", ".join(shown) or "nothing"}')
+        return {"shown_on": shown, "skipped": skipped, "problems": problems}
 
     @server.prompt()
     def announce(message: str) -> str:

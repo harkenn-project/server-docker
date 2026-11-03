@@ -27,6 +27,9 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   wrong or fooled.
 - **Shows as well as tells.** With an answer, the assistant can put a picture, chart or buttons on the speaker's
   screen, and tapping a button answers it ([how](docs/SCREEN.md)).
+- **Knows the weather.** Set your town and the assistant knows the weather and forecast, and can show it as an
+  animated weather screen: sun, clouds, rain, snow, fog, smoke and 30 more, with the temperature, wind and the rest
+  ([how](docs/SCREEN.md#the-weather-screen)). Agents can show it too.
 - **Home Assistant.** Every speaker shows up as a device: what it's doing as it happens, its volume, a notifier for
   announcements, and more, through MQTT ([how](docs/HOMEASSISTANT.md)).
 - **Only the nearest answers.** With several speakers in earshot, the one that heard the wake word best answers: the
@@ -158,6 +161,7 @@ app/
   admin.py       admin pages and JSON API (session login, CSRF header check)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
   relay.py       speakers away from home, through the relay (docs/RELAY.md)
+  weather.py     the weather screen, and the live weather from Open-Meteo
   voice/         speech recognition, end of speech (vad.py), replies (brain.py), speech, ringing (calls.py),
                  voiceprints (voiceprint.py)
   mcp_server.py  the MCP server for agents (docs/MCP.md, docs/skills/)

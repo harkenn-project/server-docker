@@ -777,7 +777,8 @@ def test_mcp_needs_a_token(client):
                                                   "clientInfo": {"name": "test", "version": "1"}})
     assert init["serverInfo"]["name"] == "harkenn" and "presume no one heard" in init["instructions"].lower()
     tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
-    assert set(tools) == {"list_speakers", "speak", "ring"}
+    assert set(tools) == {"list_speakers", "speak", "ring", "get_weather", "show_weather"}
+    assert "freezing_rain" in tools["show_weather"]["description"]
     assert "no one answers" in tools["ring"]["description"]
     agents = client.get("/admin/api/agents", headers=ADMIN).json()
     assert agents["mcp_url"] == "http://testserver/mcp" and agents["tokens"][0]["last_used"]
@@ -2057,3 +2058,144 @@ def test_sleep_display_and_wake_arbitration_settings(client):
     config["display"]["sleep_display"] = "dark"
     assert client.put(f"/admin/api/devices/{MAC}", json={"name": "K", "config": config},
                       headers=ADMIN).status_code == 422
+
+
+# the weather screen (weather.py)
+
+OPEN_METEO = {
+    "current": {"temperature_2m": -4.2, "apparent_temperature": -11.0, "relative_humidity_2m": 81, "is_day": 1,
+                "precipitation": 0.4, "weather_code": 73, "wind_speed_10m": 17.0, "wind_direction_10m": 300,
+                "wind_gusts_10m": 31.0, "pressure_msl": 1012.0},
+    "daily": {"time": ["2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"], "weather_code": [73, 3, 0, 61],
+              "temperature_2m_max": [-1.0, 2.0, 5.0, 7.0], "temperature_2m_min": [-9.0, -6.0, -3.0, 1.0],
+              "precipitation_probability_max": [80, 20, 0, 60], "uv_index_max": [1.2, 2.0, 3.0, 2.0]},
+}
+
+
+def fake_open_meteo(monkeypatch, air=None):
+    from app import weather
+    calls = []
+
+    def get(url):
+        calls.append(url)
+        if "geocoding" in url:
+            return {"results": [{"name": "Calgary", "admin1": "Alberta", "latitude": 51.05, "longitude": -114.07}]}
+        if "air-quality" in url:
+            return air or {"current": {"us_aqi": 30, "pm2_5": 5}}
+        return OPEN_METEO
+
+    monkeypatch.setattr(weather, "_get", get)
+    return calls
+
+
+def test_weather_screen_for_every_condition_stays_small():
+    from app import kani, weather
+    for condition in weather.CONDITIONS:
+        frames, durations, background = weather.render(
+            {"condition": condition, "temp": -14, "high": 3, "low": -6, "wind": 15, "wind_dir": 300,
+             "location": "Calgary, Alberta", "precip_chance": 60})
+        assert len(frames) == weather.FRAMES and frames[0].size == (240, 240) and len(background) == 6
+        assert len(kani.encode(frames, durations, background)) < 400 * 1024, condition
+        assert frames[0].tobytes() != frames[weather.FRAMES // 4].tobytes(), condition  # it moves
+    # nothing known at all still draws (a clear sky); a forecast fits four days
+    weather.render({})
+    weather.render({"temp": 12, "forecast": [{"label": "Mon", "condition": "rain", "high": 9, "low": 1}] * 4})
+    assert weather.deg(-4.2) == "-4°" and weather.deg(2.46) == "2°" and weather.number(2.46) == "2.5" and weather.compass(300) == "NW"
+    assert weather.normalize("Sunny") == "clear" and weather.normalize("light snow") == "light_snow"
+    assert weather.normalize("volcano") == ""
+
+
+def test_weather_marker():
+    from app import weather
+    assert weather.split_marker("It's cold. [[weather]]") == ("It's cold. ", {}, "")
+    text, spec, err = weather.split_marker('Banff: [[weather {"location": "Banff", "temp": -9}]] brr.')
+    assert text == "Banff:  brr." and spec == {"location": "Banff", "temp": -9} and not err
+    text, spec, err = weather.split_marker("[[weather {nope}]] ok")
+    assert text == " ok" and spec == {} and "invalid" in err
+    assert weather.split_marker("no marker") == ("no marker", None, "")
+
+
+def test_live_weather_and_merging(client, monkeypatch):
+    from app import weather
+    calls = fake_open_meteo(monkeypatch)
+    ctx = client.app.state.ctx
+    assert ctx.weather.current() is None and ctx.weather.summary() == ""
+    assert ctx.weather.set_place("Calgary")["name"] == "Calgary, Alberta"
+    w = ctx.weather.current()
+    assert w["condition"] == "snow" and w["temp"] == -4.2 and w["snow"] == 0.4 and w["aqi"] == 30
+    assert w["high"] == -1.0 and [d["label"] for d in w["daily"]][:2] == ["Today", "Tmrw"]
+    ctx.weather.current()
+    assert sum("forecast?" in u for u in calls) == 1  # cached
+    summary = ctx.weather.summary()
+    assert "Calgary, Alberta" in summary and "snow" in summary and "-4" in summary and "Tmrw" in summary
+    # asked-for fields win; another place takes nothing from here; "forecast" uses the coming days
+    assert weather.merge({"temp": 3}, w)["temp"] == 3 and weather.merge({"temp": 3}, w)["wind"] == 17.0
+    assert "wind" not in weather.merge({"location": "Banff", "temp": -9}, w)
+    assert len(weather.merge({"view": "forecast"}, w)["forecast"]) == 4
+    # wildfire smoke: a clear sky with bad air shows as smoke
+    smoky = weather.from_open_meteo({"current": {"weather_code": 0}}, {"current": {"us_aqi": 180, "pm2_5": 90}},
+                                    "X", "metric")
+    assert smoky["condition"] == "smoke"
+
+
+def test_weather_admin_settings(client, monkeypatch):
+    fake_open_meteo(monkeypatch)
+    login(client)
+    assert client.get("/admin/api/weather").json()["place"] == ""
+    r = client.put("/admin/api/weather", json={"place": "Calgary", "units": "metric"}, headers=ADMIN).json()
+    assert r["place"] == "Calgary, Alberta" and "snow" in r["now"]
+    from app import weather
+    monkeypatch.setattr(weather, "_get", lambda url: {"results": []})
+    assert client.put("/admin/api/weather", json={"place": "Nowhere"}, headers=ADMIN).status_code == 422
+    assert client.put("/admin/api/weather", json={"place": ""}, headers=ADMIN).json()["place"] == ""
+
+
+def test_weather_from_the_assistant(client, monkeypatch):
+    from app.voice import brain, service
+    fake_open_meteo(monkeypatch)
+    client.app.state.ctx.weather.set_place("Calgary")
+    token = adopt(client)
+    fake_voice(client, heard="what's the weather")
+    seen = []
+
+    def post(url, body, headers, timeout):
+        seen.append(body)
+        return {"choices": [{"message": {"content": "Snowing, minus four. [[weather]]"}}]}
+
+    monkeypatch.setattr(brain, "post", post)
+    monkeypatch.setattr(service.VoiceService, "effective",
+                        lambda self: self.settings().model_copy(update={"assistant_url": "http://llm/v1"}))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "voice_start", "session": "s1"})
+        ws.send_bytes(SPEECH * 5)
+        ws.send_json({"type": "voice_end", "session": "s1"})
+        shown = ws.receive_json()
+        assert shown["type"] == "screen" and shown["regions"] == [] and shown["bytes"] < 700 * 1024
+        got = b""
+        while len(got) < shown["bytes"]:
+            got += ws.receive_bytes()
+        assert got[:4] == b"KANI"
+        assert ws.receive_json()["reply"] == "Snowing, minus four."
+    system = seen[0]["messages"][0]["content"]
+    assert "[[weather" in system and "The weather in Calgary, Alberta now: snow" in system
+
+
+def test_mcp_weather(client, monkeypatch):
+    fake_open_meteo(monkeypatch)
+    device_token = adopt(client)
+    token = mcp_token(client)
+    assert mcp_tool(client, token, "get_weather")["weather"] == {}  # no place yet
+    client.app.state.ctx.weather.set_place("Calgary")
+    assert mcp_tool(client, token, "get_weather")["weather"]["condition"] == "snow"
+    assert mcp_tool(client, token, "show_weather")["skipped"] == ["Kitchen (offline)"]
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        out = mcp_tool(client, token, "show_weather", speaker="kitchen", location="Banff", condition="blizzard",
+                       temp=-18, wind=40, seconds=30)
+        assert out["shown_on"] == ["Kitchen"] and not out["problems"]
+        shown = ws.receive_json()
+        assert shown["type"] == "screen" and shown["seconds"] == 30
+        got = 0
+        while got < shown["bytes"]:
+            got += len(ws.receive_bytes())

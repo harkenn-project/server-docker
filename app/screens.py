@@ -475,12 +475,28 @@ def render(spec: dict[str, Any], theme: dict[str, str], custom: dict[str, dict[s
     return Screen(secrets.token_urlsafe(16), data, drawn.regions, dismiss, seconds), warnings
 
 
+MAX_WEATHER_KANI_BYTES = 700 * 1024  # the weather screen stays light for the speakers
+
+
+def from_frames(frames: list[Image.Image], durations: list[int], background: str, seconds: int = DEFAULT_SECONDS,
+                dismiss: str = "tap", limit: int = MAX_WEATHER_KANI_BYTES) -> Screen:
+    """A screen from frames drawn elsewhere (weather.py): encoded, with frames dropped if it's over `limit`."""
+    data = kani.encode(frames, durations, background)
+    while len(data) > limit and len(frames) > 1:
+        frames, durations = thin(frames, durations, max(1, len(frames) * limit // len(data) * 9 // 10))
+        data = kani.encode(frames, durations, background)
+    seconds = max(5, min(MAX_SECONDS, int(seconds or DEFAULT_SECONDS)))
+    return Screen(secrets.token_urlsafe(16), data, [], "none" if dismiss == "none" else "tap", seconds)
+
+
 class Screens:
     """Drawn screens, downloadable by the speakers for a while (their ids are unguessable), and the custom overlays
-    set up in the admin UI: SVG templates with {{param}} placeholders the assistant fills in."""
+    set up in the admin UI: SVG templates with {{param}} placeholders the assistant fills in. A spec with "weather"
+    is the weather screen (weather.py), filled in from the live weather."""
 
-    def __init__(self, db: Any) -> None:
+    def __init__(self, db: Any, weather: Any = None) -> None:
         self.db = db
+        self.weather = weather
         self._screens: dict[str, Screen] = {}
         self._shown: dict[str, str] = {}  # speaker -> the screen it is showing
 
@@ -508,7 +524,22 @@ class Screens:
         return True
 
     def render(self, spec: dict[str, Any], theme: dict[str, str]) -> tuple[Screen, list[str]]:
+        if isinstance(spec.get("weather"), dict):
+            return self.render_weather(spec["weather"]), []
         return render(spec, theme, self.custom())
+
+    def render_weather(self, asked: dict[str, Any]) -> Screen:
+        from . import weather
+        live = self.weather.current() if self.weather else None
+        w = weather.merge(asked, live)
+        if not any(w.get(k) not in (None, "") for k in ("condition", "temp", "forecast", "high", "low")):
+            raise ScreenError("no weather to show: set the place on the Server page, or give the numbers")
+        frames, durations, background = weather.render(w)
+        try:
+            seconds = int(asked.get("seconds") or DEFAULT_SECONDS)
+        except (TypeError, ValueError):
+            seconds = DEFAULT_SECONDS
+        return from_frames(frames, durations, background, seconds)
 
     def prompt(self) -> str:
         return prompt(self.custom())

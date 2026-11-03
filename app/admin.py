@@ -39,7 +39,7 @@ from .voice import voiceprint
 from .updates import CHANNEL_LABELS
 from .wakewords import WAKE_WORDS
 from .models import (AgentTokenIn, PersonUpdate, ScreenOverlayIn, ScreenSpecIn, ApproveIn, ChannelIn, PersonIn, CharacterIn, PlaySoundIn, SoundPackIn, SoundPackUpdate, CommandIn, DefaultsIn, DeviceConfig, DeviceUpdateIn, FirmwareUpdateIn, SayIn, SpeakerPasswordIn,
-                     ServerSettingsIn, VoiceSettings, VoiceSettingsIn)
+                     ServerSettingsIn, VoiceSettings, VoiceSettingsIn, WeatherPlaceIn)
 from .themes import LAYOUTS, THEMES
 from .voice.engines import LANGUAGES, PIPER_VOICES, WHISPER_MODELS
 
@@ -889,6 +889,35 @@ async def delete_wake_word(wid: str, request: Request) -> Response:
 @api.get("/server")
 async def get_server(request: Request) -> dict[str, Any]:
     return _server_out(get_ctx(request))
+
+
+def _weather_out(c: Context) -> dict[str, Any]:
+    place = c.weather.place() or {}
+    return {"place": place.get("name", ""), "units": place.get("units", "metric"),
+            "latitude": place.get("latitude"), "longitude": place.get("longitude")}
+
+
+@api.get("/weather")
+async def get_weather_settings(request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    out = _weather_out(c)
+    out["now"] = await run_in_threadpool(c.weather.summary) if out["place"] else ""
+    return out
+
+
+@api.put("/weather")
+async def put_weather_settings(body: WeatherPlaceIn, request: Request) -> dict[str, Any]:
+    """Where the live weather is for (looked up by name with Open-Meteo); empty turns it off."""
+    c = get_ctx(request)
+    try:
+        found = await run_in_threadpool(c.weather.set_place, body.place, body.units)
+    except Exception as e:
+        raise HTTPException(502, f"couldn't reach the weather service: {e}") from e
+    if found is None:
+        raise HTTPException(422, f'No place called "{body.place}" found')
+    out = _weather_out(c)
+    out["now"] = await run_in_threadpool(c.weather.summary) if out["place"] else ""
+    return out
 
 
 @api.put("/server")

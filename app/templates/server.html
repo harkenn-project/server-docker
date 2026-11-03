@@ -12,11 +12,25 @@
     <p class="hint">In use now: <strong id="effective-url">{{ server.effective_public_url }}</strong></p>
   </fieldset>
   <fieldset><legend>How speakers find this server</legend>
-    <p class="hint">A new speaker looks for its server by itself: first an address entered on its Wi-Fi setup page
-      (under <em>Advanced</em>), then this server's announcement on the network
+    <p class="hint">A new speaker looks for its server by itself: first an address entered on its own page (on its
+      hotspot, under <em>Settings</em>), then this server's announcement on the network
       ({% if server.mdns %}<code>_harkenn._tcp</code> and <code>harkenn.local</code>, on{% else %}off: <code>HARKENN_MDNS</code>{% endif %}),
       then the name <code>harkenn</code>. If speakers are on another network than this server, add a DNS record
       <code>harkenn</code> for it in your router.</p>
+  </fieldset>
+  <div class="buttons"><button type="submit">Save</button></div>
+</form>
+<form id="weather-form" class="card form">
+  <fieldset><legend>Weather</legend>
+    <p class="hint">Where the speakers are, for the live weather (from <a href="https://open-meteo.com" target="_blank"
+      rel="noopener">Open-Meteo</a>, every 15 minutes). The assistant is told the weather, and can show it on a
+      speaker's screen; agents can too (MCP <code>get_weather</code>, <code>show_weather</code>). Leave it empty for
+      none.</p>
+    <label>Place <input name="place" placeholder="Calgary" maxlength="100"></label>
+    <label>Units
+      <select name="units"><option value="metric">Metric (°C, km/h, mm)</option>
+        <option value="imperial">Imperial (°F, mph, in)</option></select></label>
+    <p class="hint">Now: <strong id="weather-now">not set</strong></p>
   </fieldset>
   <div class="buttons"><button type="submit">Save</button></div>
 </form>

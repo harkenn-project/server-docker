@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from .. import screens
+from .. import screens, weather
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad, voiceprint
 from .calls import Rings
@@ -336,13 +336,15 @@ class VoiceService:
         speaker = device.get("name", "speaker")
         t1 = time.perf_counter()
         person = self.conversations.person(device_id, who["id"] if who and who.get("sure") else "")
+        weather_now = await run_in_threadpool(self.ctx.weather.summary)  # cached: at most a fetch every 15 min
         reply = await self._keep_waiting(device_id, session, run_in_threadpool(
             brain.ask, heard, device_id=device_id, speaker=speaker,
             character=character.get("name", "Kotodama"), now=local_time or datetime.now(),
             settings=s.model_dump(), conversations=self.conversations,
-            context=brain.request_context(speaker, device_id, voiceprint.describe(who)),
+            context=brain.request_context(speaker, device_id, voiceprint.describe(who)) + weather_now,
             memory_key=f"harkenn-person-{person}" if person else "",
-            screen_prompt=self.ctx.screens.prompt() if s.screen else "", voice_tag=voiceprint.tag(who)))
+            screen_prompt=self.ctx.screens.prompt() + weather.PROMPT if s.screen else "",
+            voice_tag=voiceprint.tag(who)))
         t2 = time.perf_counter()
         if reply.screen_error:
             self._log(device_id, "W", f"screen: {reply.screen_error}")

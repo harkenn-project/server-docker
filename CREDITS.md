@@ -47,6 +47,9 @@ Harkenn stands on the work of many open-source projects. Thank you to all of the
 - The speakers appear in Home Assistant through its [MQTT discovery](https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery)
   convention; Harkenn has its own small MQTT 3.1.1 client ([MQTT](https://mqtt.org) is an OASIS standard).
 - Agents reach the speakers over the [Model Context Protocol](https://modelcontextprotocol.io).
+- The live weather comes from [Open-Meteo](https://open-meteo.com) (forecast, geocoding and air quality APIs), whose
+  data is [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its weather codes are the WMO's. The weather
+  screen's pictures are drawn in code by `app/weather.py`.
 - The speaker's Wi-Fi setup, adoption code and over-the-air updates follow patterns from
   [ESPHome](https://esphome.io) and [Home Assistant](https://www.home-assistant.io); the voice pipeline follows the
   shape of Home Assistant's Assist, and can use the same Wyoming services.

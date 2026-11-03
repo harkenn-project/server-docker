@@ -665,6 +665,21 @@ function initServer() {
   });
   fill(jsonScript("server-data"));
 
+  const wx = $("#weather-form");
+  const showWeather = data => {
+    wx.elements.place.value = data.place;
+    wx.elements.units.value = data.units;
+    $("#weather-now").textContent = data.place ? (data.now || "can't reach the weather service") : "not set";
+  };
+  wx.addEventListener("submit", async e => {
+    e.preventDefault();
+    try {
+      showWeather(await api("PUT", "/admin/api/weather", { place: wx.elements.place.value, units: wx.elements.units.value }));
+      toast("Saved");
+    } catch (err) { toast(err.message, true); }
+  });
+  api("GET", "/admin/api/weather").then(showWeather).catch(err => toast(err.message, true));
+
   const ha = $("#ha-form");
   const showHa = data => {
     ha.elements.enabled.checked = data.enabled;
