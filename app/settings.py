@@ -17,6 +17,8 @@ class Settings:
     max_pending_adoptions: int = 20
     log_retention_per_device: int = 5000
     max_recording_bytes: int = 10 * 1024 * 1024
+    recordings_per_device: int = 200  # the oldest go first
+    firmware_kept: int = 10  # firmware images kept (uploads and releases); the oldest go first
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
     wakewords_dir: Path | None = None  # wake word models bundled at image build time (see wakewords.py)
@@ -77,6 +79,8 @@ def load_settings() -> Settings:
         max_pending_adoptions=int(env("MAX_PENDING_ADOPTIONS", "20")),
         log_retention_per_device=int(env("LOG_RETENTION", "5000")),
         max_recording_bytes=int(env("MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
+        recordings_per_device=int(env("RECORDINGS_PER_DEVICE", "200")),
+        firmware_kept=int(env("FIRMWARE_KEPT", "10")),
         max_upload_bytes=int(env("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(prebuilt) if prebuilt else None,
         wakewords_dir=Path(env("WAKEWORDS_DIR")) if env("WAKEWORDS_DIR") else None,

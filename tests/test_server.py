@@ -1824,3 +1824,24 @@ def test_static_links_change_with_their_content(client):
     page = client.get("/admin").text
     js = (Path("app/static/admin.js")).read_bytes()
     assert f'/static/admin.js?v={hashlib.sha256(js).hexdigest()[:10]}"' in page and "/static/admin.css?v=" in page
+
+
+def test_recordings_and_firmware_are_capped(tmp_path, prebuilt):
+    from app.firmware import FirmwareStore
+    settings = Settings(data_dir=tmp_path, admin_password="pw", session_secret="s" * 32,
+                        public_url="http://testserver", secure_cookies=False, prebuilt_characters=prebuilt,
+                        recordings_per_device=3)
+    with TestClient(create_app(settings)) as c:
+        token = adopt(c)
+        for i in range(5):
+            r = c.post("/api/v1/device/recordings", content=b"RIFF" + bytes([i]) * 10,
+                       headers={**bearer(token), "Content-Type": "audio/wav"})
+            assert r.status_code == 201
+        recs = c.get(f"/admin/api/devices/{MAC}/recordings").json()
+        assert len(recs) == 3 and len(list((tmp_path / "recordings" / MAC).iterdir())) == 3
+        assert [c.get(f"/admin/recordings/{r['id']}").content[4] for r in recs] == [4, 3, 2]  # the newest
+
+    store = FirmwareStore(tmp_path / "fw", keep=2)
+    ids = [store.add(fake_firmware(f"0.4.{i}"))["id"] for i in range(4)]
+    assert {m["id"] for m in store.list()} == set(ids[2:])
+    assert len(list((tmp_path / "fw").glob("*.bin"))) == 2

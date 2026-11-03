@@ -279,6 +279,14 @@ class Database:
                 rec,
             )
 
+    def trim_recordings(self, device_id: str, keep: int) -> list[str]:
+        """Forget all but the newest `keep` recordings of a device. Returns the files to delete."""
+        with self._conn() as c:
+            rows = c.execute("SELECT id, filename FROM recordings WHERE device_id=? ORDER BY created_at DESC "
+                             "LIMIT -1 OFFSET ?", (device_id, max(keep, 0))).fetchall()
+            c.executemany("DELETE FROM recordings WHERE id=?", [(r["id"],) for r in rows])
+        return [r["filename"] for r in rows]
+
     def list_recordings(self, device_id: str, limit: int = 100) -> list[dict[str, Any]]:
         with self._conn() as c:
             rows = c.execute(

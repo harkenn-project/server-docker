@@ -144,6 +144,12 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
     }
 
 
+def trim_recordings(ctx: Context, device_id: str) -> None:
+    """Keep a device's newest recordings only (HARKENN_RECORDINGS_PER_DEVICE)."""
+    for rel in ctx.db.trim_recordings(device_id, ctx.settings.recordings_per_device):
+        (ctx.settings.recordings_dir / rel).unlink(missing_ok=True)
+
+
 async def push_all(ctx: Context) -> None:
     """Send every online speaker its config, e.g. after the admin password changed."""
     for device in ctx.db.list_devices():

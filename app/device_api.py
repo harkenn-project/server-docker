@@ -17,7 +17,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__
 from .assets import STATES
-from .context import Context, base_url, device_payload, get_ctx, push_config
+from .context import Context, base_url, device_payload, get_ctx, push_config, trim_recordings
 from .models import AdoptionRequestIn, DeviceConfig, LogBatch, LogLine, StatusIn, WifiNetwork
 from .sounds import wav
 from .themes import ALL_CHARACTER_SIZES
@@ -170,6 +170,7 @@ async def post_recording(request: Request, device: dict = Depends(current_device
     path.write_bytes(data)
     c.db.add_recording({"id": rid, "device_id": device["id"], "created_at": now, "kind": kind,
                         "filename": rel, "content_type": content_type, "size": len(data)})
+    trim_recordings(c, device["id"])
     c.hub.publish({"type": "recording", "id": device["id"], "recording_id": rid})
     return {"id": rid}
 

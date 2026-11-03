@@ -38,8 +38,9 @@ def update_args(public_url: str, fw: dict[str, Any]) -> dict[str, Any]:
 
 
 class FirmwareStore:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, keep: int = 10) -> None:
         self.root = root
+        self.keep = keep  # images kept; adding one drops the oldest beyond that
         self.root.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
@@ -54,6 +55,8 @@ class FirmwareStore:
                 return existing
             (self.root / f"{fid}.bin").write_bytes(data)
             (self.root / f"{fid}.json").write_text(json.dumps(meta))
+        for old in [m for m in self.list() if m["id"] != fid][max(self.keep, 1) - 1:]:  # never the one just added
+            self.delete(old["id"])
         return meta
 
     def get(self, fid: str) -> dict[str, Any] | None:

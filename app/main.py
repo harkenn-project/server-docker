@@ -58,7 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Harkenn", version=__version__, docs_url="/api/docs", redoc_url=None, lifespan=lifespan)
     app.state.ctx = Context(settings=settings, db=db, hub=Hub(), characters=characters,
-                            firmware=FirmwareStore(settings.firmware_dir))
+                            firmware=FirmwareStore(settings.firmware_dir, settings.firmware_kept))
     app.state.announcer = Announcer(settings)
     app.state.mcp, mcp_endpoint = build_mcp(app.state.ctx)
     app.add_middleware(SessionMiddleware, secret_key=session_secret, session_cookie="harkenn_session",

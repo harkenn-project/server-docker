@@ -114,6 +114,8 @@ Environment variables.
 | `HARKENN_UPDATE_CHANNEL` | `stable` | `stable`, `beta`, `alpha` or `development`. Can be changed on the **Firmware** page |
 | `HARKENN_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
 | `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
+| `HARKENN_RECORDINGS_PER_DEVICE` | `200` | Recordings kept per speaker (when keeping recordings is on); the oldest go first |
+| `HARKENN_FIRMWARE_KEPT` | `10` | Firmware images kept on the Firmware page, uploads and downloaded releases together; the oldest go first |
 | `HARKENN_ASSISTANT_API` | `openai` | `openai`, `anthropic` or `hermes`: used with `HARKENN_ASSISTANT_URL` |
 | `HARKENN_ASSISTANT_URL`, `HARKENN_ASSISTANT_MODEL`, `HARKENN_ASSISTANT_KEY` | unset | The assistant, e.g. from a secret. The **Voice** page's own values win; these fill in what it leaves empty |
 | `HARKENN_MCP_TOKEN` | unset | An extra access token for the MCP server, besides those made on the **Agents** page |

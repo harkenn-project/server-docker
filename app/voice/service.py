@@ -249,6 +249,7 @@ class VoiceService:
                               "lines": [{"ts": now, "level": level, "tag": "voice", "message": message}]})
 
     def _keep(self, device_id: str, pcm: bytes) -> None:
+        from ..context import trim_recordings  # context imports this module
         rid = secrets.token_hex(8)
         rel = f"{device_id}/{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}_{rid}.wav"
         path = self.ctx.settings.recordings_dir / rel
@@ -257,6 +258,7 @@ class VoiceService:
         path.write_bytes(data)
         self.ctx.db.add_recording({"id": rid, "device_id": device_id, "created_at": time.time(), "kind": "utterance",
                                    "filename": rel, "content_type": "audio/wav", "size": len(data)})
+        trim_recordings(self.ctx, device_id)
         self.ctx.hub.publish({"type": "recording", "id": device_id, "recording_id": rid})
 
     async def _respond(self, device_id: str, u: Utterance) -> None:
