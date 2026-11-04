@@ -49,9 +49,31 @@ def normalize(raw: Any) -> dict[str, Any]:
     def names(key: str) -> list[str]:
         return [n for n in (_name(v) for v in (raw.get(key) or [])[:MAX_ENTRIES]) if n]
 
+    managed = [str(p)[:300] for p in (raw.get("managed") or [])[:2000] if isinstance(p, str) and p]
     return {"present": True, "total_mb": _count(raw.get("total_mb")), "free_mb": _count(raw.get("free_mb")),
             "music": albums("music", "tracks"), "soundscapes": names("soundscapes"),
-            "meditations": names("meditations"), "photos": albums("photos", "pictures")}
+            "meditations": names("meditations"), "photos": albums("photos", "pictures"),
+            "sync": raw.get("sync") is True, "managed": managed, "plan": str(raw.get("plan") or "")[:32]}
+
+
+def own_items(card: dict[str, Any]) -> list[dict[str, str]]:
+    """What's on a card that Harkenn didn't put there (copied on by hand): Harkenn never changes these."""
+    if not card.get("present"):
+        return []
+    managed = card.get("managed") or []
+
+    def harkenn(prefix: str) -> bool:
+        return any(p.startswith(prefix) for p in managed)
+
+    out = [{"kind": "music", "name": a["name"], "detail": f"{a['tracks']} tracks"} for a in card.get("music", [])
+           if not harkenn(f"Music/{a['name']}/")]
+    out += [{"kind": "soundscape", "name": n, "detail": ""} for n in card.get("soundscapes", [])
+            if not harkenn(f"Soundscapes/{n}.")]
+    out += [{"kind": "meditation", "name": n, "detail": ""} for n in card.get("meditations", [])
+            if not harkenn(f"Meditations/{n}.")]
+    out += [{"kind": "photos", "name": a["name"], "detail": f"{a['pictures']} pictures"} for a in card.get("photos", [])
+            if not harkenn(f"Photos/{a['name']}/")]
+    return out
 
 
 class Cards:

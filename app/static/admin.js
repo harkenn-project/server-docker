@@ -1656,6 +1656,194 @@ function initBroadcast() {
   show();
 }
 
+// Media artwork, shared by the library pages and the speakers' Card tab
+
+function mediaHue(text) { let h = 0; for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+function albumArt(a, size = "") {
+  const box = el("div", { class: `cover ${size}` });
+  if (a.cover) box.append(el("img", { src: `/admin/media/cover/${encodeURIComponent(a.name)}?v=${a.size || a.bytes || 0}`, alt: "" }));
+  else {
+    const h = mediaHue(a.name);
+    box.style.background = `linear-gradient(135deg, hsl(${h} 55% 52%), hsl(${(h + 50) % 360} 60% 28%))`;
+    box.append(el("span", { class: "cover-note" }, "♪"), el("span", { class: "cover-name" }, a.name));
+  }
+  return box;
+}
+const SCAPE_THEMES = [
+  [/thunder|storm/i, "⛈️", 230], [/rain/i, "🌧", 210], [/stream|river|brook|water|creek/i, "💧", 190],
+  [/lake|sea|ocean|wave/i, "🌊", 200], [/chime|bell/i, "🎐", 280], [/wind|breeze|blust/i, "🍃", 150],
+  [/fire|camp/i, "🔥", 20], [/bird|song|chirp|dawn|morning/i, "🐦", 95], [/swamp|frog/i, "🐸", 120],
+  [/night|cricket|forest/i, "🌙", 255], [/hill|mountain/i, "⛰️", 160], [/noise|white|pink|brown/i, "〰", 220]];
+function scapeArt(f, size = "") {
+  const [, icon, h] = SCAPE_THEMES.find(([re]) => re.test(f.title || f.name)) || [null, "🌿", 140];
+  const box = el("div", { class: `cover ${size} scape` }, el("span", { class: "scape-icon" }, icon));
+  box.style.background = `radial-gradient(circle at 30% 20%, hsl(${h} 60% 62%), hsl(${h} 55% 30%) 70%)`;
+  return box;
+}
+function itemArt(i, size = "small") {
+  if (i.kind === "music") return albumArt({ name: i.name, cover: i.cover, bytes: i.bytes }, size);
+  if (i.kind === "soundscape") return scapeArt(i, size);
+  return Object.assign(el("div", { class: `cover ${size} meditation-art` }, el("span", { class: "scape-icon" }, "🧘")));
+}
+const KIND_LABEL = { music: "Album", soundscape: "Soundscape", meditation: "Meditation", photos: "Photos" };
+
+// "Send to speakers": which speakers keep an item on their cards
+async function sendToSpeakers(item, name) {
+  const data = await api("GET", `/admin/api/media/holders?item=${encodeURIComponent(item)}`);
+  const dialog = el("dialog", { class: "media-dialog send-dialog" });
+  const rows = data.speakers.map(s => {
+    const usable = s.card.present;
+    const why = s.card.unreadable ? "Its card can't be read" : !s.card.present ? "No SD card"
+      : !s.card.sync ? "Syncs after a firmware update" : `${bytes(s.card.free_mb * 1048576)} free`;
+    return el("label", { class: `send-row${usable ? "" : " disabled"}` },
+      el("input", { type: "checkbox", value: s.id, checked: s.holds, disabled: !usable && !s.holds }),
+      el("span", { class: `dot ${s.online ? "on" : ""}` }),
+      el("span", { class: "send-name" }, s.name), el("span", { class: "hint" }, why));
+  });
+  const form = el("form", { method: "dialog" },
+    el("h2", {}, `Send ${name} to speakers`),
+    el("p", { class: "hint" }, "Ticked speakers keep it on their SD cards, and get changes to it. Untick to take it off. " +
+      "Files someone added to a card themselves are never touched."),
+    el("div", { class: "send-list" }, ...(rows.length ? rows : [el("p", { class: "hint" }, "No speakers yet.")])),
+    el("div", { class: "buttons" }, el("button", { type: "submit" }, "Save"),
+      el("button", { type: "button", class: "secondary", onclick: () => dialog.close() }, "Cancel")));
+  form.addEventListener("submit", async e => {
+    e.preventDefault();
+    const devices = $$("input:checked", form).map(i => i.value);
+    try { await api("PUT", "/admin/api/media/holders", { item, devices }); dialog.close(); toast("Saved: the speakers will sync"); }
+    catch (err) { toast(err.message, true); }
+  });
+  dialog.append(form);
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+// a speaker's Card tab
+function initDeviceCard(id) {
+  const panel = $("#card");
+  if (!panel) return;
+  let data = null, library = null;
+
+  async function load() {
+    [data, library] = await Promise.all([api("GET", `/admin/api/devices/${id}/card`), api("GET", "/admin/api/media/items")]);
+    render();
+  }
+  const byItem = () => Object.fromEntries(library.map(i => [i.item, i]));
+
+  function syncLine() {
+    const s = data.sync, p = s.progress;
+    if (!data.card || !data.card.present) return null;
+    if (!s.supported) return el("span", { class: "pill" }, "Needs firmware 0.15 to sync");
+    if (s.in_step) return el("span", { class: "pill ok" }, "✓ In step");
+    if (p && p.plan === s.plan && p.state === "error") return el("span", { class: "pill warn" }, `Stopped: ${p.error}`);
+    if (p && p.plan === s.plan && (p.state === "syncing" || p.state === "paused")) {
+      const pct = p.total_bytes ? Math.floor(100 * p.done_bytes / p.total_bytes) : 0;
+      return el("span", { class: "pill busy" }, p.state === "paused" ? `Paused while it's busy · ${pct}%` : `Syncing · ${pct}%`);
+    }
+    return el("span", { class: "pill" }, data.online ? "Waiting to sync" : "Syncs when it's back online");
+  }
+
+  function render() {
+    const card = data.card || { present: false };
+    const s = data.sync;
+    const status = card.present ? `${bytes(card.free_mb * 1048576)} free of ${bytes(card.total_mb * 1048576)}`
+      : card.unreadable ? "There's a card, but it can't be read: it may be exFAT (most cards over 32 GB) or damaged."
+      : data.card == null ? "This speaker hasn't said yet (firmware 0.14 or later)." : "No SD card in it.";
+    const harkenn = s.bytes, used = card.present ? (card.total_mb - card.free_mb) * 1048576 : 0;
+    const yours = Math.max(0, used - harkenn), total = card.present ? card.total_mb * 1048576 : 1;
+    $("#card-summary").replaceChildren(
+      el("div", { class: "section-head" }, el("div", {}, el("h2", {}, "SD card"), el("p", { class: "hint" }, status)),
+        el("div", { class: "buttons" },
+          el("button", { class: "secondary small", onclick: () => command("card_rescan", "Looking for the card") }, "Look again"),
+          el("button", { class: "danger small", onclick: format }, "Format…"))),
+      card.present ? el("div", { class: "storage-bar", title: "Harkenn's · yours · free" },
+        el("span", { class: "harkenn", style: { width: `${(100 * Math.min(harkenn, used) / total).toFixed(1)}%` } }),
+        el("span", { class: "yours", style: { width: `${(100 * yours / total).toFixed(1)}%` } })) : null,
+      card.present ? el("div", { class: "storage-key hint" },
+        el("span", {}, el("i", { class: "harkenn" }), `From Harkenn ${bytes(Math.min(harkenn, used))}`),
+        el("span", {}, el("i", { class: "yours" }), `Added on the card ${bytes(yours)}`),
+        el("span", {}, el("i", {}), `Free ${bytes(card.free_mb * 1048576)}`)) : null);
+
+    const lib = byItem();
+    const p = s.progress;
+    const wanted = s.wanted.map(w => {
+      const i = lib[w.item] || { item: w.item, kind: w.kind, name: w.name, bytes: w.bytes };
+      const busy = p && p.plan === s.plan && p.state === "syncing" && p.file && p.file.includes(w.name);
+      return el("li", { class: "card-item" }, itemArt(i),
+        el("div", { class: "card-item-text" }, el("strong", {}, i.name),
+          el("span", { class: "hint" }, `${KIND_LABEL[i.kind]} · ${bytes(i.bytes)}${w.in_library ? "" : " · gone from the library: it comes off the card"}`)),
+        el("span", { class: `pill small ${busy ? "busy" : s.in_step ? "ok" : ""}` }, busy ? "Sending…" : s.in_step ? "✓ On the card" : "Waiting"),
+        el("button", { class: "secondary small", onclick: () => setWanted(s.wanted.map(x => x.item).filter(x => x !== w.item)) }, "Remove"));
+    });
+    $("#card-harkenn").replaceChildren(
+      el("div", { class: "section-head" }, el("div", {}, el("h2", {}, "From Harkenn"),
+        el("p", { class: "hint" }, `${s.wanted.length} item${s.wanted.length === 1 ? "" : "s"} · ${bytes(s.bytes)}`)),
+        el("div", { class: "buttons" }, syncLine(), el("button", { class: "small", disabled: !card.present, onclick: pick }, "+ Add from library"))),
+      wanted.length ? el("ul", { class: "card-items" }, ...wanted)
+        : el("p", { class: "hint empty-row" }, card.present ? "Nothing from the library yet." : "Put an SD card in this speaker to send it music and sounds."));
+
+    $("#card-own").replaceChildren(
+      el("div", { class: "section-head" }, el("div", {}, el("h2", {}, "🔒 Added on the card"),
+        el("p", { class: "hint" }, "Copied onto the card some other way. Harkenn shows them but never changes or deletes them."))),
+      data.own.length ? el("ul", { class: "card-items" }, ...data.own.map(o => el("li", { class: "card-item" }, itemArt(o),
+        el("div", { class: "card-item-text" }, el("strong", {}, o.name), el("span", { class: "hint" }, [KIND_LABEL[o.kind], o.detail].filter(Boolean).join(" · "))))))
+        : el("p", { class: "hint empty-row" }, "Nothing else on the card."));
+  }
+
+  async function setWanted(items) {
+    try { data = await api("PUT", `/admin/api/devices/${id}/card/wanted`, { items }); render(); }
+    catch (err) { toast(err.message, true); }
+  }
+  async function command(name, message) {
+    try { await api("POST", `/admin/api/devices/${id}/command`, { command: name }); toast(message); }
+    catch (err) { toast(err.message, true); }
+  }
+  function format() {
+    if (!confirm("Format this speaker's SD card? Everything on it is erased, including anything added to it by hand, " +
+                 "and it becomes an empty FAT32 card the speaker can read.")) return;
+    command("card_format", "Formatting. The card shows as empty when it's done.");
+  }
+
+  // Add from library: everything, grouped, with what's already chosen ticked
+  function pick() {
+    const chosen = new Set(data.sync.wanted.map(w => w.item));
+    const dialog = el("dialog", { class: "media-dialog pick-dialog" });
+    const free = data.card.free_mb * 1048576 + data.sync.bytes;
+    const total = el("p", { class: "hint" });
+    const update = () => {
+      const sum = $$("input:checked", dialog).reduce((n, i) => n + Number(i.dataset.bytes), 0);
+      total.textContent = `${bytes(sum)} chosen · room for about ${bytes(free)}`;
+      total.classList.toggle("warn-text", sum > free);
+    };
+    const group = (kind, title) => {
+      const list = library.filter(i => i.kind === kind);
+      return list.length ? el("div", { class: "pick-group" }, el("h3", {}, title), el("div", { class: "pick-grid" },
+        ...list.map(i => el("label", { class: "pick-tile" },
+          el("input", { type: "checkbox", value: i.item, checked: chosen.has(i.item), "data-bytes": i.bytes, onchange: update }),
+          itemArt(i, ""), el("strong", {}, i.name), el("span", { class: "hint" }, bytes(i.bytes)))))) : null;
+    };
+    const form = el("form", { method: "dialog" },
+      el("h2", {}, "Add from the library"),
+      group("music", "Music"), group("soundscape", "Soundscapes"), group("meditation", "Meditations"),
+      library.length ? null : el("p", { class: "hint" }, "The library is empty: add some on the Media pages."),
+      total,
+      el("div", { class: "buttons" }, el("button", { type: "submit" }, "Save"),
+        el("button", { type: "button", class: "secondary", onclick: () => dialog.close() }, "Cancel")));
+    form.addEventListener("submit", e => { e.preventDefault(); setWanted($$("input:checked", dialog).map(i => i.value)); dialog.close(); });
+    dialog.append(form);
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    update();
+    dialog.showModal();
+  }
+
+  subscribe(debounce(msg => {
+    if ((msg.type === "card_sync" || msg.type === "device") && msg.id === id || msg.type === "media") load().catch(() => {});
+  }, 400));
+  load().catch(err => toast(err.message, true));
+}
+
 // media library pages (library.py): Music (albums), an album, Soundscapes, Meditations
 
 function initMedia() {
@@ -1672,30 +1860,6 @@ function initMedia() {
   async function reload() {
     data = await api("GET", "/admin/api/media");
     render();
-  }
-
-  // Artwork: an album's cover.jpg, or one made from its name; a soundscape's picture from what it sounds like.
-  function hue(text) { let h = 0; for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
-  function albumArt(a, size = "") {
-    const box = el("div", { class: `cover ${size}` });
-    if (a.cover) box.append(el("img", { src: `/admin/media/cover/${encodeURIComponent(a.name)}?v=${a.size}`, alt: "" }));
-    else {
-      const h = hue(a.name);
-      box.style.background = `linear-gradient(135deg, hsl(${h} 55% 52%), hsl(${(h + 50) % 360} 60% 28%))`;
-      box.append(el("span", { class: "cover-note" }, "♪"), el("span", { class: "cover-name" }, a.name));
-    }
-    return box;
-  }
-  const THEMES = [
-    [/thunder|storm/i, "⛈️", 230], [/rain/i, "🌧", 210], [/stream|river|brook|water|creek/i, "💧", 190],
-    [/lake|sea|ocean|wave/i, "🌊", 200], [/chime|bell/i, "🎐", 280], [/wind|breeze|blust/i, "🍃", 150],
-    [/fire|camp/i, "🔥", 20], [/bird|song|chirp|dawn|morning/i, "🐦", 95], [/swamp|frog/i, "🐸", 120],
-    [/night|cricket|forest/i, "🌙", 255], [/hill|mountain/i, "⛰️", 160], [/noise|white|pink|brown/i, "〰", 220]];
-  function scapeArt(f, size = "") {
-    const [, icon, h] = THEMES.find(([re]) => re.test(f.title)) || [null, "🌿", 140];
-    const box = el("div", { class: `cover ${size} scape` }, el("span", { class: "scape-icon" }, icon));
-    box.style.background = `radial-gradient(circle at 30% 20%, hsl(${h} 60% 62%), hsl(${h} 55% 30%) 70%)`;
-    return box;
   }
 
   // the preview player, docked at the bottom
@@ -1736,7 +1900,11 @@ function initMedia() {
       el("div", { class: "menu-items" }, ...items.filter(Boolean).map(([label, fn, cls]) =>
         el("button", { type: "button", class: cls || "secondary", onclick: e => { e.target.closest("details").open = false; fn(); } }, label))));
   }
-  const fileMenu = (f, extra = []) => menu([["Edit details…", () => editDetails(f)], ...extra, ["Delete…", async () => {
+  const itemOf = f => `${view === "soundscapes" ? "soundscape" : "meditation"}/` +
+    f.path.split("/").pop().replace(/\.[^.]+$/, "").replace(/^\d+[\s.\-]+/, "");  // as cardsync.py names items
+  const fileMenu = (f, extra = []) => menu([["Edit details…", () => editDetails(f)],
+    view !== "album" ? ["Send to speakers…", () => sendToSpeakers(itemOf(f), f.title).catch(err => toast(err.message, true))] : null,
+    ...extra, ["Delete…", async () => {
     if (!confirm(`Delete ${f.title}?`)) return;
     if (current && current.path === f.path) stop();
     try { await api("DELETE", `/admin/api/media/files?path=${encodeURIComponent(f.path)}`); await reload(); }
@@ -1875,6 +2043,7 @@ function initMedia() {
   if (view === "album") {
     const enc = encodeURIComponent(albumName);
     $("#play-all").addEventListener("click", () => album().tracks.length && play(album().tracks, 0));
+    $("#album-send").addEventListener("click", () => sendToSpeakers(`music/${albumName}`, albumName).catch(err => toast(err.message, true)));
     const closeMenu = e => { const d = e.target.closest("details"); if (d) d.open = false; };
     $("#album-rename").addEventListener("click", async e => {
       closeMenu(e);
@@ -1917,7 +2086,7 @@ const page = document.body.dataset.page;
 initNav();
 initTabs();
 if (page === "dashboard") initDashboard();
-if (page === "device") { initConfigForm(); initDevice(); }
+if (page === "device") { initConfigForm(); initDevice(); initDeviceCard(document.body.dataset.deviceId); }
 if (page === "groups") initGroups();
 if (page === "group") initGroup();
 if (page === "characters") initCharacters();

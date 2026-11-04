@@ -248,8 +248,19 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
         c.board.report(device_id, msg)
         c.hub.publish({"type": "device", "id": device_id})
     elif kind == "card":  # what's on its micro SD card (media.py), on connecting and whenever it changes
-        c.cards.report(device_id, msg.get("card"))
+        card = c.cards.report(device_id, msg.get("card"))
         c.hub.publish({"type": "device", "id": device_id})
+        if card.get("sync") and (c.cardsync.wanted(device_id) or card.get("managed")):
+            task = asyncio.create_task(c.cardsync.push(device_id, only_if_changed=True))  # cardsync.py
+            _background.add(task)
+            task.add_done_callback(_background.discard)
+    elif kind == "card_get":  # a piece of a file for its card (cardsync.py)
+        task = asyncio.create_task(c.cardsync.handle_get(device_id, msg))
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+    elif kind == "card_sync":  # how its sync is going
+        c.cardsync.report(device_id, msg)
+        c.hub.publish({"type": "card_sync", "id": device_id})
     elif kind == "media_state":  # what its player is doing (media.py)
         state = c.players.report(device_id, msg.get("media"))
         if state.get("error"):

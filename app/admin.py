@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from . import __version__, about, broadcast, groups, household, kani, local_access, relay, timezones
+from . import __version__, about, broadcast, groups, household, kani, local_access, media, relay, timezones
 from .assets import STATES
 from .auth import check_password, password_configured, set_password, validate_new_password
 from .context import (PASSWORD_MASK, PUBLIC_URL_KEY, Context, default_config, device_payload, device_theme, push_all,
@@ -103,6 +103,7 @@ def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
                                                               "notifications": c.board.notes.get(d["id"], []),
                                                               "card": c.cards.get(d["id"]),
                                                               "media": c.players.get(d["id"]),
+                                                              "card_sync": c.cardsync.progress.get(d["id"]),
                                                               "relay_ready": bool(relay.credentials(c, d["id"])["ready"])
                                                               if relay.enabled(c, d) else False}
 
@@ -1706,3 +1707,68 @@ async def update_media(body: MediaFileIn, request: Request) -> dict[str, Any]:
 async def delete_media(path: str, request: Request) -> Response:
     await run_in_threadpool(_library_call, get_ctx(request).library.delete, path)
     return Response(status_code=204)
+
+
+# Sending media to the speakers' cards (cardsync.py)
+
+class WantedIn(BaseModel):
+    items: list[str]
+
+
+class HoldersIn(BaseModel):
+    item: str
+    devices: list[str]
+
+
+def _card_out(c: Context, device_id: str) -> dict[str, Any]:
+    card = c.cards.get(device_id)
+    return {"card": card, "own": media.own_items(card or {}), "sync": c.cardsync.status(device_id),
+            "online": c.hub.online(device_id)}
+
+
+@api.get("/devices/{device_id}/card")
+async def get_device_card(device_id: str, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    return await run_in_threadpool(_card_out, c, device_id)
+
+
+@api.put("/devices/{device_id}/card/wanted")
+async def put_device_card_wanted(device_id: str, body: WantedIn, request: Request) -> dict[str, Any]:
+    """What Harkenn keeps on this speaker's card: items from the library ("music/Background", ...)."""
+    c = get_ctx(request)
+    _device_or_404(c, device_id)
+    await run_in_threadpool(c.cardsync.set_wanted, device_id, body.items)
+    await c.cardsync.push(device_id)
+    return await run_in_threadpool(_card_out, c, device_id)
+
+
+@api.get("/media/items")
+async def get_media_items(request: Request) -> list[dict[str, Any]]:
+    """Everything in the library that can go on a card."""
+    items = await run_in_threadpool(get_ctx(request).cardsync.items)
+    return [{"item": k, "kind": v["kind"], "name": v["name"], "bytes": v["bytes"], "files": len(v["files"]),
+             "cover": any(f.endswith("/cover.jpg") for f in v["files"])} for k, v in items.items()]
+
+
+@api.get("/media/holders")
+async def get_media_holders(item: str, request: Request) -> dict[str, Any]:
+    """The speakers, and which of them keep `item` on their cards."""
+    c = get_ctx(request)
+    speakers = []
+    for d in c.db.list_devices():
+        card = c.cards.get(d["id"]) or {"present": False}
+        speakers.append({"id": d["id"], "name": d["name"], "online": c.hub.online(d["id"]),
+                         "card": {"present": bool(card.get("present")), "free_mb": card.get("free_mb", 0),
+                                  "sync": bool(card.get("sync")), "unreadable": bool(card.get("unreadable"))},
+                         "holds": item in c.cardsync.wanted(d["id"])})
+    return {"item": item, "speakers": speakers}
+
+
+@api.put("/media/holders")
+async def put_media_holders(body: HoldersIn, request: Request) -> dict[str, Any]:
+    c = get_ctx(request)
+    before = set(await run_in_threadpool(c.cardsync.holders, body.item))
+    await run_in_threadpool(_library_call, c.cardsync.set_holders, body.item, body.devices)
+    c.cardsync.push_soon(sorted(before | set(body.devices)), delay=0.2)
+    return await get_media_holders(body.item, request)

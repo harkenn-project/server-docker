@@ -168,6 +168,7 @@ class Library:
         self._pack_task: asyncio.Task | None = None
         self.transport: Any = None  # tests: an httpx transport standing in for GitHub
         self._durations: dict[tuple[str, int, int], float] = {}  # (path, size, mtime) -> seconds
+        self._sums: dict[tuple[str, int, int], str] = {}  # (path, size, mtime) -> sha256
         for folder in FOLDERS.values():
             (root / folder).mkdir(parents=True, exist_ok=True)
 
@@ -187,6 +188,7 @@ class Library:
     def _changed(self) -> None:
         if self.ctx:
             self.ctx.hub.publish({"type": "media"})
+            self.ctx.cardsync.push_soon()  # speakers with this on their cards get the change
 
     # paths
 
@@ -218,6 +220,14 @@ class Library:
             except Exception:
                 self._durations[key] = 0.0
         return self._durations[key]
+
+    def checksum(self, path: Path) -> str:
+        """A file's SHA-256 (remembered while it's unchanged): what the speakers check what they fetch against."""
+        st = path.stat()
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key not in self._sums:
+            self._sums[key] = _sha256(path)
+        return self._sums[key]
 
     def _file(self, path: Path, meta: dict[str, Any]) -> dict[str, Any]:
         rel = path.relative_to(self.root).as_posix()

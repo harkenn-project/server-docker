@@ -2580,6 +2580,53 @@ def test_media_page_and_api(client):
     assert client.delete("/admin/api/media/albums/Calm", headers=ADMIN).status_code == 204
 
 
+def test_card_sync(client):
+    import hashlib
+    device_token = adopt(client)
+    login(client)
+    lib = client.app.state.ctx.library
+    lib.create_album("Calm")
+    track = lib.add("music", "Calm", "one.wav", media_tone(seconds=4))
+    lib.add("soundscape", "", "rain.wav", media_tone(seconds=8))
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "card", "card": {"present": True, "total_mb": 900, "free_mb": 800, "sync": True,
+                                                "music": [{"name": "Mine", "tracks": 2}], "managed": [], "plan": ""}})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        items = {i["item"] for i in client.get("/admin/api/media/items").json()}
+        assert items == {"music/Calm", "soundscape/rain"}
+        r = client.put(f"/admin/api/devices/{MAC}/card/wanted", json={"items": ["music/Calm", "bogus"]}, headers=ADMIN)
+        assert [w["item"] for w in r.json()["sync"]["wanted"]] == ["music/Calm"]
+        plan = ws.receive_json()
+        assert plan["type"] == "card_plan" and [f["path"] for f in plan["files"]] == [track["path"]]
+        data = (lib.root / track["path"]).read_bytes()
+        assert plan["files"][0]["sha256"] == hashlib.sha256(data).hexdigest()
+        ws.send_json({"type": "card_get", "path": track["path"], "offset": 10, "length": 9000})
+        head = ws.receive_json()
+        assert head == {"type": "card_chunk", "path": track["path"], "offset": 10, "bytes": 9000}
+        got = ws.receive_bytes() + ws.receive_bytes() + ws.receive_bytes()  # 4096 + 4096 + 808
+        assert got == data[10:9010]
+        ws.send_json({"type": "card_get", "path": "../harkenn.db", "offset": 0, "length": 100})
+        assert ws.receive_json()["error"] == "not in the plan"
+        ws.send_json({"type": "card_sync", "plan": plan["plan"], "state": "syncing", "done_bytes": 9000,
+                      "total_bytes": len(data), "file": track["path"]})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        card = client.get(f"/admin/api/devices/{MAC}/card").json()
+        assert card["sync"]["progress"]["state"] == "syncing" and not card["sync"]["in_step"]
+        assert card["own"] == [{"kind": "music", "name": "Mine", "detail": "2 tracks"}]  # copied on by hand
+        holders = client.get("/admin/api/media/holders", params={"item": "music/Calm"}).json()
+        assert holders["speakers"][0]["holds"] and holders["speakers"][0]["card"]["sync"]
+        # the speaker finished: its card report names the plan, so connecting again sends nothing new
+        ws.send_json({"type": "card", "card": {"present": True, "total_mb": 900, "free_mb": 790, "sync": True,
+                                                "music": [{"name": "Calm", "tracks": 1}, {"name": "Mine", "tracks": 2}],
+                                                "managed": [track["path"]], "plan": plan["plan"]}})
+        ws.send_json({"type": "config_request"})
+        assert ws.receive_json()["type"] == "config"  # not another card_plan
+        assert client.get(f"/admin/api/devices/{MAC}/card").json()["sync"]["in_step"]
+
+
 def test_stop_model_for_speakers(tmp_path, prebuilt):
     words = tmp_path / "words"
     words.mkdir()
