@@ -222,9 +222,11 @@ def _match(want: str, card: dict[str, Any], prefer: str | None) -> tuple[str, st
         for kind, name in options:
             if name.lower() == target:
                 return kind, name
-    if want in ("a meditation", "meditation", "", "something relaxing") and prefer == "meditation" \
-            and card.get("meditations"):
-        return "meditation", card["meditations"][0]
+    if want in ("", "the", "me", "something relaxing") and prefer in ("meditation", "soundscape"):
+        # "play some soundscapes", "play a meditation": the first one there is
+        names = card.get("meditations" if prefer == "meditation" else "soundscapes") or []
+        if names:
+            return prefer, names[0]
     words = set(want.split()) - {"the", "a", "an", "some", "of", "and", "me"}
     best, score = None, 0
     for kind, name in options:
@@ -296,13 +298,13 @@ def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any]) -> dic
         minutes = _minutes(d)
         what = what[:d.start()].strip()
     prefer = None
-    for word, kind in (("meditation", "meditation"), ("music", "music"), ("album", "music"), ("songs", "music"),
+    for word, kind in (("meditations?", "meditation"), ("music", "music"), ("album", "music"), ("songs", "music"),
                        ("piano", "music"), ("sounds", "soundscape"), ("sound", "soundscape"),
-                       ("soundscape", "soundscape"), ("noise", "soundscape")):
+                       ("soundscapes?", "soundscape"), ("noise", "soundscape")):
         if prefer is None and re.search(rf"\b{word}\b", what):
             prefer = kind
     shuffle = bool(re.search(r"\bshuffled?\b", what))
-    what = re.sub(r"\b(sounds?|soundscape|the album|album|shuffled?|some)\b", "", what)
+    what = re.sub(r"\b(sounds?|soundscapes?|meditations?|the album|album|shuffled?|some|a|an|any)\b", "", what)
     what = re.sub(r"\s+", " ", what).strip()
     if not (card and card.get("present")):
         if prefer:  # clearly asking for media: say why not, rather than leave it to the assistant
@@ -311,6 +313,10 @@ def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any]) -> dic
         return None
     found = _match(what, card, prefer)
     if not found:
+        plural = {"music": "music", "soundscape": "soundscapes", "meditation": "meditations"}.get(prefer or "")
+        if plural and not what:  # asked for a kind, and the card has none: say so (send some from Harkenn)
+            return {"action": "", "reply": f"This speaker's memory card has no {plural} yet. You can send "
+                                           f"some from Harkenn's media pages."}
         return None
     kind, name = found
     what_it_is = f"the {name} meditation" if kind == "meditation" and "meditation" not in name.lower() else name

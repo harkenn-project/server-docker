@@ -2401,6 +2401,10 @@ def test_media_requests_are_recognized():
                                                                   "reply": "OK, I'll stop in half an hour."}
     assert media.parse("what's playing", CARD, playing)["reply"] == "This is Clair de lune."
     assert media.parse("play Despacito", CARD, {}) is None  # not on the card: the assistant may know better
+    assert media.parse("Play some soundscapes.", CARD, {})["kind"] == "soundscape"  # plurals too
+    assert media.parse("play some meditations", CARD, {})["album"] == "Breathing"
+    no_scapes = dict(CARD, soundscapes=[])
+    assert "card has no soundscapes" in media.parse("play some soundscapes", no_scapes, {})["reply"]
     assert media.parse("what's the weather", CARD, playing) is None
     assert "memory card" in media.parse("play some music", {"present": False}, {})["reply"]
     assert media.parse("play the news", {"present": False}, {}) is None
