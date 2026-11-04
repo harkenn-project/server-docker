@@ -30,9 +30,14 @@ mcp_servers:
     timeout: 120   # a ring waits up to 30 s for an answer, then up to ~45 s for a spoken reply
 ```
 
-Hermes names the tools `mcp__harkenn__list_speakers`, `mcp__harkenn__speak` and `mcp__harkenn__ring`. For guidance on
-when to use which, copy [skills/harkenn-speakers](skills/harkenn-speakers/SKILL.md) into Hermes' skills folder
-(`~/.hermes/skills/`).
+That's all an agent needs: Harkenn describes itself through the connection. Its instructions (sent when a client
+connects) say what the speakers can do, and every tool's description says how to use it, so any MCP-capable assistant
+finds "play the rain soundscape" or "set a timer in the kitchen" without anything else installed. Hermes names the
+tools `mcp__harkenn__speak` and so on.
+
+A [skill](skills/harkenn-speakers/SKILL.md) adds manners (when to ring rather than speak, writing for a voice, what
+to say when something isn't on a card). It's optional, and deliberately doesn't list the tools, so it can't go out of
+date: if you use it, fetch it fresh rather than keeping a copy.
 
 ### Claude Code
 

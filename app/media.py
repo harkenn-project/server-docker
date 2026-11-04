@@ -207,6 +207,19 @@ def say_minutes(minutes: int) -> str:
     return f"{minutes} minute" + ("" if minutes == 1 else "s")
 
 
+def clean_request(what: str) -> str:
+    """ "the rain soundscape" -> "rain": the words that name it, for match()."""
+    text = re.sub(r"[^\w' -]", " ", str(what or "").lower())
+    text = re.sub(r"\b(the|a|an|some|any|my|our|sounds?|soundscapes?|meditations?|album|music|please)\b", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def match(want: str, card: dict[str, Any], prefer: str | None = None) -> tuple[str, str] | None:
+    """(kind, name) on the card for what's asked for, matched loosely (names, words, and what people call the sample
+    media: "rain", "birds", "piano"); None if nothing fits."""
+    return _match(want, card, prefer)
+
+
 def _match(want: str, card: dict[str, Any], prefer: str | None) -> tuple[str, str] | None:
     """(kind, name) on the card for what someone asked for, or None."""
     options = ([("music", a["name"]) for a in card.get("music", [])]

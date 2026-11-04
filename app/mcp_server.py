@@ -42,7 +42,13 @@ REPLY_LISTEN_S = 45  # after the question has been spoken: time to start talking
 NOT_HEARD = ("Presume no one heard this: Harkenn can't tell whether anyone is near a speaker. If it matters that "
              "someone gets the message, use ring, which tells you whether someone answered.")
 
-INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk to the people here.
+INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Through it you can talk to the people here (speak, or
+ring a speaker like a phone and hear the answer), set timers and alarms, show notifications and the weather on the
+speakers' screens, keep the household's lists, reminders and calendar, and play music, soundscapes and meditations
+from a speaker's SD card. The tools below are everything it can do; their descriptions say how.
+
+When a request names no speaker, the tools that need one use the speaker someone spoke to in the last few minutes, or
+the only speaker there is.
 
 - list_speakers: the speakers, where they are (their names are usually rooms), whether each is online, and what
   you may do there (agents: ring_and_speak, speak_only or do_not_disturb). Respect do not disturb: never try to get
@@ -324,12 +330,19 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
         it's ringing."""
         return await _timer_on(speaker, {"cancel": which})
 
+    def _default_speaker() -> str:
+        """The speaker someone spoke to in the last few minutes, or the only one; "" if neither."""
+        every = _speakers(ctx)
+        recent = voice.recent_speaker()
+        if recent and any(s["id"] == recent for s in every):
+            return recent
+        return every[0]["id"] if len(every) == 1 else ""
+
     async def _timer_on(speaker: str, action: dict[str, Any]) -> dict[str, Any]:
         if not speaker.strip():
-            names = [s["name"] for s in _speakers(ctx)]
-            if len(names) != 1:
-                return {"done": False, "note": "Say which speaker: " + ", ".join(names) + "."}
-            speaker = names[0]
+            speaker = _default_speaker()
+            if not speaker:
+                return {"done": False, "note": "Say which speaker: " + ", ".join(s["name"] for s in _speakers(ctx)) + "."}
         chosen, error = _targets(ctx, speaker)
         if error or len(chosen) != 1:
             return {"done": False, "note": error or "Name one speaker."}
@@ -359,23 +372,27 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
     @server.tool()
     async def play_media(what: str, kind: str = "", speaker: str = "", minutes: int = 0,
                          shuffle: bool = False) -> dict[str, Any]:
-        """Play something from a speaker's micro SD card: a music album, a soundscape (loops until stopped) or a
-        meditation (plays once). `what` as media_library lists it; `kind` "music", "soundscape" or "meditation" (found
-        from the name if empty); `minutes` a sleep timer (fades out and stops). Music fades out by itself while the
-        speaker talks."""
+        """Play something from a speaker's micro SD card: a music album, a soundscape that loops until stopped (rain,
+        a stream, a campfire, white noise...) or a meditation that plays once. `what`: a name, or loosely what it
+        sounds like ("rain", "birds", "piano"): it's matched against what's on the card, and if nothing fits you get
+        what is there. `kind`: "music", "soundscape" or "meditation", or empty. `speaker`: empty for the one someone
+        just spoke to (or the only one). `minutes`: a sleep timer (fades out and stops). Music fades out by itself
+        while the speaker talks."""
         s, note = _one_speaker(speaker)
         if not s:
             return {"done": False, "note": note}
         card = ctx.cards.get(s["id"]) or {}
         if not card.get("present"):
-            return {"done": False, "note": f'{s["name"]} has no SD card.'}
-        found = [(k, n) for k, names in (("music", [a["name"] for a in card.get("music", [])]),
-                                         ("soundscape", card.get("soundscapes", [])),
-                                         ("meditation", card.get("meditations", [])))
-                 for n in names if n.lower() == what.strip().lower() and (not kind or k == kind)]
-        if not found:
-            return {"done": False, "note": f'"{what}" isn\'t on {s["name"]}\'s card. media_library lists what is.'}
-        k, n = found[0]
+            return {"done": False, "note": f'{s["name"]} has no SD card, so it can\'t play anything.'}
+        want = media.clean_request(what)
+        found = media.match(want, card, kind if kind in media.KINDS else None)
+        if not found or (kind in media.KINDS and found[0] != kind):
+            return {"done": False, "note": f'Nothing like "{what}" on {s["name"]}\'s card. More can be sent to it from '
+                                           f"the Media pages in Harkenn's admin.",
+                    "on_the_card": {"music_albums": [a["name"] for a in card.get("music", [])],
+                                    "soundscapes": card.get("soundscapes", []),
+                                    "meditations": card.get("meditations", [])}}
+        k, n = found
         await media.send(ctx, s["id"], "play", kind=k, album=n, minutes=minutes, shuffle=shuffle)
         log_tool(f"play {k} {n} on {s['name']}")
         return {"done": True, "speaker": s["name"], "playing": n, "kind": k}
@@ -383,7 +400,8 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
     @server.tool()
     async def control_media(action: str, speaker: str = "", minutes: int = 0, repeat: str = "") -> dict[str, Any]:
         """Control what a speaker is playing: `action` "pause", "resume", "stop", "next", "previous", "repeat"
-        (with `repeat` "off", "all" or "one") or "sleep" (stop after `minutes`; 0 cancels the sleep timer)."""
+        (with `repeat` "off", "all" or "one") or "sleep" (stop after `minutes`; 0 cancels the sleep timer).
+        `speaker`: empty for the one someone just spoke to (or the only one)."""
         s, note = _one_speaker(speaker)
         if not s:
             return {"done": False, "note": note}
@@ -396,10 +414,9 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
 
     def _one_speaker(speaker: str) -> tuple[dict[str, Any] | None, str]:
         if not speaker.strip():
-            names = [s["name"] for s in _speakers(ctx)]
-            if len(names) != 1:
-                return None, "Say which speaker: " + ", ".join(names) + "."
-            speaker = names[0]
+            speaker = _default_speaker()
+            if not speaker:
+                return None, "Say which speaker: " + ", ".join(s["name"] for s in _speakers(ctx)) + "."
         chosen, error = _targets(ctx, speaker)
         if error or len(chosen) != 1:
             return None, error or "Name one speaker."

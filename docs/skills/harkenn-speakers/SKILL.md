@@ -6,21 +6,10 @@ description: The Harkenn smart speakers in this home - talk to people through th
 # Harkenn speakers
 
 Harkenn runs the smart speakers in this home. Each speaker listens, talks, has a small round screen, and can play
-music, soundscapes and meditations from a micro SD card if it has one. Its MCP server, `harkenn`, has these tools:
+music, soundscapes and meditations from a micro SD card if it has one.
 
-| Tool | Use it to |
-|---|---|
-| `list_speakers` | See the speakers, their rooms (the names), which are online, and what each is doing |
-| `speak` | Say something aloud on a speaker, when no response is needed |
-| `ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
-| `notify` | Put a notification card on a speaker's screen (no speech); an envelope stays until someone looks |
-| `list_timers`, `set_timer`, `set_alarm`, `cancel_timer` | Timers and alarms, which live on a speaker and ring there: "9m", "07:30" on "weekdays", cancel by label |
-| `get_weather`, `show_weather` | The weather here now and for the coming days; an animated weather screen on a speaker |
-| `media_library` | What each speaker can play: the music albums, soundscapes and meditations on its SD card, and what's playing now |
-| `play_media` | Play one of those on a speaker, by name, with an optional sleep timer in minutes |
-| `control_media` | Pause, resume, stop, next, previous, repeat, or a sleep timer, on a speaker that's playing |
-| `household_items`, `household_change` | The household's memories, to-do and shopping lists, reminders, calendar, messages and chores (the ones turned on in Harkenn) |
-| `calendar_events`, `news_headlines`, `morning_briefing` | The calendar for some days, the news from Harkenn's feeds, everything for a morning briefing |
+**What you can do is whatever the `harkenn` MCP server's tools offer: their names and descriptions are the full,
+current list.** This skill doesn't list them (a list here would go out of date); it only adds how to use them well.
 
 ## Playing music and sounds
 
@@ -28,8 +17,8 @@ The speakers play from their own SD cards: albums (e.g. "Background", soft piano
 thunderstorm, a stream, a campfire, white noise...) and meditations. That's separate from any other music service in
 the home: a speaker doesn't need it.
 
-- When someone asks for music or sounds on a speaker, call `media_library` and play what fits with `play_media`.
-  "Rain" means a soundscape with rain in its name; "something relaxing" can be the Background album or a soundscape.
+- When someone asks for music or sounds on a speaker, play it with the media tools: they take loose names ("rain",
+  "birds", "piano") and say what's on the card when nothing fits.
 - If it isn't on that speaker's card, say what is there, and that more can be sent to the card from the Media pages in
   Harkenn's admin. Don't say the speaker can't play anything.
 - A speaker without an SD card can't play media: say so plainly.

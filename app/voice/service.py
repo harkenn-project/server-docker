@@ -87,6 +87,7 @@ class VoiceService:
         self._samples: dict[str, asyncio.Future] = {}  # speaker -> an enrollment waiting for its next recording
         self._replies: dict[str, asyncio.Future] = {}  # speaker -> someone waiting for what is said next (await_reply)
         self._awaiting_reply: dict[str, float] = {}  # speaker -> when it was asked to listen for a reply (follow_up)
+        self._last_spoken: tuple[str, float] = ("", 0.0)  # (speaker, when): the last one someone talked to
         self._binary: dict[str, asyncio.Lock] = {}  # speaker -> held while sending speech or a screen in binary frames
         self._broadcast_next: dict[str, tuple[str, float]] = {}  # speaker -> (where to, when) after "Broadcast" alone
 
@@ -298,6 +299,7 @@ class VoiceService:
                 return
             if who:
                 self._log(device_id, "I", f"voice: {voiceprint.tag(who)[7:-1]} ({who['score']:.2f})")
+            self._last_spoken = (device_id, time.time())
             if await self._broadcast(device_id, u.session, heard, pcm, s, who):
                 return
             if await self._media(device_id, u.session, heard):
@@ -451,6 +453,12 @@ class VoiceService:
                                             "reply": reply})
         await self._stream(device_id, await self.synthesize(reply), reply, session)
         return True
+
+    def recent_speaker(self, within_s: float = 300) -> str:
+        """The speaker someone last spoke to, if it was in the last `within_s` seconds: what an agent's "this
+        speaker" means (mcp_server.py)."""
+        device_id, at = self._last_spoken
+        return device_id if device_id and time.time() - at < within_s else ""
 
     async def _media(self, device_id: str, session: str, heard: str) -> bool:
         """"Play rain", "pause", "next"... (media.py), caught before the assistant. False if `heard` isn't one."""

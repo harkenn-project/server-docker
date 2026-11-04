@@ -2644,6 +2644,27 @@ def test_card_sync(client):
         assert client.get(f"/admin/api/devices/{MAC}/card").json()["sync"]["in_step"]
 
 
+def test_a_fresh_agent_finds_and_plays_media(client):
+    """An agent with nothing but the MCP connection: the instructions and tool descriptions are enough."""
+    device_token = adopt(client)
+    token = mcp_token(client)
+    init = mcp_call(client, token, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                                  "clientInfo": {"name": "fresh", "version": "1"}})
+    assert "play music, soundscapes and meditations" in init["instructions"]
+    tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
+    assert "soundscape" in tools["play_media"]["description"] and "rain" in tools["play_media"]["description"]
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "card", "card": CARD})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        r = mcp_tool(client, token, "play_media", what="the rain soundscape")  # no exact name, no speaker
+        assert r["done"] and r["playing"] == "City Rain" and r["kind"] == "soundscape"
+        assert ws.receive_json()["album"] == "City Rain"
+        r = mcp_tool(client, token, "play_media", what="jazz")
+        assert not r["done"] and "City Rain" in r["on_the_card"]["soundscapes"]
+
+
 def test_stop_model_for_speakers(tmp_path, prebuilt):
     words = tmp_path / "words"
     words.mkdir()
