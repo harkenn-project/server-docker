@@ -53,6 +53,11 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   messages for someone in the household, a chores rota, a morning briefing and news headlines. Each is off until you
   turn it on, and everything they keep is on its own admin page. Personal things follow the voiceprints. An agent
   such as Hermes keeps its own memory and reaches these through MCP. See [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md).
+- **Music, soundscapes and meditations.** Put a micro SD card in a speaker and say "play some music", "play rain
+  for an hour", "pause", "next" or "stop in half an hour". It plays from the card, so it keeps going without Wi-Fi:
+  albums in order or shuffled, soundscapes that loop with no gap, meditations that play once, and a sleep timer that
+  fades out. The music fades while the speaker listens or talks. The card is optional, and a card it can't read can be
+  formatted from the admin page. See [docs/MEDIA.md](docs/MEDIA.md).
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
 - **Setup without fuss.** Install the firmware from your browser at [flash.mylife.ninja](https://flash.mylife.ninja).
@@ -101,6 +106,7 @@ What the speakers show is in [speaker-firmware](https://github.com/harkenn-proje
 | [docs/MCP.md](docs/MCP.md) | The MCP server for AI agents, with a ready-made [skill](docs/skills/harkenn-speakers/SKILL.md) |
 | [docs/SCREEN.md](docs/SCREEN.md) | Pictures, buttons and overlays the assistant can show |
 | [docs/HOUSEHOLD.md](docs/HOUSEHOLD.md) | Memories, lists, reminders, calendar, messages, chores, briefing and news |
+| [docs/MEDIA.md](docs/MEDIA.md) | Music, soundscapes and meditations from a speaker's SD card |
 | [docs/HOMEASSISTANT.md](docs/HOMEASSISTANT.md) | The speakers in Home Assistant, through MQTT |
 | [docs/RELAY.md](docs/RELAY.md) | Speakers away from home, through the relay ([harkenn-project/flash](https://github.com/harkenn-project/flash), also the web flasher) |
 
@@ -181,6 +187,7 @@ app/
   admin.py       admin pages and JSON API (session login, CSRF header check)
   groups.py      speaker groups: shared settings, each speaker's own on top
   broadcast.py   announcements in your own voice on the other speakers
+  media.py       the speakers' SD cards: what's on them, what's playing, and "play rain" / "pause" by voice
   timezones.py   time zones by name, turned into the speakers' POSIX rules
   household/     memories, lists, reminders, calendar, messages, chores, briefing, news (feeds.py: ICS and RSS)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)
