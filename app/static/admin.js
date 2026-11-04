@@ -1660,84 +1660,108 @@ function initBroadcast() {
 
 function initMedia() {
   let data = jsonScript("media-data");
-  const fileUrl = path => `/admin/media/file?path=${encodeURIComponent(path)}`;
-  const mb = n => bytes(n);
+  const audio = $("#media-audio");
+  let playing = null;  // the path playing in the shared player
+  const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
   async function reload() {
     data = await api("GET", "/admin/api/media");
     render();
   }
 
-  function fileRow(f, extra = []) {
-    const title = el("input", { value: f.title, maxlength: 80, "aria-label": "Name" });
-    title.addEventListener("change", async () => {
-      try { await api("PATCH", "/admin/api/media/files", { path: f.path, title: title.value }); toast("Renamed"); await reload(); }
-      catch (err) { toast(err.message, true); title.value = f.title; }
-    });
-    const credit = [f.credit, f.licence].filter(Boolean).join(" · ");
-    return el("tr", {},
-      el("td", { class: "grow" }, title,
-        el("div", { class: "hint" }, f.source ? el("a", { href: f.source, target: "_blank", rel: "noopener" }, credit || "source")
-          : credit, f.sample ? " (sample)" : "")),
-      el("td", {}, el("audio", { controls: true, preload: "none", src: fileUrl(f.path) })),
-      el("td", { class: "num" }, mb(f.size)),
-      el("td", { class: "actions" }, ...extra,
-        el("button", { class: "danger small", title: "Delete", onclick: async () => {
-          if (!confirm(`Delete ${f.title}?`)) return;
-          try { await api("DELETE", `/admin/api/media/files?path=${encodeURIComponent(f.path)}`); await reload(); }
-          catch (err) { toast(err.message, true); }
-        } }, "Delete")));
+  // One player for the page: ▶ on a row plays it, again stops it.
+  function playButton(f) {
+    const on = playing === f.path;
+    return el("button", { class: `play${on ? " on" : ""}`, title: on ? "Stop" : "Listen", "aria-label": on ? "Stop" : "Listen",
+      onclick: () => {
+        if (playing === f.path) { audio.pause(); playing = null; }
+        else { audio.src = `/admin/media/file?path=${encodeURIComponent(f.path)}`; audio.play(); playing = f.path; }
+        render();
+      } }, on ? "■" : "▶");
+  }
+  audio.addEventListener("ended", () => { playing = null; render(); });
+
+  function menu(items) {
+    return el("details", { class: "menu row-menu" },
+      el("summary", { class: "button secondary small", "aria-label": "More" }, "⋯"),
+      el("div", { class: "menu-items" }, ...items.filter(Boolean).map(([label, fn, cls]) =>
+        el("button", { type: "button", class: cls || "secondary", onclick: e => { e.target.closest("details").open = false; fn(); } }, label))));
   }
 
-  function uploadForm(kind, album) {
-    const form = el("form", { class: "item-form upload-form", "data-kind": kind, "data-album": album },
-      el("label", { class: "wide" }, "Add tracks ", el("input", { type: "file", name: "file", accept: "audio/*", multiple: true, required: true })),
-      el("label", {}, "Credit ", el("input", { name: "credit", maxlength: 300, placeholder: "composer, performer" })),
-      el("label", {}, "Licence ", el("input", { name: "licence", maxlength: 300, placeholder: "e.g. public domain" })),
-      el("label", {}, "Source ", el("input", { name: "source", maxlength: 300, placeholder: "a link" })),
-      el("div", { class: "buttons wide" }, el("button", { type: "submit" }, "Add")));
-    hookUpload(form);
+  function details(f) {
+    const form = el("form", { class: "item-form media-edit" },
+      el("label", {}, "Name ", el("input", { name: "title", value: f.title, maxlength: 80, required: true })),
+      el("label", {}, "Credit ", el("input", { name: "credit", value: f.credit, maxlength: 300, placeholder: "who made it" })),
+      el("label", {}, "Licence ", el("input", { name: "licence", value: f.licence, maxlength: 300, placeholder: "e.g. CC0" })),
+      el("label", {}, "Link ", el("input", { name: "source", value: f.source, maxlength: 300, placeholder: "where it's from" })),
+      el("div", { class: "buttons wide" }, el("button", { type: "submit" }, "Save"),
+        el("button", { type: "button", class: "secondary", onclick: () => form.remove() }, "Cancel")));
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      const v = Object.fromEntries(new FormData(form));
+      try { await api("PATCH", "/admin/api/media/files", { path: f.path, ...v }); toast("Saved"); await reload(); }
+      catch (err) { toast(err.message, true); }
+    });
     return form;
   }
 
+  function row(f, extra = []) {
+    const li = el("li", { class: "media-row" });
+    const credit = [f.credit, f.licence].filter(Boolean).join(" · ");
+    li.append(playButton(f),
+      el("div", { class: "media-title" }, el("span", { class: "name" }, f.title),
+        f.sample ? el("span", { class: "badge" }, "sample") : null,
+        credit ? el("div", { class: "sub" }, f.source ? el("a", { href: f.source, target: "_blank", rel: "noopener" }, credit) : credit) : null),
+      el("span", { class: "size" }, bytes(f.size)),
+      menu([["Edit details", () => { if (!li.querySelector(".media-edit")) li.append(details(f)); }], ...extra,
+        ["Delete", async () => {
+          if (!confirm(`Delete ${f.title}?`)) return;
+          try { await api("DELETE", `/admin/api/media/files?path=${encodeURIComponent(f.path)}`); await reload(); }
+          catch (err) { toast(err.message, true); }
+        }, "danger"]]));
+    return li;
+  }
+
   function render() {
-    $("#media-total").textContent = `${mb(data.total_bytes)} in the library`;
+    $("#media-total").textContent = `${bytes(data.total_bytes)} in the library`;
+    $("#count-music").textContent = data.music.length || "";
+    $("#count-soundscapes").textContent = data.soundscapes.length || "";
+    $("#count-meditations").textContent = data.meditations.length || "";
     const pack = data.pack;
     $("#sample-progress").hidden = pack.state !== "downloading" && pack.state !== "error";
-    if (pack.state === "downloading" || pack.state === "error") {
+    if (!$("#sample-progress").hidden) {
       $("#sample-bar").max = pack.total_bytes || 1;
       $("#sample-bar").value = pack.bytes || 0;
       $("#sample-status").textContent = pack.state === "error" ? `It stopped: ${pack.error}. Try again below.`
-        : `${pack.done} of ${pack.total || "…"} files, ${mb(pack.bytes || 0)} of ${mb(pack.total_bytes || 0)}`;
+        : `${pack.done} of ${pack.total || "…"} files, ${bytes(pack.bytes || 0)} of ${bytes(pack.total_bytes || 0)}`;
     }
-    $("#sample-again").hidden = pack.state === "downloading";
+    $("#sample-readd").disabled = pack.state === "downloading";
 
-    $("#albums").replaceChildren(...data.music.map(album => {
-      const rows = album.tracks.map((t, i) => fileRow(t, [
-        el("button", { class: "secondary small", title: "Earlier", disabled: i === 0, onclick: () => move(album, i, -1) }, "↑"),
-        el("button", { class: "secondary small", title: "Later", disabled: i === album.tracks.length - 1, onclick: () => move(album, i, 1) }, "↓")]));
-      return el("details", { class: "album", open: data.music.length === 1 },
-        el("summary", {}, el("strong", {}, album.name), ` · ${album.tracks.length} track${album.tracks.length === 1 ? "" : "s"}, ${mb(album.size)}`),
-        el("div", { class: "table-wrap" }, el("table", { class: "table media-table" }, el("tbody", {},
-          ...(rows.length ? rows : [el("tr", {}, el("td", { class: "hint" }, "No tracks yet."))])))),
-        uploadForm("music", album.name),
+    $("#albums").replaceChildren(...data.music.map(album => el("section", { class: "card album" },
+      el("div", { class: "section-head" },
+        el("div", {}, el("h2", {}, album.name), el("span", { class: "hint" }, `${plural(album.tracks.length, "track")} · ${bytes(album.size)}`)),
         el("div", { class: "buttons" },
-          el("button", { class: "secondary small", onclick: async () => {
+          el("button", { class: "secondary small", onclick: () => pick("music", album.name) }, "+ Add tracks"),
+          menu([["Rename", async () => {
             const name = prompt("Rename the album", album.name);
             if (!name || name === album.name) return;
             try { await api("PUT", `/admin/api/media/albums/${encodeURIComponent(album.name)}`, { name }); await reload(); }
             catch (err) { toast(err.message, true); }
-          } }, "Rename"),
-          el("button", { class: "danger small", onclick: async () => {
-            if (!confirm(`Delete the album ${album.name} and its ${album.tracks.length} tracks?`)) return;
+          }], ["Delete album", async () => {
+            if (!confirm(`Delete the album ${album.name} and its ${plural(album.tracks.length, "track")}?`)) return;
             try { await api("DELETE", `/admin/api/media/albums/${encodeURIComponent(album.name)}`); await reload(); }
             catch (err) { toast(err.message, true); }
-          } }, "Delete album")));
-    }));
+          }, "danger"]]))),
+      album.tracks.length
+        ? el("ol", { class: "media-list" }, ...album.tracks.map((t, i) => row(t, [
+            i > 0 ? ["Move up", () => move(album, i, -1)] : null,
+            i < album.tracks.length - 1 ? ["Move down", () => move(album, i, 1)] : null])))
+        : el("p", { class: "hint" }, "No tracks yet: + Add tracks."))));
     if (!data.music.length) $("#albums").append(el("p", { class: "hint" }, "No albums yet."));
-    for (const kind of ["soundscapes", "meditations"]) {
-      const rows = data[kind].map(f => fileRow(f));
-      $(`#${kind}`).replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { class: "hint" }, "None yet."))]));
+    for (const [kind, key] of [["soundscape", "soundscapes"], ["meditation", "meditations"]]) {
+      const list = $(`#${kind}-list`);
+      list.replaceChildren(...data[key].map(f => row(f)));
+      if (!data[key].length) list.append(el("li", { class: "hint" }, "None yet."));
     }
   }
 
@@ -1748,45 +1772,39 @@ function initMedia() {
     catch (err) { toast(err.message, true); }
   }
 
-  function hookUpload(form) {
-    form.addEventListener("submit", async e => {
-      e.preventDefault();
-      const button = form.querySelector("button[type=submit]");
-      const files = [...form.elements.file.files];
-      button.disabled = true;
-      try {
-        for (const [n, file] of files.entries()) {
-          button.textContent = files.length > 1 ? `Converting ${n + 1} of ${files.length}…` : "Converting…";
-          const body = new FormData();
-          body.append("file", file);
-          body.append("kind", form.dataset.kind);
-          body.append("album", form.dataset.album || "");
-          for (const field of ["title", "credit", "licence", "source"]) {
-            if (form.elements[field] && !(field === "title" && files.length > 1)) body.append(field, form.elements[field].value);
-          }
-          if (form.elements.loop) body.append("loop", form.elements.loop.checked ? "true" : "false");
-          await api("POST", "/admin/api/media/files", body);
-        }
-        toast(files.length > 1 ? `Added ${files.length}` : "Added");
-        form.reset();
-        await reload();
-      } catch (err) { toast(err.message, true); }
-      finally { button.disabled = false; button.textContent = "Add"; }
-    });
-  }
+  // + Add: pick files, then each is converted and added (credits can be added after, with Edit details).
+  const picker = $("#media-picker");
+  let target = null;
+  function pick(kind, album = "") { target = { kind, album }; picker.value = ""; picker.click(); }
+  picker.addEventListener("change", async () => {
+    const files = [...picker.files];
+    if (!files.length || !target) return;
+    const { kind, album } = target;
+    let added = 0;
+    for (const [n, file] of files.entries()) {
+      toast(files.length > 1 ? `Converting ${n + 1} of ${files.length}: ${file.name}` : `Converting ${file.name}…`);
+      const body = new FormData();
+      body.append("file", file);
+      body.append("kind", kind);
+      body.append("album", album);
+      try { await api("POST", "/admin/api/media/files", body); added++; }
+      catch (err) { toast(`${file.name}: ${err.message}`, true); }
+    }
+    if (added) toast(`Added ${plural(added, "file")}`);
+    await reload();
+  });
+  for (const b of $$("[data-add]")) b.addEventListener("click", () => pick(b.dataset.add));
 
-  for (const form of $$("form.upload-form")) hookUpload(form);
   $("#album-form").addEventListener("submit", async e => {
     e.preventDefault();
     const input = e.currentTarget.elements.name;
     try { await api("POST", "/admin/api/media/albums", { name: input.value }); input.value = ""; await reload(); }
     catch (err) { toast(err.message, true); }
   });
-  const addSamples = async () => {
+  $("#sample-readd").addEventListener("click", async () => {
     try { data.pack = await api("POST", "/admin/api/media/sample-pack"); render(); }
     catch (err) { toast(err.message, true); }
-  };
-  $("#sample-readd").addEventListener("click", addSamples);
+  });
   subscribe(debounce(msg => { if (msg.type === "media") reload().catch(() => {}); }, 300));
   render();
 }
