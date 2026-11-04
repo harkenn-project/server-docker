@@ -34,15 +34,17 @@ AI agents can play and control media through MCP: `media_library`, `play_media` 
 
 ## The media library
 
-The admin's **Media** page keeps music albums, soundscapes and meditations on the server, ready for the speakers'
-cards:
+The admin's **Media** section keeps music albums, soundscapes and meditations on the server, ready for the speakers'
+cards. Music shows the albums as covers; each album has its own page with its track list. Soundscapes are tiles;
+meditations a list. Anything can be played in the browser.
 
-- **Albums**: create, rename and delete them; add tracks (several at once); change their order with ↑ and ↓.
+- **Albums**: create, rename and delete them; add tracks (several at once); move tracks up and down; give an album a
+  cover (any picture, cropped square and saved as `cover.jpg` in its folder) or let Harkenn make one from its name.
 - **Adding files**: any common audio format. Harkenn makes them card-friendly: music and meditations become mono
   MP3s at an even loudness; soundscapes become mono 32 kHz WAVs that loop with no seam (the end crossfades into the
-  start; you can turn that off for a file that already loops).
-- **Credits**: each file can carry who made it, its licence and a link. Rename a file by editing its name.
-- **Listen** to anything in the browser before it goes on a card.
+  start).
+- **Details**: each file can carry its name, who made it, its licence and a link (⋯ → Edit details).
+- **Listen** to anything in the browser: a player docks at the bottom of the page.
 
 The library is a plain folder, `HARKENN_MEDIA_DIR` (default `media` in the data folder), laid out exactly like a
 card, so it can also be copied onto a card directly. It can be a volume of its own.

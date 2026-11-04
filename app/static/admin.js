@@ -1656,30 +1656,79 @@ function initBroadcast() {
   show();
 }
 
-// media library page (library.py)
+// media library pages (library.py): Music (albums), an album, Soundscapes, Meditations
 
 function initMedia() {
+  const view = document.body.dataset.view;
+  const albumName = document.body.dataset.album;
   let data = jsonScript("media-data");
   const audio = $("#media-audio");
-  let playing = null;  // the path playing in the shared player
+  let queue = [], current = null;  // what the preview player is playing
   const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  const clock = s => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+  const long = s => { const m = Math.round((s || 0) / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
+  const album = () => data.music.find(a => a.name === albumName);
 
   async function reload() {
     data = await api("GET", "/admin/api/media");
     render();
   }
 
-  // One player for the page: ▶ on a row plays it, again stops it.
-  function playButton(f) {
-    const on = playing === f.path;
-    return el("button", { class: `play${on ? " on" : ""}`, title: on ? "Stop" : "Listen", "aria-label": on ? "Stop" : "Listen",
-      onclick: () => {
-        if (playing === f.path) { audio.pause(); playing = null; }
-        else { audio.src = `/admin/media/file?path=${encodeURIComponent(f.path)}`; audio.play(); playing = f.path; }
-        render();
-      } }, on ? "■" : "▶");
+  // Artwork: an album's cover.jpg, or one made from its name; a soundscape's picture from what it sounds like.
+  function hue(text) { let h = 0; for (const c of text) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+  function albumArt(a, size = "") {
+    const box = el("div", { class: `cover ${size}` });
+    if (a.cover) box.append(el("img", { src: `/admin/media/cover/${encodeURIComponent(a.name)}?v=${a.size}`, alt: "" }));
+    else {
+      const h = hue(a.name);
+      box.style.background = `linear-gradient(135deg, hsl(${h} 55% 52%), hsl(${(h + 50) % 360} 60% 28%))`;
+      box.append(el("span", { class: "cover-note" }, "♪"), el("span", { class: "cover-name" }, a.name));
+    }
+    return box;
   }
-  audio.addEventListener("ended", () => { playing = null; render(); });
+  const THEMES = [
+    [/thunder|storm/i, "⛈️", 230], [/rain/i, "🌧", 210], [/stream|river|brook|water|creek/i, "💧", 190],
+    [/lake|sea|ocean|wave/i, "🌊", 200], [/chime|bell/i, "🎐", 280], [/wind|breeze|blust/i, "🍃", 150],
+    [/fire|camp/i, "🔥", 20], [/bird|song|chirp|dawn|morning/i, "🐦", 95], [/swamp|frog/i, "🐸", 120],
+    [/night|cricket|forest/i, "🌙", 255], [/hill|mountain/i, "⛰️", 160], [/noise|white|pink|brown/i, "〰", 220]];
+  function scapeArt(f, size = "") {
+    const [, icon, h] = THEMES.find(([re]) => re.test(f.title)) || [null, "🌿", 140];
+    const box = el("div", { class: `cover ${size} scape` }, el("span", { class: "scape-icon" }, icon));
+    box.style.background = `radial-gradient(circle at 30% 20%, hsl(${h} 60% 62%), hsl(${h} 55% 30%) 70%)`;
+    return box;
+  }
+
+  // the preview player, docked at the bottom
+  function play(list, i) {
+    queue = list;
+    current = list[i];
+    audio.src = `/admin/media/file?path=${encodeURIComponent(current.path)}`;
+    audio.play().catch(() => {});
+    render();
+  }
+  function stop() { audio.pause(); current = null; queue = []; render(); }
+  audio.addEventListener("ended", () => {
+    const i = queue.indexOf(current);
+    if (view !== "soundscapes" && i >= 0 && i + 1 < queue.length) play(queue, i + 1);
+    else if (view === "soundscapes" && current) audio.play();  // a soundscape loops
+    else stop();
+  });
+  audio.addEventListener("timeupdate", () => {
+    if (!current || !audio.duration) return;
+    $("#np-progress").style.width = `${(100 * audio.currentTime / audio.duration).toFixed(1)}%`;
+    $("#np-time").textContent = `${clock(audio.currentTime)} / ${clock(audio.duration)}`;
+  });
+  $("#np-stop").addEventListener("click", stop);
+  function renderPlayer() {
+    $("#now-playing").hidden = !current;
+    document.body.classList.toggle("with-player", !!current);
+    if (!current) return;
+    $("#np-title").textContent = current.title;
+    $("#np-sub").textContent = current.credit || "";
+    const art = view === "soundscapes" ? scapeArt(current, "small")
+      : view === "album" ? albumArt(album(), "small") : el("div", { class: "cover small" });
+    $("#np-art").replaceWith(Object.assign(art, { id: "np-art" }));
+  }
 
   function menu(items) {
     return el("details", { class: "menu row-menu" },
@@ -1687,121 +1736,176 @@ function initMedia() {
       el("div", { class: "menu-items" }, ...items.filter(Boolean).map(([label, fn, cls]) =>
         el("button", { type: "button", class: cls || "secondary", onclick: e => { e.target.closest("details").open = false; fn(); } }, label))));
   }
+  const fileMenu = (f, extra = []) => menu([["Edit details…", () => editDetails(f)], ...extra, ["Delete…", async () => {
+    if (!confirm(`Delete ${f.title}?`)) return;
+    if (current && current.path === f.path) stop();
+    try { await api("DELETE", `/admin/api/media/files?path=${encodeURIComponent(f.path)}`); await reload(); }
+    catch (err) { toast(err.message, true); }
+  }, "danger"]]);
 
-  function details(f) {
-    const form = el("form", { class: "item-form media-edit" },
-      el("label", {}, "Name ", el("input", { name: "title", value: f.title, maxlength: 80, required: true })),
-      el("label", {}, "Credit ", el("input", { name: "credit", value: f.credit, maxlength: 300, placeholder: "who made it" })),
+  // Edit details: a small dialog
+  function editDetails(f) {
+    const dialog = el("dialog", { class: "media-dialog" });
+    const form = el("form", { method: "dialog", class: "item-form" },
+      el("h2", { class: "wide" }, "Details"),
+      el("label", { class: "wide" }, "Name ", el("input", { name: "title", value: f.title, maxlength: 80, required: true })),
+      el("label", { class: "wide" }, "Credit ", el("input", { name: "credit", value: f.credit, maxlength: 300, placeholder: "who made or performed it" })),
       el("label", {}, "Licence ", el("input", { name: "licence", value: f.licence, maxlength: 300, placeholder: "e.g. CC0" })),
       el("label", {}, "Link ", el("input", { name: "source", value: f.source, maxlength: 300, placeholder: "where it's from" })),
       el("div", { class: "buttons wide" }, el("button", { type: "submit" }, "Save"),
-        el("button", { type: "button", class: "secondary", onclick: () => form.remove() }, "Cancel")));
+        el("button", { type: "button", class: "secondary", onclick: () => dialog.close() }, "Cancel")));
     form.addEventListener("submit", async e => {
       e.preventDefault();
-      const v = Object.fromEntries(new FormData(form));
-      try { await api("PATCH", "/admin/api/media/files", { path: f.path, ...v }); toast("Saved"); await reload(); }
+      try { await api("PATCH", "/admin/api/media/files", { path: f.path, ...Object.fromEntries(new FormData(form)) }); dialog.close(); toast("Saved"); await reload(); }
       catch (err) { toast(err.message, true); }
     });
-    return form;
+    dialog.append(form);
+    dialog.addEventListener("close", () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
   }
 
-  function row(f, extra = []) {
-    const li = el("li", { class: "media-row" });
-    const credit = [f.credit, f.licence].filter(Boolean).join(" · ");
-    li.append(playButton(f),
-      el("div", { class: "media-title" }, el("span", { class: "name" }, f.title),
-        f.sample ? el("span", { class: "badge" }, "sample") : null,
-        credit ? el("div", { class: "sub" }, f.source ? el("a", { href: f.source, target: "_blank", rel: "noopener" }, credit) : credit) : null),
-      el("span", { class: "size" }, bytes(f.size)),
-      menu([["Edit details", () => { if (!li.querySelector(".media-edit")) li.append(details(f)); }], ...extra,
-        ["Delete", async () => {
-          if (!confirm(`Delete ${f.title}?`)) return;
-          try { await api("DELETE", `/admin/api/media/files?path=${encodeURIComponent(f.path)}`); await reload(); }
-          catch (err) { toast(err.message, true); }
-        }, "danger"]]));
-    return li;
+  // a track list (an album, the meditations)
+  function trackRows(list, numbered, extraFor = () => []) {
+    return list.map((t, i) => {
+      const on = current && current.path === t.path;
+      return el("tr", { class: on ? "playing" : "", ondblclick: () => play(list, i) },
+        el("td", { class: "n" }, el("span", { class: "num" }, numbered ? i + 1 : "♪"),
+          el("button", { class: "play-mini", "aria-label": on ? "Stop" : "Play", onclick: () => on ? stop() : play(list, i) }, on ? "■" : "▶")),
+        el("td", {}, el("div", { class: "t-title" }, t.title, t.sample ? el("span", { class: "badge" }, "sample") : null),
+          t.credit || t.licence ? el("div", { class: "t-sub" }, [t.credit, t.licence].filter(Boolean).join(" · ")) : null),
+        el("td", { class: "t" }, clock(t.seconds)),
+        el("td", { class: "m" }, fileMenu(t, extraFor(t, i))));
+    });
   }
 
-  function render() {
-    $("#media-total").textContent = `${bytes(data.total_bytes)} in the library`;
-    $("#count-music").textContent = data.music.length || "";
-    $("#count-soundscapes").textContent = data.soundscapes.length || "";
-    $("#count-meditations").textContent = data.meditations.length || "";
+  function renderLibraryHead() {
     const pack = data.pack;
-    $("#sample-progress").hidden = pack.state !== "downloading" && pack.state !== "error";
-    if (!$("#sample-progress").hidden) {
+    const progress = $("#sample-progress");
+    if (progress) {
+      progress.hidden = pack.state !== "downloading" && pack.state !== "error";
       $("#sample-bar").max = pack.total_bytes || 1;
       $("#sample-bar").value = pack.bytes || 0;
       $("#sample-status").textContent = pack.state === "error" ? `It stopped: ${pack.error}. Try again below.`
-        : `${pack.done} of ${pack.total || "…"} files, ${bytes(pack.bytes || 0)} of ${bytes(pack.total_bytes || 0)}`;
-    }
-    $("#sample-readd").disabled = pack.state === "downloading";
-
-    $("#albums").replaceChildren(...data.music.map(album => el("section", { class: "card album" },
-      el("div", { class: "section-head" },
-        el("div", {}, el("h2", {}, album.name), el("span", { class: "hint" }, `${plural(album.tracks.length, "track")} · ${bytes(album.size)}`)),
-        el("div", { class: "buttons" },
-          el("button", { class: "secondary small", onclick: () => pick("music", album.name) }, "+ Add tracks"),
-          menu([["Rename", async () => {
-            const name = prompt("Rename the album", album.name);
-            if (!name || name === album.name) return;
-            try { await api("PUT", `/admin/api/media/albums/${encodeURIComponent(album.name)}`, { name }); await reload(); }
-            catch (err) { toast(err.message, true); }
-          }], ["Delete album", async () => {
-            if (!confirm(`Delete the album ${album.name} and its ${plural(album.tracks.length, "track")}?`)) return;
-            try { await api("DELETE", `/admin/api/media/albums/${encodeURIComponent(album.name)}`); await reload(); }
-            catch (err) { toast(err.message, true); }
-          }, "danger"]]))),
-      album.tracks.length
-        ? el("ol", { class: "media-list" }, ...album.tracks.map((t, i) => row(t, [
-            i > 0 ? ["Move up", () => move(album, i, -1)] : null,
-            i < album.tracks.length - 1 ? ["Move down", () => move(album, i, 1)] : null])))
-        : el("p", { class: "hint" }, "No tracks yet: + Add tracks."))));
-    if (!data.music.length) $("#albums").append(el("p", { class: "hint" }, "No albums yet."));
-    for (const [kind, key] of [["soundscape", "soundscapes"], ["meditation", "meditations"]]) {
-      const list = $(`#${kind}-list`);
-      list.replaceChildren(...data[key].map(f => row(f)));
-      if (!data[key].length) list.append(el("li", { class: "hint" }, "None yet."));
+        : `${pack.done || 0} of ${pack.total || "…"} files, ${bytes(pack.bytes || 0)} of ${bytes(pack.total_bytes || 0)}`;
+      $("#sample-readd").disabled = pack.state === "downloading";
     }
   }
 
-  async function move(album, i, by) {
-    const paths = album.tracks.map(t => t.path);
+  function render() {
+    renderPlayer();
+    if (view === "music") {
+      const tracks = data.music.reduce((n, a) => n + a.tracks.length, 0);
+      $("#library-stats").textContent = `${plural(data.music.length, "album")} · ${plural(tracks, "track")} · ${long(data.music.reduce((n, a) => n + a.seconds, 0))}`;
+      renderLibraryHead();
+      $("#albums").replaceChildren(...data.music.map(a => el("a", { class: "album-tile", href: `/admin/media/music/${encodeURIComponent(a.name)}` },
+        albumArt(a), el("strong", {}, a.name), el("span", { class: "hint" }, `${plural(a.tracks.length, "track")} · ${long(a.seconds)}`))),
+        el("a", { class: "album-tile new", href: "#", onclick: e => { e.preventDefault(); newAlbum(); } }, el("div", { class: "cover" }, "+"), el("strong", {}, "New album"),
+          el("span", { class: "hint" }, "then add tracks to it")));
+    } else if (view === "album") {
+      const a = album();
+      if (!a) { location.href = "/admin/media/music"; return; }
+      $("#album-cover").replaceWith(Object.assign(albumArt(a, "large"), { id: "album-cover" }));
+      $("#album-stats").textContent = `${plural(a.tracks.length, "track")} · ${long(a.seconds)} · ${bytes(a.size)}`;
+      $("#album-cover-remove").hidden = !a.cover;
+      $("#play-all").disabled = !a.tracks.length;
+      const rows = trackRows(a.tracks, true, (t, i) => [
+        i > 0 ? ["Move up", () => move(a, i, -1)] : null,
+        i < a.tracks.length - 1 ? ["Move down", () => move(a, i, 1)] : null]);
+      $("#tracks").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: 4, class: "hint empty-row" }, "No tracks yet. + Add tracks to start."))]));
+    } else if (view === "soundscapes") {
+      $("#library-stats").textContent = `${plural(data.soundscapes.length, "soundscape")} · ${bytes(data.soundscapes.reduce((n, f) => n + f.size, 0))}`;
+      renderLibraryHead();
+      $("#scapes").replaceChildren(...data.soundscapes.map((f, i) => {
+        const on = current && current.path === f.path;
+        return el("div", { class: `scape-tile${on ? " playing" : ""}` },
+          el("button", { class: "scape-play", "aria-label": on ? "Stop" : `Play ${f.title}`, onclick: () => on ? stop() : play(data.soundscapes, i) },
+            scapeArt(f), el("span", { class: "play-badge" }, on ? "■" : "▶")),
+          el("div", { class: "scape-text" }, el("strong", { title: f.title }, f.title),
+            el("span", { class: "hint", title: [f.credit, f.licence].filter(Boolean).join(" · ") },
+              `${clock(f.seconds)} loop`, f.sample ? " · sample" : "")),
+          fileMenu(f));
+      }));
+    } else {
+      $("#library-stats").textContent = data.meditations.length
+        ? `${plural(data.meditations.length, "meditation")} · ${long(data.meditations.reduce((n, f) => n + f.seconds, 0))}` : "";
+      renderLibraryHead();
+      $("#meditation-card").hidden = !data.meditations.length;
+      $("#meditations-empty").hidden = !!data.meditations.length;
+      $("#tracks").replaceChildren(...trackRows(data.meditations, false));
+    }
+  }
+
+  async function move(a, i, by) {
+    const paths = a.tracks.map(t => t.path);
     [paths[i], paths[i + by]] = [paths[i + by], paths[i]];
-    try { await api("PUT", `/admin/api/media/albums/${encodeURIComponent(album.name)}/order`, { paths }); await reload(); }
+    try { await api("PUT", `/admin/api/media/albums/${encodeURIComponent(a.name)}/order`, { paths }); await reload(); }
     catch (err) { toast(err.message, true); }
   }
 
-  // + Add: pick files, then each is converted and added (credits can be added after, with Edit details).
+  async function newAlbum() {
+    const name = prompt("Name the new album");
+    if (!name) return;
+    try { const r = await api("POST", "/admin/api/media/albums", { name }); location.href = `/admin/media/music/${encodeURIComponent(r.name)}`; }
+    catch (err) { toast(err.message, true); }
+  }
+
+  // + Add: pick files; each is converted and added (credits can be added after, with Edit details).
   const picker = $("#media-picker");
-  let target = null;
-  function pick(kind, album = "") { target = { kind, album }; picker.value = ""; picker.click(); }
+  let addKind = null;
+  for (const b of $$("[data-add]")) b.addEventListener("click", () => { addKind = b.dataset.add; picker.value = ""; picker.click(); });
   picker.addEventListener("change", async () => {
     const files = [...picker.files];
-    if (!files.length || !target) return;
-    const { kind, album } = target;
+    if (!files.length || !addKind) return;
     let added = 0;
     for (const [n, file] of files.entries()) {
       toast(files.length > 1 ? `Converting ${n + 1} of ${files.length}: ${file.name}` : `Converting ${file.name}…`);
       const body = new FormData();
       body.append("file", file);
-      body.append("kind", kind);
-      body.append("album", album);
+      body.append("kind", addKind);
+      body.append("album", addKind === "music" ? albumName : "");
       try { await api("POST", "/admin/api/media/files", body); added++; }
       catch (err) { toast(`${file.name}: ${err.message}`, true); }
     }
     if (added) toast(`Added ${plural(added, "file")}`);
     await reload();
   });
-  for (const b of $$("[data-add]")) b.addEventListener("click", () => pick(b.dataset.add));
 
-  $("#album-form").addEventListener("submit", async e => {
-    e.preventDefault();
-    const input = e.currentTarget.elements.name;
-    try { await api("POST", "/admin/api/media/albums", { name: input.value }); input.value = ""; await reload(); }
-    catch (err) { toast(err.message, true); }
-  });
-  $("#sample-readd").addEventListener("click", async () => {
+  if (view === "music") $("#new-album").addEventListener("click", newAlbum);
+  if (view === "album") {
+    const enc = encodeURIComponent(albumName);
+    $("#play-all").addEventListener("click", () => album().tracks.length && play(album().tracks, 0));
+    const closeMenu = e => { const d = e.target.closest("details"); if (d) d.open = false; };
+    $("#album-rename").addEventListener("click", async e => {
+      closeMenu(e);
+      const name = prompt("Rename the album", albumName);
+      if (!name || name === albumName) return;
+      try { const r = await api("PUT", `/admin/api/media/albums/${enc}`, { name }); location.href = `/admin/media/music/${encodeURIComponent(r.name)}`; }
+      catch (err) { toast(err.message, true); }
+    });
+    const coverPicker = $("#cover-picker");
+    $("#album-cover-set").addEventListener("click", e => { closeMenu(e); coverPicker.value = ""; coverPicker.click(); });
+    coverPicker.addEventListener("change", async () => {
+      if (!coverPicker.files.length) return;
+      const body = new FormData();
+      body.append("file", coverPicker.files[0]);
+      try { await api("PUT", `/admin/api/media/albums/${enc}/cover`, body); toast("Cover changed"); await reload(); }
+      catch (err) { toast(err.message, true); }
+    });
+    $("#album-cover-remove").addEventListener("click", async e => {
+      closeMenu(e);
+      try { await api("DELETE", `/admin/api/media/albums/${enc}/cover`); await reload(); }
+      catch (err) { toast(err.message, true); }
+    });
+    $("#album-delete").addEventListener("click", async e => {
+      closeMenu(e);
+      if (!confirm(`Delete the album ${albumName} and its ${plural(album().tracks.length, "track")}?`)) return;
+      try { await api("DELETE", `/admin/api/media/albums/${enc}`); location.href = "/admin/media/music"; }
+      catch (err) { toast(err.message, true); }
+    });
+  }
+  const readd = $("#sample-readd");
+  if (readd) readd.addEventListener("click", async () => {
     try { data.pack = await api("POST", "/admin/api/media/sample-pack"); render(); }
     catch (err) { toast(err.message, true); }
   });
@@ -1826,5 +1930,5 @@ if (page === "people") initPeople();
 if (page === "screen") initScreen();
 if (page === "modules") initModules();
 if (page === "broadcast") initBroadcast();
-if (page === "media") initMedia();
+if (page.startsWith("media-")) initMedia();
 if (page.startsWith("household-")) initHousehold();

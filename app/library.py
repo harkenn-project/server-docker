@@ -46,6 +46,8 @@ AUDIO = {".mp3", ".wav"}
 META = ".harkenn.json"
 MARKER = ".sample-media"  # written once the sample media has been added (see above)
 MAX_NAME = 80
+COVER = "cover.jpg"  # an album's artwork, in its folder (the speakers read it from the card too)
+COVER_PX = 480
 MUSIC_RATE = 44100
 LOOP_RATE = 32000
 LOOP_FADE_S = 6.0
@@ -165,6 +167,7 @@ class Library:
         self.pack: dict[str, Any] = {"state": "idle"}
         self._pack_task: asyncio.Task | None = None
         self.transport: Any = None  # tests: an httpx transport standing in for GitHub
+        self._durations: dict[tuple[str, int, int], float] = {}  # (path, size, mtime) -> seconds
         for folder in FOLDERS.values():
             (root / folder).mkdir(parents=True, exist_ok=True)
 
@@ -202,12 +205,26 @@ class Library:
 
     # reading
 
+    def _seconds(self, path: Path) -> float:
+        """How long a file plays (remembered while it's unchanged)."""
+        st = path.stat()
+        key = (str(path), st.st_size, st.st_mtime_ns)
+        if key not in self._durations:
+            try:
+                import av
+
+                with av.open(str(path)) as c:
+                    self._durations[key] = round((c.duration or 0) / 1_000_000, 1)
+            except Exception:
+                self._durations[key] = 0.0
+        return self._durations[key]
+
     def _file(self, path: Path, meta: dict[str, Any]) -> dict[str, Any]:
         rel = path.relative_to(self.root).as_posix()
         m = meta["files"].get(rel, {})
         return {"path": rel, "title": m.get("title") or title_of(path.name), "size": path.stat().st_size,
-                "credit": m.get("credit", ""), "licence": m.get("licence", ""), "source": m.get("source", ""),
-                "sample": bool(m.get("sample"))}
+                "seconds": self._seconds(path), "credit": m.get("credit", ""), "licence": m.get("licence", ""),
+                "source": m.get("source", ""), "sample": bool(m.get("sample"))}
 
     def tree(self) -> dict[str, Any]:
         with self._lock:
@@ -217,7 +234,9 @@ class Library:
                 if d.is_dir() and not d.name.startswith("."):
                     tracks = [self._file(p, meta) for p in sorted(d.iterdir())
                               if p.is_file() and p.suffix.lower() in AUDIO and not p.name.startswith(".")]
-                    music.append({"name": d.name, "tracks": tracks, "size": sum(t["size"] for t in tracks)})
+                    music.append({"name": d.name, "tracks": tracks, "size": sum(t["size"] for t in tracks),
+                                  "seconds": round(sum(t["seconds"] for t in tracks)),
+                                  "cover": (d / COVER).is_file()})
 
             def files(kind: str) -> list[dict[str, Any]]:
                 folder = self.root / FOLDERS[kind]
@@ -271,6 +290,32 @@ class Library:
             meta["files"] = {k: v for k, v in meta["files"].items() if not k.startswith(prefix)}
             self._save_meta(meta)
         self._changed()
+
+    def set_cover(self, album: str, data: bytes) -> None:
+        """An album's artwork: any common image, cropped square and saved as cover.jpg."""
+        from PIL import Image, ImageOps
+
+        d = self._album_dir(album)
+        if not d.is_dir():
+            raise ValueError(f"no album called {album}")
+        try:
+            img = Image.open(io.BytesIO(data))
+            img = ImageOps.exif_transpose(img).convert("RGB")
+        except Exception as e:
+            raise ValueError("that isn't a picture Harkenn can read") from e
+        img = ImageOps.fit(img, (COVER_PX, COVER_PX), Image.LANCZOS)
+        tmp = d / ("." + COVER + ".tmp")
+        img.save(tmp, "JPEG", quality=86, optimize=True)
+        tmp.replace(d / COVER)
+        self._changed()
+
+    def remove_cover(self, album: str) -> None:
+        (self._album_dir(album) / COVER).unlink(missing_ok=True)
+        self._changed()
+
+    def cover(self, album: str) -> Path | None:
+        p = self._album_dir(album) / COVER
+        return p if p.is_file() else None
 
     def reorder(self, album: str, paths: list[str]) -> None:
         """Puts an album's tracks in this order: their names get new numbers (01, 02...)."""

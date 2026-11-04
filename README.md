@@ -57,7 +57,7 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   for an hour", "pause", "next" or "stop in half an hour". It plays from the card, so it keeps going without Wi-Fi:
   albums in order or shuffled, soundscapes that loop with no gap, meditations that play once, and a sleep timer that
   fades out. The music fades while the speaker listens or talks. The card is optional, and a card it can't read can be
-  formatted from the admin page. The **Media** page keeps a library on the server, starting with free sample music
+  formatted from the admin page. The **Media** section keeps a library on the server, starting with free sample music
   and soundscapes. See [docs/MEDIA.md](docs/MEDIA.md).
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.

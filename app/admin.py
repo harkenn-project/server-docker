@@ -1557,11 +1557,12 @@ async def send_recorded_broadcast(request: Request, file: UploadFile, to: str = 
 MAX_MEDIA_UPLOAD = 300 * 1024 * 1024
 
 
+MEDIA_VIEWS = {"music": "Music", "soundscapes": "Soundscapes", "meditations": "Meditations"}
+
+
 @pages.get("/media")
 async def media_page(request: Request) -> Response:
-    if not is_admin(request):
-        return _login_redirect(request)
-    return _page(request, "media.html", data=await run_in_threadpool(get_ctx(request).library.tree))
+    return RedirectResponse("/admin/media/music", status_code=302)
 
 
 @pages.get("/media/file")
@@ -1576,6 +1577,39 @@ async def media_file(path: str, request: Request) -> Response:
     if not p.is_file():
         raise HTTPException(404)
     return FileResponse(p, media_type="audio/wav" if p.suffix.lower() == ".wav" else "audio/mpeg")
+
+
+@pages.get("/media/cover/{album}")
+async def media_cover(album: str, request: Request) -> Response:
+    if not is_admin(request):
+        raise HTTPException(401)
+    try:
+        p = get_ctx(request).library.cover(album)
+    except ValueError as e:
+        raise HTTPException(404) from e
+    if not p:
+        raise HTTPException(404)
+    return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "no-cache"})
+
+
+@pages.get("/media/{view}")
+async def media_library_page(view: str, request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    if view not in MEDIA_VIEWS:
+        raise HTTPException(404)
+    return _page(request, "media.html", view=view, album="", title=MEDIA_VIEWS[view],
+                 data=await run_in_threadpool(get_ctx(request).library.tree))
+
+
+@pages.get("/media/music/{album}")
+async def media_album_page(album: str, request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    tree = await run_in_threadpool(get_ctx(request).library.tree)
+    if not any(a["name"] == album for a in tree["music"]):
+        return RedirectResponse("/admin/media/music", status_code=302)
+    return _page(request, "media.html", view="album", album=album, title=album, data=tree)
 
 
 @api.get("/media")
@@ -1625,6 +1659,22 @@ async def rename_album(name: str, body: AlbumIn, request: Request) -> dict[str, 
 @api.delete("/media/albums/{name}", status_code=204)
 async def delete_album(name: str, request: Request) -> Response:
     await run_in_threadpool(_library_call, get_ctx(request).library.delete_album, name)
+    return Response(status_code=204)
+
+
+@api.put("/media/albums/{name}/cover", status_code=204)
+async def set_album_cover(name: str, file: UploadFile, request: Request) -> Response:
+    c = get_ctx(request)
+    data = await file.read(c.settings.max_upload_bytes + 1)
+    if len(data) > c.settings.max_upload_bytes:
+        raise HTTPException(413, "that picture is too big")
+    await run_in_threadpool(_library_call, c.library.set_cover, name, data)
+    return Response(status_code=204)
+
+
+@api.delete("/media/albums/{name}/cover", status_code=204)
+async def remove_album_cover(name: str, request: Request) -> Response:
+    await run_in_threadpool(_library_call, get_ctx(request).library.remove_cover, name)
     return Response(status_code=204)
 
 

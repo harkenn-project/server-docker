@@ -1,15 +1,63 @@
 {% extends "base.html" %}
-{% block title %}Media{% endblock %}
-{% block page %}media{% endblock %}
+{% block title %}{{ title }}{% endblock %}
+{% block page %}media-{{ "music" if view == "album" else view }}{% endblock %}
+{% block body_attrs %}data-view="{{ view }}" data-album="{{ album }}"{% endblock %}
 {% block content %}
-<div class="page-head">
-  <div>
-    <h1>Media</h1>
-    <p class="hint">For the speakers' SD cards. Files you add are made card-friendly.
-      <a href="https://github.com/harkenn-project/server-docker/blob/main/docs/MEDIA.md">How it works</a></p>
+<p class="crumbs"><a href="/admin/media/music">Media</a>{% if view == "album" %} ›
+  <a href="/admin/media/music">Music</a>{% endif %}</p>
+
+{% if view == "album" %}
+<header class="album-hero">
+  <div class="cover large" id="album-cover"></div>
+  <div class="album-hero-text">
+    <span class="eyebrow">Album</span>
+    <h1 id="album-name">{{ album }}</h1>
+    <p class="hint" id="album-stats"></p>
+    <div class="buttons">
+      <button id="play-all">▶ Play</button>
+      <button class="secondary" data-add="music">+ Add tracks</button>
+      <details class="menu">
+        <summary class="button secondary" aria-label="More">⋯</summary>
+        <div class="menu-items">
+          <button type="button" class="secondary" id="album-rename">Rename album</button>
+          <button type="button" class="secondary" id="album-cover-set">Change cover…</button>
+          <button type="button" class="secondary" id="album-cover-remove">Remove cover</button>
+          <button type="button" class="danger" id="album-delete">Delete album…</button>
+        </div>
+      </details>
+    </div>
   </div>
-  <span class="hint" id="media-total"></span>
+</header>
+<section class="card flush">
+  <table class="tracks" id="track-table">
+    <thead><tr><th class="n">#</th><th>Title</th><th class="t">Length</th><th class="m"></th></tr></thead>
+    <tbody id="tracks"></tbody>
+  </table>
+</section>
+
+{% else %}
+<div class="page-head library-head">
+  <div>
+    <h1>{{ title }}</h1>
+    <p class="hint" id="library-stats"></p>
+  </div>
+  <div class="buttons">
+    {% if view == "music" %}
+    <button id="new-album">+ New album</button>
+    {% elif view == "soundscapes" %}
+    <button data-add="soundscape">+ Add soundscapes</button>
+    {% else %}
+    <button data-add="meditation">+ Add meditations</button>
+    {% endif %}
+  </div>
 </div>
+<p class="hint library-about">
+  {% if view == "music" %}An album plays its tracks in order, then starts over.
+  {% elif view == "soundscapes" %}A soundscape loops until it's stopped, changed or its sleep timer runs out. Ones you add
+  are made to loop with no seam.
+  {% else %}A meditation plays once, then stops.{% endif %}
+  Everything here is made card-friendly, ready for the speakers' SD cards.
+  <a href="https://github.com/harkenn-project/server-docker/blob/main/docs/MEDIA.md">How it works</a></p>
 
 <section class="card" id="sample-progress" hidden>
   <h2>Adding the sample media</h2>
@@ -17,47 +65,34 @@
   <p class="hint" id="sample-status"></p>
 </section>
 
-<nav class="tabs" role="tablist">
-  <a href="#music" role="tab">Music <span class="count" id="count-music"></span></a>
-  <a href="#soundscapes" role="tab">Soundscapes <span class="count" id="count-soundscapes"></span></a>
-  <a href="#meditations" role="tab">Meditations <span class="count" id="count-meditations"></span></a>
-</nav>
-
-<div class="tab-panel" id="music">
-  <div class="section-head media-head">
-    <p class="hint">An album plays its tracks in order, then starts over.</p>
-    <form id="album-form" class="inline-form">
-      <input name="name" maxlength="80" placeholder="New album" required>
-      <button type="submit" class="secondary">Add album</button>
-    </form>
-  </div>
-  <div id="albums"></div>
+{% if view == "music" %}<div class="album-grid" id="albums"></div>
+{% elif view == "soundscapes" %}<div class="scape-grid" id="scapes"></div>
+{% else %}
+<section class="card flush" id="meditation-card">
+  <table class="tracks"><thead><tr><th class="n"></th><th>Title</th><th class="t">Length</th><th class="m"></th></tr></thead>
+    <tbody id="tracks"></tbody></table>
+</section>
+<div class="empty-state" id="meditations-empty" hidden>
+  <div class="empty-icon">🧘</div>
+  <h2>No meditations yet</h2>
+  <p class="hint">Add guided meditations you're allowed to use: MP3, WAV or most other audio. Each plays once.</p>
+  <button data-add="meditation">+ Add meditations</button>
 </div>
+{% endif %}
 
-<div class="tab-panel" id="soundscapes" hidden>
-  <section class="card">
-    <div class="section-head">
-      <p class="hint">Each loops until it's stopped, changed or its sleep timer runs out. New ones are made to loop with
-        no seam.</p>
-      <button class="secondary small" data-add="soundscape">+ Add soundscapes</button>
-    </div>
-    <ul class="media-list" id="soundscape-list"></ul>
-  </section>
+<p class="hint library-foot"><button class="link-button" id="sample-readd">Add the sample media again</button>: puts
+  back any of it you've removed or changed. Your own files aren't touched.</p>
+{% endif %}
+
+<div class="now-playing" id="now-playing" hidden>
+  <div class="cover small" id="np-art"></div>
+  <div class="np-text"><strong id="np-title"></strong><span class="hint" id="np-sub"></span></div>
+  <div class="np-bar"><div id="np-progress"></div></div>
+  <span class="hint np-time" id="np-time"></span>
+  <button class="play on" id="np-stop" aria-label="Stop">■</button>
 </div>
-
-<div class="tab-panel" id="meditations" hidden>
-  <section class="card">
-    <div class="section-head">
-      <p class="hint">Each plays once.</p>
-      <button class="secondary small" data-add="meditation">+ Add meditations</button>
-    </div>
-    <ul class="media-list" id="meditation-list"></ul>
-  </section>
-</div>
-
-<p class="hint media-foot"><button class="link-button" id="sample-readd">Add the sample media again</button>: puts back
-  any of it you've removed or changed. Your own files aren't touched.</p>
 <input type="file" id="media-picker" accept="audio/*" multiple hidden>
+<input type="file" id="cover-picker" accept="image/*" hidden>
 <audio id="media-audio" preload="none" hidden></audio>
 <script type="application/json" id="media-data">{{ data | tojson }}</script>
 {% endblock %}

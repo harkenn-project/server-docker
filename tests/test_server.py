@@ -2561,6 +2561,18 @@ def test_media_page_and_api(client):
     path = r.json()["path"]
     assert client.get("/admin/media/file", params={"path": path}).headers["content-type"] == "audio/mpeg"
     assert client.get("/admin/media/file", params={"path": "../harkenn.db"}).status_code == 404
+    for page in ("/admin/media/music", "/admin/media/soundscapes", "/admin/media/meditations", "/admin/media/music/Calm"):
+        assert client.get(page).status_code == 200, page
+    assert client.get("/admin/media/music/Nope", follow_redirects=False).status_code == 302
+    pic = io.BytesIO()
+    from PIL import Image
+    Image.new("RGB", (800, 600), (200, 80, 40)).save(pic, "PNG")
+    assert client.put("/admin/api/media/albums/Calm/cover", files={"file": ("c.png", pic.getvalue(), "image/png")},
+                      headers=ADMIN).status_code == 204
+    cover = client.get("/admin/media/cover/Calm")
+    assert cover.headers["content-type"] == "image/jpeg" and Image.open(io.BytesIO(cover.content)).size == (480, 480)
+    album = client.get("/admin/api/media").json()["music"][0]
+    assert album["cover"] and album["tracks"][0]["seconds"] > 2
     bad = client.post("/admin/api/media/files", data={"kind": "music", "album": "Calm"},
                       files={"file": ("x.wav", b"nope", "audio/wav")}, headers=ADMIN)
     assert bad.status_code == 422
