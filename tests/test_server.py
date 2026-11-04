@@ -1,5 +1,6 @@
 import json
 import io
+import wave
 
 import numpy as np
 import pytest
@@ -2452,6 +2453,119 @@ def test_media_through_mcp(client):
         assert mcp_tool(client, token, "control_media", action="sleep", minutes=15)["done"]
         assert ws.receive_json() == {"type": "media", "action": "sleep", "minutes": 15}
         assert not mcp_tool(client, token, "control_media", action="dance")["done"]
+
+
+def media_tone(seconds=3.0, hz=440, rate=22050):
+    t = np.arange(int(seconds * rate)) / rate
+    pcm = (np.sin(2 * np.pi * hz * t) * 8000).astype("<i2").tobytes()
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return out.getvalue()
+
+
+def test_media_library(tmp_path):
+    from app.library import Library
+    lib = Library(tmp_path / "media")
+    assert lib.is_empty()
+    assert lib.create_album("Road Trip") == "Road Trip"
+    with pytest.raises(ValueError):
+        lib.create_album("Road Trip")  # already there
+    a = lib.add("music", "Road Trip", "first.wav", media_tone(), credit="Me", licence="CC0")
+    b = lib.add("music", "Road Trip", "second.wav", media_tone(hz=660), title="Second: the song")
+    assert a["path"] == "Music/Road Trip/01 first.mp3" and b["path"] == "Music/Road Trip/02 Second the song.mp3"
+    assert a["credit"] == "Me" and (tmp_path / "media" / a["path"]).read_bytes()[:3] in (b"ID3", b"\xff\xfb")
+    lib.reorder("Road Trip", [b["path"], a["path"]])
+    tracks = lib.tree()["music"][0]["tracks"]
+    assert [t["title"] for t in tracks] == ["Second the song", "first"] and tracks[0]["path"].startswith("Music/Road Trip/01 ")
+    s = lib.add("soundscape", "", "rain.wav", media_tone(seconds=10))
+    with wave.open(str(tmp_path / "media" / s["path"])) as w:  # a 32 kHz mono loop, shorter by the crossfade
+        assert w.getframerate() == 32000 and w.getnchannels() == 1 and w.getnframes() < 10 * 32000
+    with pytest.raises(ValueError):
+        lib.add("soundscape", "", "rain.wav", media_tone(seconds=10))  # same name
+    with pytest.raises(ValueError):
+        lib.add("music", "Road Trip", "noise.wav", b"not audio")
+    with pytest.raises(ValueError):
+        lib.resolve("../harkenn.db")
+    assert lib.update(s["path"], title="Gentle Rain")["path"] == "Soundscapes/Gentle Rain.wav"
+    assert lib.rename_album("Road Trip", "Drives") == "Drives"
+    assert lib.tree()["music"][0]["tracks"][1]["credit"] == "Me"  # metadata follows the rename
+    lib.delete("Soundscapes/Gentle Rain.wav")
+    lib.delete_album("Drives")
+    assert lib.is_empty()
+
+
+def test_sample_media_download(tmp_path):
+    import asyncio
+    import hashlib
+
+    import httpx
+
+    from app import library
+    files = {"Music/Background/01 Tune.mp3": b"ID3" + bytes(500), "Soundscapes/Rain.wav": b"RIFF" + bytes(800)}
+    manifest = {"version": 2, "files": [
+        {"path": k, "size": len(v), "sha256": hashlib.sha256(v).hexdigest(), "kind": "music", "album": "Background",
+         "title": "Tune", "credit": "Someone", "licence": "CC0", "source": "https://example.org"}
+        for k, v in files.items()]}
+    served = []
+
+    def handler(request):
+        rel = request.url.path.split(library.PACK_COMMIT + "/", 1)[1]
+        served.append(rel)
+        if rel == "manifest.json":
+            return httpx.Response(200, json=manifest)
+        return httpx.Response(200, content=files[httpx.URL("x:/" + rel).path.lstrip("/")])
+
+    lib = library.Library(tmp_path / "media")
+    lib.transport = httpx.MockTransport(handler)
+
+    async def run():
+        lib.start_pack()
+        await lib._pack_task
+
+    asyncio.run(run())
+    assert lib.pack["state"] == "done" and lib.pack["done"] == 2
+    tree = lib.tree()
+    assert tree["pack"]["added"] and not lib.needs_samples() and tree["music"][0]["tracks"][0]["sample"]
+    assert tree["soundscapes"][0]["credit"] == "Someone"
+    served.clear()
+    asyncio.run(run())  # again: nothing to download, the files are there and match
+    assert served == ["manifest.json"]
+    files["Soundscapes/Rain.wav"] = b"RIFF" + bytes(799) + b"!"  # GitHub serving something else
+    (tmp_path / "media" / "Soundscapes" / "Rain.wav").unlink()
+    asyncio.run(run())
+    assert lib.pack["state"] == "error" and "checksum" in lib.pack["error"]
+    fresh = library.Library(tmp_path / "other")  # a failed first fill leaves no marker: tried again next start
+    fresh.transport = lib.transport
+
+    async def first_fill():
+        fresh.start_pack()
+        await fresh._pack_task
+
+    asyncio.run(first_fill())
+    assert fresh.pack["state"] == "error" and fresh.needs_samples()
+
+
+def test_media_page_and_api(client):
+    login(client)
+    assert client.get("/admin/media").status_code == 200
+    t = client.get("/admin/api/media").json()
+    assert t["music"] == [] and not t["pack"]["added"]  # tests don't fill it (HARKENN_SAMPLE_MEDIA is off)
+    assert client.post("/admin/api/media/albums", json={"name": "Calm"}, headers=ADMIN).status_code == 201
+    r = client.post("/admin/api/media/files", data={"kind": "music", "album": "Calm", "credit": "Me"},
+                    files={"file": ("one.wav", media_tone(), "audio/wav")}, headers=ADMIN)
+    assert r.status_code == 201, r.text
+    path = r.json()["path"]
+    assert client.get("/admin/media/file", params={"path": path}).headers["content-type"] == "audio/mpeg"
+    assert client.get("/admin/media/file", params={"path": "../harkenn.db"}).status_code == 404
+    bad = client.post("/admin/api/media/files", data={"kind": "music", "album": "Calm"},
+                      files={"file": ("x.wav", b"nope", "audio/wav")}, headers=ADMIN)
+    assert bad.status_code == 422
+    assert client.delete("/admin/api/media/files", params={"path": path}, headers=ADMIN).status_code == 204
+    assert client.delete("/admin/api/media/albums/Calm", headers=ADMIN).status_code == 204
 
 
 def test_stop_model_for_speakers(tmp_path, prebuilt):

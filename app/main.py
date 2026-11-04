@@ -54,6 +54,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.ctx.homeassistant.start()
         app.state.relay.start()
         app.state.ctx.household.start()
+        if settings.sample_media and app.state.ctx.library.needs_samples():  # once (library.py)
+            app.state.ctx.library.start_pack()
         async with app.state.mcp.session_manager.run():
             yield
         await app.state.ctx.household.stop()

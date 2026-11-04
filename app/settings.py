@@ -38,6 +38,12 @@ class Settings:
     # that's different (e.g. inside the cluster). Empty = speakers can't be set up for remote connection.
     relay_url: str = ""
     relay_server_url: str = ""
+    media: Path | None = None  # the media library (library.py); default <data>/media
+    sample_media: bool = False  # fill a new media library once with the sample media (library.py)
+
+    @property
+    def media_dir(self) -> Path:
+        return self.media or self.data_dir / "media"
 
     @property
     def db_path(self) -> Path:
@@ -98,6 +104,8 @@ def load_settings() -> Settings:
         assistant_key=env("ASSISTANT_KEY"),
         mcp_token=env("MCP_TOKEN"),
         mqtt_url=env("MQTT_URL"),
+        media=Path(env("MEDIA_DIR")).resolve() if env("MEDIA_DIR") else None,
+        sample_media=env("SAMPLE_MEDIA", "true") == "true",
         relay_url=env("RELAY_URL").rstrip("/"),
         relay_server_url=(env("RELAY_SERVER_URL") or env("RELAY_URL")).rstrip("/"),
     )

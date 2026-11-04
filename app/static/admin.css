@@ -388,3 +388,16 @@ h4.day:first-child { margin-top: 0; }
 .event-time { width: 64px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .event-title { flex: 1; min-width: 160px; }
 .event-title small { color: var(--muted); }
+
+/* media library */
+.media-table td { vertical-align: middle; }
+.media-table td.grow { width: 100%; }
+.media-table td.grow input { width: 100%; }
+.media-table td.num { white-space: nowrap; color: var(--muted); }
+.media-table td.actions { white-space: nowrap; }
+.media-table audio { height: 32px; max-width: 240px; }
+details.album { border-top: 1px solid var(--line); padding: 10px 0; }
+details.album summary { cursor: pointer; padding: 4px 0; }
+details.album .upload-form { margin: 12px 0; }
+#sample-progress progress { width: 100%; height: 10px; accent-color: var(--primary); }
+.link-button { background: none; border: 0; padding: 0; color: var(--primary); cursor: pointer; font: inherit; text-decoration: underline; }

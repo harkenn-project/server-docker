@@ -19,7 +19,7 @@ from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 import numpy as np
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
@@ -1550,3 +1550,109 @@ async def send_recorded_broadcast(request: Request, file: UploadFile, to: str = 
     except ValueError as e:
         raise HTTPException(422, str(e)) from e
     return {"sent": sent, **_broadcast_out(c)}
+
+
+# The media library (library.py, docs/MEDIA.md)
+
+MAX_MEDIA_UPLOAD = 300 * 1024 * 1024
+
+
+@pages.get("/media")
+async def media_page(request: Request) -> Response:
+    if not is_admin(request):
+        return _login_redirect(request)
+    return _page(request, "media.html", data=await run_in_threadpool(get_ctx(request).library.tree))
+
+
+@pages.get("/media/file")
+async def media_file(path: str, request: Request) -> Response:
+    """A library file, for listening in the browser."""
+    if not is_admin(request):
+        raise HTTPException(401)
+    try:
+        p = get_ctx(request).library.resolve(path)
+    except ValueError as e:
+        raise HTTPException(404) from e
+    if not p.is_file():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="audio/wav" if p.suffix.lower() == ".wav" else "audio/mpeg")
+
+
+@api.get("/media")
+async def get_media(request: Request) -> dict[str, Any]:
+    return await run_in_threadpool(get_ctx(request).library.tree)
+
+
+@api.post("/media/sample-pack")
+async def add_sample_media(request: Request) -> dict[str, Any]:
+    """Adds the sample media again (in the background; progress in GET /media): what's missing or changed."""
+    return get_ctx(request).library.start_pack()
+
+
+class AlbumIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
+class OrderIn(BaseModel):
+    paths: list[str]
+
+
+class MediaFileIn(BaseModel):
+    path: str
+    title: str | None = Field(None, max_length=80)
+    credit: str | None = Field(None, max_length=300)
+    licence: str | None = Field(None, max_length=300)
+    source: str | None = Field(None, max_length=300)
+
+
+def _library_call(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@api.post("/media/albums", status_code=201)
+async def create_album(body: AlbumIn, request: Request) -> dict[str, str]:
+    return {"name": await run_in_threadpool(_library_call, get_ctx(request).library.create_album, body.name)}
+
+
+@api.put("/media/albums/{name}")
+async def rename_album(name: str, body: AlbumIn, request: Request) -> dict[str, str]:
+    return {"name": await run_in_threadpool(_library_call, get_ctx(request).library.rename_album, name, body.name)}
+
+
+@api.delete("/media/albums/{name}", status_code=204)
+async def delete_album(name: str, request: Request) -> Response:
+    await run_in_threadpool(_library_call, get_ctx(request).library.delete_album, name)
+    return Response(status_code=204)
+
+
+@api.put("/media/albums/{name}/order", status_code=204)
+async def reorder_album(name: str, body: OrderIn, request: Request) -> Response:
+    await run_in_threadpool(_library_call, get_ctx(request).library.reorder, name, body.paths)
+    return Response(status_code=204)
+
+
+@api.post("/media/files", status_code=201)
+async def upload_media(request: Request, file: UploadFile, kind: str = Form(...), album: str = Form(""),
+                       title: str = Form(""), credit: str = Form(""), licence: str = Form(""),
+                       source: str = Form(""), loop: bool = Form(True)) -> dict[str, Any]:
+    """Adds a track, soundscape or meditation: any common audio format, made card-friendly (library.py)."""
+    data = await file.read(MAX_MEDIA_UPLOAD + 1)
+    if len(data) > MAX_MEDIA_UPLOAD:
+        raise HTTPException(413, "that file is too big (300 MB at most)")
+    return await run_in_threadpool(_library_call, get_ctx(request).library.add, kind, album, file.filename or "",
+                                   data, title=title, credit=credit, licence=licence, source=source, loop=loop)
+
+
+@api.patch("/media/files")
+async def update_media(body: MediaFileIn, request: Request) -> dict[str, Any]:
+    return await run_in_threadpool(_library_call, get_ctx(request).library.update, body.path, title=body.title,
+                                   credit=body.credit, licence=body.licence, source=body.source)
+
+
+@api.delete("/media/files", status_code=204)
+async def delete_media(path: str, request: Request) -> Response:
+    await run_in_threadpool(_library_call, get_ctx(request).library.delete, path)
+    return Response(status_code=204)

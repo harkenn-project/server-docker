@@ -17,6 +17,7 @@ from .models import DeviceConfig
 from .settings import Settings
 from .homeassistant import Bridge
 from .household import Household
+from .library import Library
 from .media import Cards, Players
 from .screens import Screens
 from .timers import Board
@@ -52,6 +53,7 @@ class Context:
     household: Household = field(init=False)
     cards: Cards = field(init=False)
     players: Players = field(init=False)
+    library: Library = field(init=False)
 
     def __post_init__(self) -> None:
         from . import groups
@@ -60,6 +62,7 @@ class Context:
         self.board = Board()
         self.cards = Cards(self.db)
         self.players = Players()
+        self.library = Library(self.settings.media_dir, self)
         self.screens = Screens(self.db, self.weather)
         self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)

@@ -57,7 +57,8 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   for an hour", "pause", "next" or "stop in half an hour". It plays from the card, so it keeps going without Wi-Fi:
   albums in order or shuffled, soundscapes that loop with no gap, meditations that play once, and a sleep timer that
   fades out. The music fades while the speaker listens or talks. The card is optional, and a card it can't read can be
-  formatted from the admin page. See [docs/MEDIA.md](docs/MEDIA.md).
+  formatted from the admin page. The **Media** page keeps a library on the server, starting with free sample music
+  and soundscapes. See [docs/MEDIA.md](docs/MEDIA.md).
 - **Sound packs.** Choose what each speaker plays when it starts, wakes, finishes listening, hits an error and shuts
   down: seven built-in packs, voiced packs (a line for each sound, in any Piper voice) or your own uploaded clips.
 - **Setup without fuss.** Install the firmware from your browser at [flash.mylife.ninja](https://flash.mylife.ninja).
@@ -145,6 +146,8 @@ Environment variables.
 |---|---|---|
 | `HARKENN_PUBLIC_URL` | `http://harkenn.local:8000` | The server's public address. Can be changed on the admin UI's **Server** page |
 | `HARKENN_DATA_DIR` | `./data` (`/data` in the image) | Database, characters, recordings, voice models, firmware |
+| `HARKENN_MEDIA_DIR` | `<data dir>/media` | The media library (music, soundscapes, meditations for the speakers' SD cards). Can be its own volume. See [MEDIA.md](docs/MEDIA.md) |
+| `HARKENN_SAMPLE_MEDIA` | `true` | Fill a new media library once with the sample media (about 135 MB, downloaded from [samplemedia](https://github.com/harkenn-project/samplemedia)) |
 | `HARKENN_ADMIN_PASSWORD` | unset | Recovery only. The admin password is set in the web UI; this applies only while none is stored, so delete `admin_password_hash` from the `settings` table first |
 | `HARKENN_SESSION_SECRET` | generated and stored | Signs admin session cookies |
 | `HARKENN_SECURE_COOKIES` | `true` for an https public URL | |
@@ -188,6 +191,7 @@ app/
   groups.py      speaker groups: shared settings, each speaker's own on top
   broadcast.py   announcements in your own voice on the other speakers
   media.py       the speakers' SD cards: what's on them, what's playing, and "play rain" / "pause" by voice
+  library.py     the media library: albums, uploads made card-friendly, the sample media
   timezones.py   time zones by name, turned into the speakers' POSIX rules
   household/     memories, lists, reminders, calendar, messages, chores, briefing, news (feeds.py: ICS and RSS)
   local_access.py  passwords for the speakers' own web pages (hashes, hotspot key, unlock)

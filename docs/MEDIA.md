@@ -32,6 +32,27 @@ Pause, stop and skip fade briefly too, so nothing clicks.
 AI agents can play and control media through MCP: `media_library`, `play_media` and `control_media`
 ([MCP.md](MCP.md)).
 
+## The media library
+
+The admin's **Media** page keeps music albums, soundscapes and meditations on the server, ready for the speakers'
+cards:
+
+- **Albums**: create, rename and delete them; add tracks (several at once); change their order with ↑ and ↓.
+- **Adding files**: any common audio format. Harkenn makes them card-friendly: music and meditations become mono
+  MP3s at an even loudness; soundscapes become mono 32 kHz WAVs that loop with no seam (the end crossfades into the
+  start; you can turn that off for a file that already loops).
+- **Credits**: each file can carry who made it, its licence and a link. Rename a file by editing its name.
+- **Listen** to anything in the browser before it goes on a card.
+
+The library is a plain folder, `HARKENN_MEDIA_DIR` (default `media` in the data folder), laid out exactly like a
+card, so it can also be copied onto a card directly. It can be a volume of its own.
+
+**The sample media** fills a new library once. At startup, if the library has no marker file (`.sample-media`),
+Harkenn downloads the sample media, checks every file against its manifest, and only then writes the marker. After
+that it never fills it again: not on restarts, not on updates, and samples you delete stay deleted. If the download
+fails (no internet, say), it tries again at the next start. **Add the sample media again** on the Media page puts
+back any of it you've removed, without touching your own files. `HARKENN_SAMPLE_MEDIA=false` turns it off.
+
 ## How each kind plays
 
 - **Music** plays an album's tracks in order, by file name (so `01 ...`, `02 ...` sets the order), then starts over.
@@ -72,17 +93,17 @@ are skipped. Up to 64 albums or files are listed per folder.
   tones speakers use to decide which one heard the wake word.
 - **For soundscapes, use WAV**, for loops without a gap, and make the end flow into the start (a short crossfade).
 
-## Starter content
+## The sample media
 
-The starter card (a download is coming) has, all free to share:
+[harkenn-project/samplemedia](https://github.com/harkenn-project/samplemedia) has, all free to share:
 
 - **Background**: ten piano pieces (Satie, Chopin, Debussy, Schubert, Beethoven), recordings that are themselves
   public domain or CC0.
 - **Soundscapes**: rain, a thunderstorm, a stream, wind, a campfire, birdsong, night sounds and more, CC0 field
   recordings from [Freesound](https://freesound.org) made into seamless loops, plus white noise.
-- **Meditations**: guided sessions, read over the soundscapes.
+- **Meditations**: coming. Good guided meditations we're allowed to share are hard to find.
 
-Each file's source and licence comes with it, in CREDITS.md. Please only put things on a card you're allowed
+Each file's source and licence is listed there, and shows beside it on the Media page. Please only put things on a card you're allowed
 to: "no copyright" on a website usually means "free to use in your own project", not "free to hand out".
 
 ## What the speaker reports
@@ -95,5 +116,5 @@ meditations are on it. The messages are in [PROTOCOL.md](PROTOCOL.md#10-the-micr
 
 - A player screen on the speaker, with the album art and play, pause, next and repeat buttons.
 - Playing and controlling from the admin page.
-- Copying albums from Harkenn to a speaker's card.
+- Copying albums from the library to a speaker's card, from its admin page.
 - A photo frame: the speaker's sleep screen showing photo albums from the card.
