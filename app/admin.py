@@ -101,6 +101,7 @@ def device_summary(c: Context, d: dict[str, Any]) -> dict[str, Any]:
                                                               "via": c.hub.via(d["id"]),
                                                               "timers": c.board.items.get(d["id"]),
                                                               "notifications": c.board.notes.get(d["id"], []),
+                                                              "card": c.cards.get(d["id"]),
                                                               "relay_ready": bool(relay.credentials(c, d["id"])["ready"])
                                                               if relay.enabled(c, d) else False}
 

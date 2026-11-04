@@ -289,6 +289,7 @@ class StatusIn(Lenient):
     stack_free: dict[str, int] | None = Field(None, description="per task: stack never used, in bytes")
     remote: str | None = Field(None, max_length=64, description="the relay id the speaker holds (relay.py)")
     via_relay: bool | None = None
+    card: dict[str, int] | None = Field(None, description="the micro SD card: total_mb, free_mb (none: no card)")
 
 
 class LogLine(Lenient):

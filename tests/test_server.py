@@ -2350,6 +2350,27 @@ def test_timers_in_the_admin_ui(client):
     assert client.get(f"/admin/api/devices/{MAC}").json()["notifications"] == []
 
 
+def test_sd_card_report(client):
+    device_token = adopt(client)
+    assert client.get(f"/admin/api/devices/{MAC}").json()["card"] is None  # never reported (older firmware)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "card", "card": {
+            "present": True, "total_mb": 30000, "free_mb": 29000,
+            "music": [{"name": "Study", "tracks": 12}, {"name": "", "tracks": 3}, "junk"],
+            "soundscapes": ["Rain", "White Noise", ""], "meditations": ["Breathing"],
+            "photos": [{"name": "Sample", "pictures": 8}]}})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        card = client.get(f"/admin/api/devices/{MAC}").json()["card"]
+        assert card["music"] == [{"name": "Study", "tracks": 12}]
+        assert card["soundscapes"] == ["Rain", "White Noise"] and card["photos"][0]["pictures"] == 8
+        ws.send_json({"type": "card", "card": {"present": False}})  # taken out: works as before
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+    assert client.get(f"/admin/api/devices/{MAC}").json()["card"] == {"present": False}
+
+
 def test_stop_model_for_speakers(tmp_path, prebuilt):
     words = tmp_path / "words"
     words.mkdir()

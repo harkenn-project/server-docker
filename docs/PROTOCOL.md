@@ -74,7 +74,7 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too) |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
 | `local_changes_ack` | `id` | The speaker's `local_changes` with this id are in the stored config now (§8) |
 | `update_available` | `firmware: {url, version, size, sha256}` | Reply to `update_check` when a newer release exists. The speaker offers it on screen (Install / Dismiss) |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
@@ -89,6 +89,7 @@ changes.
 | `event` | `name`, `data` | Notable events such as `wake`, `button`, `touch`, `wifi_changed` |
 | `settings` | `volume` | A setting changed on the speaker itself (touch screen). The server stores it in the config without bumping the version or pushing it back |
 | `update_check` | | Sent once after boot. The server checks the firmware repository and may answer `update_available` |
+| `card` | `card: {present, total_mb, free_mb, music, soundscapes, meditations, photos}` | What's on the micro SD card (§10). Sent after connecting and whenever it changes |
 | `config_request` | | Asks the server to send the current config again |
 | `pong` | | Reply to `ping` |
 
@@ -349,3 +350,28 @@ speaker → Harkenn  timers {items: [{id, kind, label, due, remaining_s, duratio
   when a speaker connects.
 * **The status row** at the top of every screen shows remote (through the relay), an alarm set, an unread
   notification, and the next timer's time left.
+
+## 10. The micro SD card (firmware 0.14 and later)
+
+The card is optional: a speaker without one works exactly the same, and Harkenn hides the media features for it.
+The speaker looks for a card at boot and on `card_rescan` (the slot has no card-detect line), then sends:
+
+```json
+{"type": "card", "card": {"present": true, "total_mb": 30436, "free_mb": 29810,
+  "music": [{"name": "Study", "tracks": 12}], "soundscapes": ["Rain", "White Noise"],
+  "meditations": ["Breathing"], "photos": [{"name": "Sample", "pictures": 8}]}}
+```
+
+or `{"type": "card", "card": {"present": false}}`. The status carries `card: {total_mb, free_mb}` while one is in.
+
+The layout is plain folders, so a card can be filled on any computer:
+
+```
+/Music/<album>/*.mp3|*.wav      (cover.jpg: the album's artwork)
+/Soundscapes/*.wav|*.mp3        (looped; WAV loops without a gap)
+/Meditations/*.mp3|*.wav
+/Photos/<album>/*.jpg
+```
+
+Names are the file or folder name without the extension. Hidden files (starting with `.`) are skipped. At most 64
+albums or files are listed per folder.

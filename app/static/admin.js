@@ -556,6 +556,8 @@ function initDevice() {
       tile("Firmware", d.firmware, d.hardware),
       tile("Up for", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)} h ${Math.floor(s.uptime_s / 60) % 60} min` : null),
       tile("Own settings", String(d.overrides.length), `the rest from ${d.group.name}`),
+      tile("SD card", d.card == null ? null : d.card.present ? `${gb(d.card.free_mb)} free` : "none",
+        d.card && d.card.present ? `of ${gb(d.card.total_mb)}` : ""),
     ].filter(Boolean));
     $("#remote-warning").hidden = d.via !== "relay";
     const applied = s.config_version != null
@@ -570,6 +572,7 @@ function initDevice() {
         `, ${bytes(s.free_psram || 0)} PSRAM` : undefined),
       ...statusItem("Stack never used", s.stack_free
         ? Object.entries(s.stack_free).map(([task, n]) => `${task} ${bytes(n)}`).join(", ") : undefined),
+      ...statusItem("On the SD card", cardContents(d.card)),
       ...statusItem("Settings", applied),
       ...statusItem("MAC", mac(d.id)),
       ...statusItem("Status received", s.received_at ? ago(s.received_at) : undefined));
@@ -588,6 +591,20 @@ function initDevice() {
     $("#unlock").hidden = !(s.local_locked || s.local_failures);
     renderTimers(d);
     $("#show-speaker-password").hidden = !la.viewable;
+  }
+
+  const gb = mb => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  // What's on a speaker's micro SD card (media.py), in a line.
+  function cardContents(card) {
+    if (!card || !card.present) return undefined;
+    const parts = [
+      card.music.length ? plural(card.music.length, "music album") : "",
+      card.soundscapes.length ? plural(card.soundscapes.length, "soundscape") : "",
+      card.meditations.length ? plural(card.meditations.length, "meditation") : "",
+      card.photos.length ? plural(card.photos.length, "photo album") : "",
+    ].filter(Boolean);
+    return parts.length ? parts.join(", ") : "nothing Harkenn can play yet";
   }
 
   const filter = $("#log-filter");

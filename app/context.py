@@ -17,6 +17,7 @@ from .models import DeviceConfig
 from .settings import Settings
 from .homeassistant import Bridge
 from .household import Household
+from .media import Cards
 from .screens import Screens
 from .timers import Board
 from .weather import WeatherService
@@ -49,12 +50,14 @@ class Context:
     board: Board = field(init=False)
     homeassistant: Bridge = field(init=False)
     household: Household = field(init=False)
+    cards: Cards = field(init=False)
 
     def __post_init__(self) -> None:
         from . import groups
         groups.ensure(self.db)
         self.weather = WeatherService(self.db)
         self.board = Board()
+        self.cards = Cards(self.db)
         self.screens = Screens(self.db, self.weather)
         self.homeassistant = Bridge(self)
         self.updates = UpdateChecker(self)

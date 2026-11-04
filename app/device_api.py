@@ -247,6 +247,9 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
     elif kind == "timers":  # its timers and alarms (timers.py), whenever they change
         c.board.report(device_id, msg)
         c.hub.publish({"type": "device", "id": device_id})
+    elif kind == "card":  # what's on its micro SD card (media.py), on connecting and whenever it changes
+        c.cards.report(device_id, msg.get("card"))
+        c.hub.publish({"type": "device", "id": device_id})
     elif kind == "notifications_seen":
         c.board.seen(device_id)
         c.hub.publish({"type": "device", "id": device_id})
