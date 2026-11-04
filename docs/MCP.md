@@ -117,6 +117,13 @@ Harkenn's own assistant writes in its markers, e.g. `{"add": ["milk", "eggs"]}`,
 What's on between two dates (Harkenn's events and its subscribed calendars, repeats expanded), headlines from the
 news feeds set up in Harkenn, and everything for a morning briefing at once, as it's set up for that speaker's group.
 
+### `media_library(speaker="all")`, `play_media(what, kind="", speaker="", minutes=0, shuffle=false)`, `control_media(action, speaker="", minutes=0, repeat="")`
+
+Music albums, soundscapes and meditations on a speaker's micro SD card, if it has one: what's there and what's
+playing, play one (`minutes` is a sleep timer), and pause, resume, stop, next, previous, repeat or a sleep timer.
+People can ask the speakers directly too ("play rain for an hour", "pause", "next"): those requests are handled by
+Harkenn before they reach any assistant.
+
 ## Do not disturb
 
 Each speaker's page has an **Agents** section, set by the people who live there, and enforced by the server:

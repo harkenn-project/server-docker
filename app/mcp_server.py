@@ -22,7 +22,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
-from . import __version__, weather
+from . import __version__, media, weather
 from . import household as household_mod
 from . import timers as timers_mod
 from .models import AgentsConfig
@@ -62,6 +62,9 @@ INSTRUCTIONS = f"""Harkenn runs the smart speakers in this home. Use it to talk 
   Harkenn's own assistant): add to them when asked, and read them before answering about them.
 - calendar_events, news_headlines, morning_briefing: the calendar for a range of days, the news from the feeds set
   up in Harkenn, and everything for a morning briefing at once.
+- media_library / play_media / control_media: music albums, soundscapes and meditations on a speaker's micro SD
+  card (if it has one), and pausing, skipping or stopping them. Simple requests to a speaker ("play rain", "pause")
+  are handled before they reach you.
 
 Words are spoken aloud by a text-to-speech voice: write short, plain sentences, with no lists, markdown, emoji or
 URLs. Don't ring at night or repeatedly unless it's urgent; ringing is loud and interrupts people."""
@@ -336,6 +339,73 @@ def build(ctx: Context) -> tuple[MCPServer, Any]:
         problem = await voice.timer_action(s["id"], action)
         log_tool(f'timer on {s["name"]}: {action}')
         return {"done": not problem, "speaker": s["name"], "note": problem or "Done. list_timers shows it in a moment."}
+
+    @server.tool()
+    def media_library(speaker: str = "all") -> dict[str, Any]:
+        """What each speaker can play from its micro SD card (music albums, soundscapes, meditations) and what it's
+        playing now. A speaker without a card can't play anything."""
+        chosen, error = _targets(ctx, speaker)
+        if error:
+            return {"speakers": [], "note": error}
+        out = []
+        for s in chosen:
+            card = ctx.cards.get(s["id"]) or {"present": False}
+            out.append({"name": s["name"], "online": s["online"], "has_card": bool(card.get("present")),
+                        "music_albums": [a["name"] for a in card.get("music", [])],
+                        "soundscapes": card.get("soundscapes", []), "meditations": card.get("meditations", []),
+                        "now": ctx.players.get(s["id"])})
+        return {"speakers": out}
+
+    @server.tool()
+    async def play_media(what: str, kind: str = "", speaker: str = "", minutes: int = 0,
+                         shuffle: bool = False) -> dict[str, Any]:
+        """Play something from a speaker's micro SD card: a music album, a soundscape (loops until stopped) or a
+        meditation (plays once). `what` as media_library lists it; `kind` "music", "soundscape" or "meditation" (found
+        from the name if empty); `minutes` a sleep timer (fades out and stops). Music fades out by itself while the
+        speaker talks."""
+        s, note = _one_speaker(speaker)
+        if not s:
+            return {"done": False, "note": note}
+        card = ctx.cards.get(s["id"]) or {}
+        if not card.get("present"):
+            return {"done": False, "note": f'{s["name"]} has no SD card.'}
+        found = [(k, n) for k, names in (("music", [a["name"] for a in card.get("music", [])]),
+                                         ("soundscape", card.get("soundscapes", [])),
+                                         ("meditation", card.get("meditations", [])))
+                 for n in names if n.lower() == what.strip().lower() and (not kind or k == kind)]
+        if not found:
+            return {"done": False, "note": f'"{what}" isn\'t on {s["name"]}\'s card. media_library lists what is.'}
+        k, n = found[0]
+        await media.send(ctx, s["id"], "play", kind=k, album=n, minutes=minutes, shuffle=shuffle)
+        log_tool(f"play {k} {n} on {s['name']}")
+        return {"done": True, "speaker": s["name"], "playing": n, "kind": k}
+
+    @server.tool()
+    async def control_media(action: str, speaker: str = "", minutes: int = 0, repeat: str = "") -> dict[str, Any]:
+        """Control what a speaker is playing: `action` "pause", "resume", "stop", "next", "previous", "repeat"
+        (with `repeat` "off", "all" or "one") or "sleep" (stop after `minutes`; 0 cancels the sleep timer)."""
+        s, note = _one_speaker(speaker)
+        if not s:
+            return {"done": False, "note": note}
+        try:
+            await media.send(ctx, s["id"], action, minutes=minutes, mode=repeat)
+        except ValueError as e:
+            return {"done": False, "note": str(e)}
+        log_tool(f"media {action} on {s['name']}")
+        return {"done": True, "speaker": s["name"]}
+
+    def _one_speaker(speaker: str) -> tuple[dict[str, Any] | None, str]:
+        if not speaker.strip():
+            names = [s["name"] for s in _speakers(ctx)]
+            if len(names) != 1:
+                return None, "Say which speaker: " + ", ".join(names) + "."
+            speaker = names[0]
+        chosen, error = _targets(ctx, speaker)
+        if error or len(chosen) != 1:
+            return None, error or "Name one speaker."
+        if not chosen[0]["online"]:
+            return None, f'{chosen[0]["name"]} is offline.'
+        return chosen[0], ""
 
     @server.tool()
     async def notify(text: str, title: str = "", speaker: str = "all", seconds: int = 12) -> dict[str, Any]:

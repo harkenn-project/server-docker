@@ -250,6 +250,11 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
     elif kind == "card":  # what's on its micro SD card (media.py), on connecting and whenever it changes
         c.cards.report(device_id, msg.get("card"))
         c.hub.publish({"type": "device", "id": device_id})
+    elif kind == "media_state":  # what its player is doing (media.py)
+        state = c.players.report(device_id, msg.get("media"))
+        if state.get("error"):
+            _store_logs(c, device_id, [LogLine(level="W", tag="media", message=state["error"])])
+        c.hub.publish({"type": "device", "id": device_id})
     elif kind == "notifications_seen":
         c.board.seen(device_id)
         c.hub.publish({"type": "device", "id": device_id})

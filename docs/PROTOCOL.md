@@ -75,6 +75,7 @@ changes.
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
 | `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
+| `media` | `action`, ... | The media player (§11) |
 | `local_changes_ack` | `id` | The speaker's `local_changes` with this id are in the stored config now (§8) |
 | `update_available` | `firmware: {url, version, size, sha256}` | Reply to `update_check` when a newer release exists. The speaker offers it on screen (Install / Dismiss) |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
@@ -90,6 +91,7 @@ changes.
 | `settings` | `volume` | A setting changed on the speaker itself (touch screen). The server stores it in the config without bumping the version or pushing it back |
 | `update_check` | | Sent once after boot. The server checks the firmware repository and may answer `update_available` |
 | `card` | `card: {present, total_mb, free_mb, music, soundscapes, meditations, photos}` | What's on the micro SD card (§10). Sent after connecting and whenever it changes |
+| `media_state` | `media: {state, kind, album, title, track, tracks, repeat, shuffle, sleep_s, error}` | What the media player is doing (§11). Sent after connecting and whenever it changes |
 | `config_request` | | Asks the server to send the current config again |
 | `pong` | | Reply to `ping` |
 
@@ -375,3 +377,34 @@ The layout is plain folders, so a card can be filled on any computer:
 
 Names are the file or folder name without the extension. Hidden files (starting with `.`) are skipped. At most 64
 albums or files are listed per folder.
+
+## 11. The media player (firmware 0.14 and later)
+
+A speaker with a card plays from it itself: Harkenn only says what to play. The commands:
+
+```
+media {action: "play", kind: "music"|"soundscape"|"meditation", album, track?, shuffle?, repeat?, minutes?}
+media {action: "pause"} | {action: "resume"} | {action: "stop"} | {action: "next"} | {action: "previous"}
+media {action: "repeat", mode: "off"|"all"|"one"}
+media {action: "sleep", minutes}             (0 turns the sleep timer off)
+```
+
+* `album` is a music album's folder name, or a soundscape's or meditation's name, as `card` listed it (any case).
+* **Music** plays the album's tracks in order (by file name), or shuffled; repeat defaults to `all`.
+* **A soundscape** loops until it's stopped, changed or the sleep timer ends (repeat `one`). A WAV loops with no gap.
+* **A meditation** plays once (repeat `off`) and stops.
+* **The sleep timer** (`minutes`) fades out over 8 seconds and stops.
+* Music fades out while the speaker listens, talks or rings, and fades back in after. Pause, stop and skipping fade
+  briefly so they never click.
+* MP3 or 16-bit WAV, any sample rate, mono or stereo (played mono). It's resampled to the codec's rate and filtered
+  below 11 kHz, which keeps it out of the wake word arbitration tones (§4).
+
+The speaker reports, whenever anything changes:
+
+```json
+{"type": "media_state", "media": {"state": "playing", "kind": "soundscape", "album": "City Rain",
+  "title": "City Rain", "track": 0, "tracks": 1, "repeat": "one", "shuffle": false, "sleep_s": 1180}}
+```
+
+`state` is `playing`, `paused` or `stopped`; `error` says why something didn't play (`no SD card`,
+`not on the card: Jazz`).

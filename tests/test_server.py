@@ -789,7 +789,8 @@ def test_mcp_needs_a_token(client):
     tools = {t["name"]: t for t in mcp_call(client, token, "tools/list")["tools"]}
     assert set(tools) == {"list_speakers", "speak", "ring", "get_weather", "show_weather", "list_timers", "set_timer",
                           "set_alarm", "cancel_timer", "notify", "household_items", "household_change",
-                          "calendar_events", "news_headlines", "morning_briefing"}
+                          "calendar_events", "news_headlines", "morning_briefing", "media_library", "play_media",
+                          "control_media"}
     assert "freezing_rain" in tools["show_weather"]["description"]
     assert "no one answers" in tools["ring"]["description"]
     agents = client.get("/admin/api/agents", headers=ADMIN).json()
@@ -2369,6 +2370,80 @@ def test_sd_card_report(client):
         ws.send_json({"type": "config_request"})
         ws.receive_json()
     assert client.get(f"/admin/api/devices/{MAC}").json()["card"] == {"present": False}
+
+
+CARD = {"present": True, "total_mb": 30000, "free_mb": 29000, "music": [{"name": "Background", "tracks": 10}],
+        "soundscapes": ["City Rain", "Thunderstorm", "White Noise", "Campfire"],
+        "meditations": ["Breathing", "Body Scan"], "photos": []}
+
+
+def test_media_requests_are_recognized():
+    from app import media
+    playing = {"state": "playing", "kind": "music", "album": "Background", "title": "Clair de lune"}
+    assert media.parse("Play rain sounds", CARD, {})["album"] == "City Rain"
+    req = media.parse("Hey, play white noise for an hour please", CARD, {})
+    assert (req["kind"], req["album"], req["minutes"]) == ("soundscape", "White Noise", 60)
+    assert media.parse("play some relaxing music", CARD, {})["album"] == "Background"
+    assert media.parse("play the breathing meditation", CARD, {})["reply"] == "Starting the Breathing meditation."
+    assert media.parse("pause", CARD, playing)["action"] == "pause"
+    assert media.parse("pause", CARD, {})  is None  # nothing playing: not ours
+    assert media.parse("stop", CARD, {}) is None
+    assert media.parse("stop in half an hour", CARD, playing) == {"action": "sleep", "minutes": 30,
+                                                                  "reply": "OK, I'll stop in half an hour."}
+    assert media.parse("what's playing", CARD, playing)["reply"] == "This is Clair de lune."
+    assert media.parse("play Despacito", CARD, {}) is None  # not on the card: the assistant may know better
+    assert media.parse("what's the weather", CARD, playing) is None
+    assert "memory card" in media.parse("play some music", {"present": False}, {})["reply"]
+    assert media.parse("play the news", {"present": False}, {}) is None
+    with pytest.raises(ValueError):
+        media.command("play", kind="video", album="x")
+
+
+def test_media_by_voice(client):
+    token = adopt(client)
+    fake_voice(client, heard="play the rain for 20 minutes")
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "card", "card": CARD})
+        ws.send_json({"type": "voice_start", "session": "m1"})
+        ws.send_bytes(b"\x00\x01" * 16000)
+        ws.send_json({"type": "voice_end", "session": "m1"})
+        assert ws.receive_json() == {"type": "media", "action": "play", "kind": "soundscape", "album": "City Rain",
+                                     "track": 0, "shuffle": False, "minutes": 20}
+        assert ws.receive_json()["reply"] == "Playing City Rain for 20 minutes."
+        receive_speech(ws)
+        ws.send_json({"type": "media_state", "media": {"state": "playing", "kind": "soundscape",
+                                                       "album": "City Rain", "title": "City Rain", "track": 0,
+                                                       "tracks": 1, "repeat": "one", "sleep_s": 1199}})
+        fake_voice(client, heard="Pause.")
+        ws.send_json({"type": "voice_start", "session": "m2"})
+        ws.send_bytes(b"\x00\x01" * 16000)
+        ws.send_json({"type": "voice_end", "session": "m2"})
+        assert ws.receive_json() == {"type": "media", "action": "pause"}
+        assert ws.receive_json() == {"type": "voice_result", "session": "m2", "heard": "Pause.", "reply": ""}
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+    d = client.get(f"/admin/api/devices/{MAC}").json()
+    assert d["media"]["album"] == "City Rain" and d["media"]["sleep_s"] == 1199
+
+
+def test_media_through_mcp(client):
+    device_token = adopt(client)
+    token = mcp_token(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(device_token)) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "card", "card": CARD})
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        lib = mcp_tool(client, token, "media_library")
+        assert lib["speakers"][0]["soundscapes"][0] == "City Rain" and lib["speakers"][0]["has_card"]
+        r = mcp_tool(client, token, "play_media", what="body scan")
+        assert r["done"] and r["kind"] == "meditation"
+        assert ws.receive_json()["album"] == "Body Scan"
+        assert not mcp_tool(client, token, "play_media", what="Jazz")["done"]
+        assert mcp_tool(client, token, "control_media", action="sleep", minutes=15)["done"]
+        assert ws.receive_json() == {"type": "media", "action": "sleep", "minutes": 15}
+        assert not mcp_tool(client, token, "control_media", action="dance")["done"]
 
 
 def test_stop_model_for_speakers(tmp_path, prebuilt):

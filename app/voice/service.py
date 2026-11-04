@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from .. import broadcast, screens, timers, weather
+from .. import broadcast, media, screens, timers, weather
 from ..models import DeviceConfig, VoiceSettings
 from . import brain, vad, voiceprint
 from .calls import Rings
@@ -300,6 +300,8 @@ class VoiceService:
                 self._log(device_id, "I", f"voice: {voiceprint.tag(who)[7:-1]} ({who['score']:.2f})")
             if await self._broadcast(device_id, u.session, heard, pcm, s, who):
                 return
+            if await self._media(device_id, u.session, heard):
+                return
             await self._answer(device_id, u.session, heard, s, who=who, local_time=u.local_time,
                                heard_note=f"({t1 - t0:.1f} s)")
         except asyncio.CancelledError:
@@ -448,6 +450,26 @@ class VoiceService:
         await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": heard,
                                             "reply": reply})
         await self._stream(device_id, await self.synthesize(reply), reply, session)
+        return True
+
+    async def _media(self, device_id: str, session: str, heard: str) -> bool:
+        """"Play rain", "pause", "next"... (media.py), caught before the assistant. False if `heard` isn't one."""
+        req = media.parse(heard, self.ctx.cards.get(device_id), self.ctx.players.get(device_id))
+        if not req:
+            return False
+        action, reply = req.pop("action"), req.pop("reply")
+        if action:
+            try:
+                await media.send(self.ctx, device_id, action, **req)
+                self._log(device_id, "I", f'media: {action} {" ".join(f"{k}={v}" for k, v in req.items() if v)}'
+                                          f' ("{heard}")')
+            except ValueError as e:
+                reply = f"Sorry, {e}."
+                self._log(device_id, "W", f"media: {e}")
+        await self.ctx.hub.send(device_id, {"type": "voice_result", "session": session, "heard": heard,
+                                            "reply": reply})
+        if reply:  # the music waits (faded out) until this has been said
+            await self._stream(device_id, await self.synthesize(reply), reply, session)
         return True
 
     async def timer_action(self, device_id: str, action: dict[str, Any]) -> str:
