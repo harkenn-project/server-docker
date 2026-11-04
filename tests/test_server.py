@@ -2607,6 +2607,14 @@ def test_card_sync(client):
         assert head == {"type": "card_chunk", "path": track["path"], "offset": 10, "bytes": 9000}
         got = ws.receive_bytes() + ws.receive_bytes() + ws.receive_bytes()  # 4096 + 4096 + 808
         assert got == data[10:9010]
+        # the next piece asked for before the first has arrived: they come back in order
+        ws.send_json({"type": "card_get", "path": track["path"], "offset": 0, "length": 5000})
+        ws.send_json({"type": "card_get", "path": track["path"], "offset": 5000, "length": 3000})
+        first = ws.receive_json()
+        assert first["offset"] == 0 and first["bytes"] == 5000
+        assert ws.receive_bytes() + ws.receive_bytes() == data[:5000]
+        second = ws.receive_json()
+        assert second["offset"] == 5000 and ws.receive_bytes() == data[5000:8000]
         ws.send_json({"type": "card_get", "path": "../harkenn.db", "offset": 0, "length": 100})
         assert ws.receive_json()["error"] == "not in the plan"
         ws.send_json({"type": "card_sync", "plan": plan["plan"], "state": "syncing", "done_bytes": 9000,

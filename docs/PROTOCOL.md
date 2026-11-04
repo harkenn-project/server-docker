@@ -360,7 +360,10 @@ speaker → Harkenn  timers {items: [{id, kind, label, due, remaining_s, duratio
 ## 10. The micro SD card (firmware 0.14 and later)
 
 The card is optional: a speaker without one works exactly the same, and Harkenn hides the media features for it.
-The speaker looks for a card at boot and on `card_rescan` (the slot has no card-detect line), then sends:
+The slot has no card-detect line, so the speaker looks: at boot, on `card_rescan`, and (firmware 0.15.1 and later)
+every few seconds while it's idle: an empty slot is tried at most every 5 s (less often if a try takes long), a mounted
+card is checked every 3 s with a raw read of its first sector. A card put in or taken out shows a notification on its
+screen with a chime. Then it sends:
 
 ```json
 {"type": "card", "card": {"present": true, "total_mb": 30436, "free_mb": 29810,
@@ -436,8 +439,9 @@ there. With a plan, it:
 3. **checks there's room**, and if not, reports `error` before fetching anything;
 4. **fetches** each file a piece at a time, only while it's idle (not listening, talking or ringing), into
    `<path>.part`: `card_get {path, offset, length}` (up to 64 KB; it asks for 32 KB) is answered by
-   `card_chunk {path, offset, bytes}` and then the bytes in binary frames of 4 KB. A `.part` left by a restart is
-   hashed and carried on from;
+   `card_chunk {path, offset, bytes}` and then the bytes in binary frames of 4 KB. It may ask for the next piece
+   before one has arrived (firmware 0.15.1 keeps two on the way); Harkenn answers in the order it asked. A `.part`
+   left by a restart is hashed and carried on from;
 5. **checks** each file's SHA-256, then renames it into place and adds it to the manifest;
 6. when everything's in, writes the plan's id to the manifest, reports `done`, and sends `card` again.
 

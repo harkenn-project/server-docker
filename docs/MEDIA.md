@@ -69,8 +69,10 @@ The card must be **FAT32** (FAT16 works too). Cards up to 32 GB usually come tha
 which the speaker can't read: the speaker's admin page then says *can't be read*, and **⋯ → Format the SD card…**
 makes it FAT32. Formatting erases everything on the card. You can also format a card as FAT32 on a computer.
 
-The slot can't tell when a card goes in or out, so the speaker looks at boot. After swapping a card, restart the
-speaker, or use **⋯ → Look for the SD card again** on its admin page.
+The slot can't tell when a card goes in or out, so the speaker checks every few seconds while it's idle
+(firmware 0.15.1 and later): put a card in and within a few seconds it shows **SD card · Ready** on its screen with a
+chime, and the admin page updates. Taking it out stops anything playing from it. Older firmware looks only when it
+starts: restart it, or use **Look again** on its SD card tab.
 
 ### Layout
 

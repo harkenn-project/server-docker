@@ -151,14 +151,17 @@ class CardSync:
             await self.ctx.hub.send(device_id, {"type": "card_chunk", "path": path, "offset": offset, "bytes": 0,
                                                 "error": "not in the plan"})
             return
-        try:
-            p = self.ctx.library.resolve(path)
-            data = await asyncio.to_thread(_read, p, offset, min(length, MAX_GET))
-        except (OSError, ValueError) as e:
-            await self.ctx.hub.send(device_id, {"type": "card_chunk", "path": path, "offset": offset, "bytes": 0,
-                                                "error": str(e)[:120]})
-            return
-        async with self.ctx.voice._binary_lock(device_id):  # its frames mustn't mix with a screen's or speech
+        # Read and send under the speaker's binary lock, taken first: a speaker asks for the next piece before this
+        # one has arrived, and they must reach it in the order it asked. (The lock also keeps the frames from mixing
+        # with a screen's or speech.)
+        async with self.ctx.voice._binary_lock(device_id):
+            try:
+                p = self.ctx.library.resolve(path)
+                data = await asyncio.to_thread(_read, p, offset, min(length, MAX_GET))
+            except (OSError, ValueError) as e:
+                await self.ctx.hub.send(device_id, {"type": "card_chunk", "path": path, "offset": offset, "bytes": 0,
+                                                    "error": str(e)[:120]})
+                return
             if await self.ctx.hub.send(device_id, {"type": "card_chunk", "path": path, "offset": offset,
                                                    "bytes": len(data)}):
                 for i in range(0, len(data), FRAME):
