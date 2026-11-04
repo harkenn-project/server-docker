@@ -6,6 +6,15 @@ without one works exactly the same, and Harkenn hides the media features for it.
 Everything plays from the card, on the speaker, so it keeps playing even if Wi-Fi drops. Harkenn only says what to
 play.
 
+## On the speaker's screen
+
+With a card in (firmware 0.16 and later), the home screen has a small ♪ button. It opens **Media**: Music,
+Soundscapes and Meditations (only those on the card). Music lists the albums, then an album's tracks (**Play all**,
+or tap one); a soundscape or meditation plays when tapped. The player shows what's playing, how far through it is
+around the edge of the screen, and buttons for play/pause, previous/next, stop, repeat (off, all, one) and a sleep
+timer (15, 30, 60 minutes). ⌂ goes back to the home screen with the music still playing; the ♪ button then shows
+what's playing and opens the player again. Nothing here needs the assistant, Wi-Fi or Harkenn.
+
 ## Asking for it
 
 Say the wake word, then:
