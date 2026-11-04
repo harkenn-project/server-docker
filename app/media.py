@@ -278,10 +278,12 @@ def _controls(text: str, state: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any]) -> dict[str, Any] | None:
+def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any],
+          library: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """A media request, as {"action", ...} (what command() takes, plus "reply": what to say back; an empty action
     only answers), or None if `heard` isn't one. Playing needs a card; the controls need something playing or
-    paused."""
+    paused. `library` (shaped like a card: what's in Harkenn's media library) lets it say "that isn't on this
+    speaker's card yet" rather than pass the request on."""
     text = _clean(heard)
     if not text:
         return None
@@ -290,6 +292,9 @@ def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any]) -> dic
         if control:
             return control
     m = re.fullmatch(r"(?:play|put on|start|play me)\s+(.+)", text)
+    # Whisper's slips: "place some soundscapes", "playbirds". Only taken as media if what follows is.
+    slip = None if m else (re.fullmatch(r"place\s+(.+)", text) or re.fullmatch(r"play([a-z]{3,}.*)", text))
+    m = m or slip
     if not m:
         return None
     what, minutes = m.group(1), 0
@@ -317,6 +322,10 @@ def parse(heard: str, card: dict[str, Any] | None, state: dict[str, Any]) -> dic
         if plural and not what:  # asked for a kind, and the card has none: say so (send some from Harkenn)
             return {"action": "", "reply": f"This speaker's memory card has no {plural} yet. You can send "
                                            f"some from Harkenn's media pages."}
+        elsewhere = _match(what, library, None) if library and what else None  # by name only, no fallback
+        if elsewhere:  # in Harkenn's library, just not on this card
+            return {"action": "", "reply": f"{elsewhere[1]} isn't on this speaker's memory card yet. You can send "
+                                           f"it from Harkenn's media pages."}
         return None
     kind, name = found
     what_it_is = f"the {name} meditation" if kind == "meditation" and "meditation" not in name.lower() else name

@@ -2405,6 +2405,11 @@ def test_media_requests_are_recognized():
     assert media.parse("play some meditations", CARD, {})["album"] == "Breathing"
     no_scapes = dict(CARD, soundscapes=[])
     assert "card has no soundscapes" in media.parse("play some soundscapes", no_scapes, {})["reply"]
+    library = {"music": [{"name": "Background"}], "soundscapes": ["Birdsong", "City Rain"], "meditations": []}
+    assert "card has no soundscapes" in media.parse("Place some soundscapes.", no_scapes, {}, library)["reply"]  # misheard
+    assert media.parse("Playbirds.", no_scapes, {}, library)["reply"].startswith("Birdsong isn't on this speaker")
+    assert media.parse("Playbirds.", dict(CARD, soundscapes=["Birdsong"]), {}, library)["album"] == "Birdsong"
+    assert media.parse("place an order", CARD, {}, library) is None and media.parse("start a timer", CARD, {}) is None
     assert media.parse("what's the weather", CARD, playing) is None
     assert "memory card" in media.parse("play some music", {"present": False}, {})["reply"]
     assert media.parse("play the news", {"present": False}, {}) is None

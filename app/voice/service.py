@@ -454,7 +454,14 @@ class VoiceService:
 
     async def _media(self, device_id: str, session: str, heard: str) -> bool:
         """"Play rain", "pause", "next"... (media.py), caught before the assistant. False if `heard` isn't one."""
-        req = media.parse(heard, self.ctx.cards.get(device_id), self.ctx.players.get(device_id))
+        library = await asyncio.to_thread(self.ctx.cardsync.items)
+        names = {"music": [], "soundscapes": [], "meditations": []}
+        for i in library.values():
+            if i["kind"] == "music":
+                names["music"].append({"name": i["name"]})
+            else:
+                names[i["kind"] + "s"].append(i["name"])
+        req = media.parse(heard, self.ctx.cards.get(device_id), self.ctx.players.get(device_id), names)
         if not req:
             return False
         action, reply = req.pop("action"), req.pop("reply")

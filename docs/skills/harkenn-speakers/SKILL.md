@@ -1,22 +1,41 @@
 ---
 name: harkenn-speakers
-description: Talk to the people at home through the Harkenn smart speakers. Use to announce something aloud, to reach someone who's at home, or to ask them a question and hear their answer. Needs Harkenn's MCP server (tools mcp__harkenn__list_speakers, mcp__harkenn__speak, mcp__harkenn__ring, mcp__harkenn__get_weather, mcp__harkenn__show_weather, mcp__harkenn__list_timers, mcp__harkenn__set_timer, mcp__harkenn__set_alarm, mcp__harkenn__cancel_timer, mcp__harkenn__notify, mcp__harkenn__media_library, mcp__harkenn__play_media, mcp__harkenn__control_media). Also for the weather at home, showing the weather on a speaker's screen, timers and alarms on the speakers, notifications on their screens, and music, soundscapes and meditations from a speaker's SD card.
+description: The Harkenn smart speakers in this home - talk to people through them, ring them, timers and alarms, notifications and the weather on their screens, the household's lists, reminders and calendar, and playing music, soundscapes and meditations from a speaker's SD card. Needs Harkenn's MCP server (tools mcp__harkenn__*).
 ---
 
 # Harkenn speakers
 
-Harkenn runs the smart speakers in this home. Its MCP server, `harkenn`, has three tools.
+Harkenn runs the smart speakers in this home. Each speaker listens, talks, has a small round screen, and can play
+music, soundscapes and meditations from a micro SD card if it has one. Its MCP server, `harkenn`, has these tools:
 
 | Tool | Use it to |
 |---|---|
-| `mcp__harkenn__list_speakers` | See the speakers, their rooms (the names), and which are online |
-| `mcp__harkenn__speak` | Say something aloud when no response is needed |
-| `mcp__harkenn__ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
-| `mcp__harkenn__get_weather` | The weather where the speakers are, now and for the next four days |
-| `mcp__harkenn__list_timers`, `set_timer`, `set_alarm`, `cancel_timer` | Timers and alarms, which live on a speaker and ring there: "9m", "07:30" on "weekdays", cancel by label |
-| `mcp__harkenn__media_library`, `play_media`, `control_media` | Music albums, soundscapes and meditations on a speaker's micro SD card: see what's there, play one (with a sleep timer), pause, skip, stop |
-| `mcp__harkenn__notify` | A notification card on a speaker's screen (no speech); an envelope stays until someone looks |
-| `mcp__harkenn__show_weather` | Show an animated weather screen on a speaker: leave the fields out for the weather here, or give your own |
+| `list_speakers` | See the speakers, their rooms (the names), which are online, and what each is doing |
+| `speak` | Say something aloud on a speaker, when no response is needed |
+| `ring` | Reach a person: ring like a phone, then speak and optionally hear their reply |
+| `notify` | Put a notification card on a speaker's screen (no speech); an envelope stays until someone looks |
+| `list_timers`, `set_timer`, `set_alarm`, `cancel_timer` | Timers and alarms, which live on a speaker and ring there: "9m", "07:30" on "weekdays", cancel by label |
+| `get_weather`, `show_weather` | The weather here now and for the coming days; an animated weather screen on a speaker |
+| `media_library` | What each speaker can play: the music albums, soundscapes and meditations on its SD card, and what's playing now |
+| `play_media` | Play one of those on a speaker, by name, with an optional sleep timer in minutes |
+| `control_media` | Pause, resume, stop, next, previous, repeat, or a sleep timer, on a speaker that's playing |
+| `household_items`, `household_change` | The household's memories, to-do and shopping lists, reminders, calendar, messages and chores (the ones turned on in Harkenn) |
+| `calendar_events`, `news_headlines`, `morning_briefing` | The calendar for some days, the news from Harkenn's feeds, everything for a morning briefing |
+
+## Playing music and sounds
+
+The speakers play from their own SD cards: albums (e.g. "Background", soft piano), soundscapes that loop (rain, a
+thunderstorm, a stream, a campfire, white noise...) and meditations. That's separate from any other music service in
+the home: a speaker doesn't need it.
+
+- When someone asks for music or sounds on a speaker, call `media_library` and play what fits with `play_media`.
+  "Rain" means a soundscape with rain in its name; "something relaxing" can be the Background album or a soundscape.
+- If it isn't on that speaker's card, say what is there, and that more can be sent to the card from the Media pages in
+  Harkenn's admin. Don't say the speaker can't play anything.
+- A speaker without an SD card can't play media: say so plainly.
+- Simple requests said to a speaker ("play rain", "pause", "next") are handled by Harkenn before they reach you. If one
+  does reach you, the words were probably misheard or it isn't on the card: check `media_library`.
+- Music fades out by itself while a speaker listens or talks, so you don't need to pause it to speak.
 
 ## Choosing between speak and ring
 
@@ -41,6 +60,12 @@ Call `ring` with `message` set to the question and `wait_for_reply: true`:
 - `reply` holds what the person said, transcribed by speech-to-text, so allow for small errors.
 - An empty `reply` means they said nothing that was understood.
 - Say who you are at the start of the message: the person hears it out of the blue.
+
+## The household
+
+The lists, reminders, calendar, messages and chores are shared with the people here and with Harkenn's own assistant.
+Read them with `household_items` before answering about them, and add to them with `household_change` when asked.
+Only the modules turned on in Harkenn exist.
 
 ## Writing for a speaker
 
