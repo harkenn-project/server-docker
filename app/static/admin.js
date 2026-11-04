@@ -556,8 +556,9 @@ function initDevice() {
       tile("Firmware", d.firmware, d.hardware),
       tile("Up for", s.uptime_s != null ? `${Math.floor(s.uptime_s / 3600)} h ${Math.floor(s.uptime_s / 60) % 60} min` : null),
       tile("Own settings", String(d.overrides.length), `the rest from ${d.group.name}`),
-      tile("SD card", d.card == null ? null : d.card.present ? `${gb(d.card.free_mb)} free` : "none",
-        d.card && d.card.present ? `of ${gb(d.card.total_mb)}` : ""),
+      tile("SD card", d.card == null ? null : d.card.present ? `${gb(d.card.free_mb)} free`
+        : d.card.unreadable ? "can't be read" : "none",
+        d.card && d.card.present ? `of ${gb(d.card.total_mb)}` : d.card && d.card.unreadable ? "format it: ⋯ menu" : ""),
     ].filter(Boolean));
     $("#remote-warning").hidden = d.via !== "relay";
     const applied = s.config_version != null
@@ -597,6 +598,8 @@ function initDevice() {
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   // What's on a speaker's micro SD card (media.py), in a line.
   function cardContents(card) {
+    if (card && card.unreadable) return "There's a card, but it can't be read: it may be exFAT (most cards over " +
+      "32 GB) or damaged. Format it from the ⋯ menu, or on a computer as FAT32.";
     if (!card || !card.present) return undefined;
     const parts = [
       card.music.length ? plural(card.music.length, "music album") : "",
@@ -714,6 +717,14 @@ function initDevice() {
     try {
       await api("POST", `/admin/api/devices/${id}/factory-reset`);
       location.href = "/admin";
+    } catch (err) { toast(err.message, true); }
+  });
+  $("#format-card").addEventListener("click", async () => {
+    if (!confirm("Format this speaker's SD card? Everything on it is erased, and it becomes an empty FAT32 card " +
+                 "the speaker can read.")) return;
+    try {
+      await api("POST", `/admin/api/devices/${id}/command`, { command: "card_format" });
+      toast("Formatting. The card shows as empty when it's done.");
     } catch (err) { toast(err.message, true); }
   });
   $("#forget").addEventListener("click", async () => {

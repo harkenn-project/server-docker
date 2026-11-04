@@ -364,7 +364,11 @@ The speaker looks for a card at boot and on `card_rescan` (the slot has no card-
   "meditations": ["Breathing"], "photos": [{"name": "Sample", "pictures": 8}]}}
 ```
 
-or `{"type": "card", "card": {"present": false}}`. The status carries `card: {total_mb, free_mb}` while one is in.
+or `{"type": "card", "card": {"present": false}}`, or `{"present": false, "unreadable": true}` when a card answers
+but its file system can't be read. The card must be FAT32: most cards over 32 GB come as exFAT, which the speaker
+can't read. The command `card_format` (admin only: it erases everything) makes it FAT32 with empty `Music`,
+`Soundscapes`, `Meditations` and `Photos` folders, then sends `card` again. The status carries
+`card: {total_mb, free_mb}` while one is in.
 
 The layout is plain folders, so a card can be filled on any computer:
 

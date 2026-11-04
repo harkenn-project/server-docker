@@ -334,7 +334,7 @@ class GroupMembersIn(Strict):
 
 
 class CommandIn(Strict):
-    command: Literal["reboot", "identify", "refresh_config", "set_volume", "play_state"]
+    command: Literal["reboot", "identify", "refresh_config", "set_volume", "play_state", "card_rescan", "card_format"]
     args: dict[str, Any] = Field(default_factory=dict)
 
 

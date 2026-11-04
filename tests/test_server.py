@@ -2366,6 +2366,14 @@ def test_sd_card_report(client):
         card = client.get(f"/admin/api/devices/{MAC}").json()["card"]
         assert card["music"] == [{"name": "Study", "tracks": 12}]
         assert card["soundscapes"] == ["Rain", "White Noise"] and card["photos"][0]["pictures"] == 8
+        ws.send_json({"type": "card", "card": {"present": False, "unreadable": True}})  # exFAT, say
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        assert client.get(f"/admin/api/devices/{MAC}").json()["card"] == {"present": False, "unreadable": True}
+        login(client)
+        r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "card_format"}, headers=ADMIN)
+        assert r.json() == {"sent": True}
+        assert ws.receive_json() == {"type": "command", "command": "card_format", "args": {}}
         ws.send_json({"type": "card", "card": {"present": False}})  # taken out: works as before
         ws.send_json({"type": "config_request"})
         ws.receive_json()

@@ -39,7 +39,7 @@ def normalize(raw: Any) -> dict[str, Any]:
     "soundscapes": [names], "meditations": [names], "photos": [{"name", "pictures"}]}."""
     raw = raw if isinstance(raw, dict) else {}
     if not raw.get("present"):
-        return {"present": False}
+        return {"present": False, "unreadable": True} if raw.get("unreadable") is True else {"present": False}
 
     def albums(key: str, count: str) -> list[dict[str, Any]]:
         out = [{"name": _name(a.get("name")), count: _count(a.get(count))}
