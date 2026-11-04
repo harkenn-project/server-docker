@@ -95,6 +95,27 @@ are skipped. Up to 64 albums or files are listed per folder.
   tones speakers use to decide which one heard the wake word.
 - **For soundscapes, use WAV**, for loops without a gap, and make the end flow into the start (a short crossfade).
 
+## Sending media to speakers
+
+Each speaker's page has an **SD card** tab:
+
+- **SD card**: its size and free space, with a bar showing what's from Harkenn, what was added some other way, and
+  what's free. **Look again** after swapping a card; **Format…** erases it (everything on it).
+- **From Harkenn**: the albums, soundscapes and meditations Harkenn keeps on this card, each with its size and
+  whether it's on the card yet, and live progress while it syncs. **+ Add from library** picks more (the picker shows
+  how much room there is); **Remove** takes one off at the next sync.
+- **🔒 Added on the card**: anything copied onto the card some other way. Harkenn shows it but never changes or
+  deletes it.
+
+On the library pages, **Send to speakers…** (on an album's page, and in a soundscape's or meditation's ⋯ menu) does
+the same from the other side: tick the speakers that should keep it.
+
+How it works: the speaker keeps a list on the card of exactly which files Harkenn put there. A sync only adds,
+replaces or removes files on that list; everything else is yours. The speaker fetches the files over its connection
+to Harkenn, a piece at a time, only while it's idle (talking to it pauses the sync), checks each one, and picks up
+where it left off after a restart. Change an album in the library and the speakers that have it catch up on their
+own. It needs firmware 0.15 or later. Details: [PROTOCOL.md](PROTOCOL.md#12-keeping-the-sd-card-in-step-firmware-015-and-later).
+
 ## The sample media
 
 [harkenn-project/samplemedia](https://github.com/harkenn-project/samplemedia) has, all free to share:
@@ -118,5 +139,4 @@ meditations are on it. The messages are in [PROTOCOL.md](PROTOCOL.md#10-the-micr
 
 - A player screen on the speaker, with the album art and play, pause, next and repeat buttons.
 - Playing and controlling from the admin page.
-- Copying albums from the library to a speaker's card, from its admin page.
 - A photo frame: the speaker's sleep screen showing photo albums from the card.

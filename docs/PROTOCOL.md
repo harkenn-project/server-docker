@@ -76,6 +76,8 @@ changes.
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
 | `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
 | `media` | `action`, ... | The media player (§11) |
+| `card_plan` | `plan`, `files: [{path, size, sha256}]` | Everything Harkenn wants on the SD card (§12) |
+| `card_chunk` | `path`, `offset`, `bytes`, `error` | A piece of a file the speaker asked for; `bytes` follow in binary frames (§12) |
 | `local_changes_ack` | `id` | The speaker's `local_changes` with this id are in the stored config now (§8) |
 | `update_available` | `firmware: {url, version, size, sha256}` | Reply to `update_check` when a newer release exists. The speaker offers it on screen (Install / Dismiss) |
 | `ping` | | Reply with `{"type":"pong"}`. Sent every 25 s |
@@ -92,6 +94,8 @@ changes.
 | `update_check` | | Sent once after boot. The server checks the firmware repository and may answer `update_available` |
 | `card` | `card: {present, total_mb, free_mb, music, soundscapes, meditations, photos}` | What's on the micro SD card (§10). Sent after connecting and whenever it changes |
 | `media_state` | `media: {state, kind, album, title, track, tracks, repeat, shuffle, sleep_s, error}` | What the media player is doing (§11). Sent after connecting and whenever it changes |
+| `card_get` | `path`, `offset`, `length` | Asks for a piece of a file in the plan (§12) |
+| `card_sync` | `plan`, `state`, `done_bytes`, `total_bytes`, `file`, `error` | How a card sync is going (§12) |
 | `config_request` | | Asks the server to send the current config again |
 | `pong` | | Reply to `ping` |
 
@@ -412,3 +416,34 @@ The speaker reports, whenever anything changes:
 
 `state` is `playing`, `paused` or `stopped`; `error` says why something didn't play (`no SD card`,
 `not on the card: Jazz`).
+
+## 12. Keeping the SD card in step (firmware 0.15 and later)
+
+Harkenn's media library ([MEDIA.md](MEDIA.md)) is copied to the speakers' cards with a plan: every file Harkenn wants
+on that card, with its size and SHA-256.
+
+```json
+{"type": "card_plan", "plan": "3f9a0c1e77b2d401",
+ "files": [{"path": "Music/Background/01 Gymnopédie No. 1.mp3", "size": 2791206, "sha256": "…"}]}
+```
+
+The speaker keeps `/.harkenn/manifest.json` on the card: `{"plan", "files": {path: sha256}}`, the files Harkenn put
+there. With a plan, it:
+
+1. **deletes** the files in its manifest that aren't in the plan (and nothing else: files copied onto the card some
+   other way are never touched), stopping the player first if it's playing one;
+2. **works out what to fetch**: every file in the plan that isn't on the card with that size and checksum;
+3. **checks there's room**, and if not, reports `error` before fetching anything;
+4. **fetches** each file a piece at a time, only while it's idle (not listening, talking or ringing), into
+   `<path>.part`: `card_get {path, offset, length}` (up to 64 KB; it asks for 32 KB) is answered by
+   `card_chunk {path, offset, bytes}` and then the bytes in binary frames of 4 KB. A `.part` left by a restart is
+   hashed and carried on from;
+5. **checks** each file's SHA-256, then renames it into place and adds it to the manifest;
+6. when everything's in, writes the plan's id to the manifest, reports `done`, and sends `card` again.
+
+It reports `card_sync {plan, state, done_bytes, total_bytes, file, error}` as it goes (`state`: `syncing`, `paused`,
+`done`, `error`). A new plan replaces one under way.
+
+The `card` report (§10) adds `"sync": true`, `"plan"` (the last plan it finished) and `"managed"` (the paths in its
+manifest). Harkenn sends a plan when a speaker's wanted list changes, when the library changes, and when a speaker
+reports a card whose `plan` isn't the current one; so a speaker that's in step isn't sent one again.
