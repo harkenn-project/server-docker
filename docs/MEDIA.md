@@ -14,7 +14,8 @@ Soundscapes and Meditations (only those on the card). Music lists the albums, th
 or tap one); a soundscape or meditation plays when tapped. The player shows what's playing, how far through it is
 around the edge of the screen, and buttons for play/pause, previous/next, stop, repeat (off, all, one) and a sleep
 timer (15, 30, 60 minutes). ⌂ goes back to the home screen with the music still playing; the ♪ pulses while it
-plays, and opens the player again. Nothing here needs the assistant, Wi-Fi or Harkenn.
+plays, and opens the player again. Drag a finger around the edge of the screen to change the volume, as on the home screen.
+Nothing here needs the assistant, Wi-Fi or Harkenn.
 
 ## Asking for it
 
