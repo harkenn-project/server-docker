@@ -185,13 +185,20 @@ What the firmware has to do with it:
 * **Only the nearest answers.** With `audio.wake_arbitration`, speakers that hear the wake word together decide
   among themselves, without Harkenn, with *claims* above hearing (the codec runs at 48 kHz for this; everything else
   stays 16 kHz):
-  * A speaker turns how loud it heard the word into a level: 0 at -10 dBFS or louder, one more per 2 dB quieter, up
-    to 15. It waits 25 ms per level (plus up to 20 ms at random), then plays its claim and answers.
-  * A claim is three 30 ms tones: 18.6 kHz; 19.2 kHz exactly 50 ms later (the signature, which a stray tone can't
-    match); then 19.8 kHz 40 ms + 10 ms per level after that. Listeners decode the level from that gap.
+  * A speaker waits 50 ms for every dB it heard the word below -10 dBFS (at most 17 dB, plus up to 10 ms at random),
+    then plays its claim and answers. Its level is 0 at -10 dBFS or louder, one more per 3 dB quieter, up to 5.
+  * A claim is three 15 ms tones back to back: 17.4 kHz, 19.8 kHz (the signature), then 18.0 + 0.3 x level kHz.
+    Listeners require each tone to last about 15 ms, at most one 5 ms block between them, and quiet before the first
+    and after the last, so steady tones and sweeps don't count. The level is in the last pitch, so a claim is read as
+    soon as it ends (firmware 0.16.0-development.6; earlier firmware put the level in the timing, which took too long
+    to read, and two speakers' claims overlapped).
   * Strongest wins. A speaker waiting to claim stays quiet if it hears a claim at its level or lower (stronger), and
     claims at once on a weaker one. A claim heard up to 1.5 s before it caught the word counts too. A speaker that
-    has claimed stops answering and goes back to idle if a stronger claim comes within 1.5 s.
+    has claimed stops answering and goes back to idle if a stronger claim comes within 1.5 s. A speaker can't hear
+    claims while it plays its own, so speakers within about 3 dB of each other may both answer.
+  * Speakers log what they hear in the claim band (lines starting `tone:`): each claim and stray tone, how loud
+    their own claim comes back to their own microphone and how long that takes, the loudest the band got in the
+    second after a wake word, and once a minute in the `mic (48 kHz)` line.
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
   keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a
