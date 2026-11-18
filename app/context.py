@@ -25,6 +25,7 @@ from .timers import Board
 from .weather import WeatherService
 from .sounds import CLASSIC, SoundStore
 from .wakewords import WakeWords
+from .wakeclips import WakeClips
 from . import timezones
 from .themes import LAYOUTS, character_sizes, resolve_theme
 from .updates import UpdateChecker
@@ -47,6 +48,7 @@ class Context:
     voice: VoiceService = field(init=False)
     sounds: SoundStore = field(init=False)
     wakewords: WakeWords = field(init=False)
+    wakeclips: WakeClips = field(init=False)
     screens: Screens = field(init=False)
     weather: WeatherService = field(init=False)
     board: Board = field(init=False)
@@ -74,6 +76,7 @@ class Context:
         self.sounds = SoundStore(self.settings.data_dir / "sounds", self.settings.cache_dir / "sounds")
         self.wakewords = WakeWords(self.settings.wakewords_dir, self.settings.data_dir / "models" / "wakewords",
                                    self.settings.data_dir / "wakewords")
+        self.wakeclips = WakeClips(self)
 
     def public_url(self) -> str:
         """The server's public address: set in the admin UI, else HARKENN_PUBLIC_URL."""
@@ -149,6 +152,9 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
     background = theme["background"].lstrip("#")  # animations are flattened onto the speaker's background
     character = (ctx.characters.manifest(config.character, sizes, base, background)
                  or ctx.characters.manifest("default", sizes, base, background))
+    wake_word = ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base)
+    if wake_word and ctx.voice.effective().keep_recordings:
+        wake_word["clips"] = True  # send what it heard up to each detection (wakeclips.py)
     return {
         "type": "config",
         "version": device["config_version"],
@@ -164,7 +170,7 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
         "sounds": ctx.sounds.speaker_manifest(config.audio.sound_pack, base)
         if config.audio.sound_pack != CLASSIC else None,
         # The wake word model and its settings (wakewords.py); null = none. Detected on the speaker itself.
-        "wake_word": ctx.wakewords.speaker_manifest(config.audio.wake_word, config.audio.wake_sensitivity, base),
+        "wake_word": wake_word,
         # "Stop", heard on the speaker while a timer or alarm rings (timers.py); null = none.
         "stop_word": ctx.wakewords.stop_manifest(base),
         # The speaker's own web page: password hashes, its hotspot key and the lockout reset (local_access.py).
@@ -174,9 +180,11 @@ def device_payload(ctx: Context, device: dict[str, Any], base: str | None = None
     }
 
 
-def trim_recordings(ctx: Context, device_id: str) -> None:
-    """Keep a device's newest recordings only (HARKENN_RECORDINGS_PER_DEVICE)."""
-    for rel in ctx.db.trim_recordings(device_id, ctx.settings.recordings_per_device):
+def trim_recordings(ctx: Context, device_id: str, wake: bool = False) -> None:
+    """Keep a device's newest recordings only (HARKENN_RECORDINGS_PER_DEVICE), and separately its newest wake clips
+    (HARKENN_WAKE_CLIPS_PER_DEVICE)."""
+    keep = ctx.settings.wake_clips_per_device if wake else ctx.settings.recordings_per_device
+    for rel in ctx.db.trim_recordings(device_id, keep, wake):
         (ctx.settings.recordings_dir / rel).unlink(missing_ok=True)
 
 

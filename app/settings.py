@@ -18,6 +18,7 @@ class Settings:
     log_retention_per_device: int = 5000
     max_recording_bytes: int = 10 * 1024 * 1024
     recordings_per_device: int = 200  # the oldest go first
+    wake_clips_per_device: int = 500  # wake clips (wakeclips.py), kept apart from the other recordings
     firmware_kept: int = 10  # firmware images kept (uploads and releases); the oldest go first
     max_upload_bytes: int = 8 * 1024 * 1024
     prebuilt_characters: Path | None = None  # built-in characters drawn at image build time (see starter.py)
@@ -90,6 +91,7 @@ def load_settings() -> Settings:
         log_retention_per_device=int(env("LOG_RETENTION", "5000")),
         max_recording_bytes=int(env("MAX_RECORDING_BYTES", str(10 * 1024 * 1024))),
         recordings_per_device=int(env("RECORDINGS_PER_DEVICE", "200")),
+        wake_clips_per_device=int(env("WAKE_CLIPS_PER_DEVICE", "500")),
         firmware_kept=int(env("FIRMWARE_KEPT", "10")),
         max_upload_bytes=int(env("MAX_UPLOAD_BYTES", str(8 * 1024 * 1024))),
         prebuilt_characters=Path(prebuilt) if prebuilt else None,

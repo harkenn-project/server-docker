@@ -158,6 +158,7 @@ Environment variables.
 | `HARKENN_ADOPTION_TTL_S` | `600` | How long an adoption code stays valid |
 | `HARKENN_LOG_RETENTION` | `5000` | Log lines kept per speaker |
 | `HARKENN_RECORDINGS_PER_DEVICE` | `200` | Recordings kept per speaker (when keeping recordings is on); the oldest go first |
+| `HARKENN_WAKE_CLIPS_PER_DEVICE` | `500` | Wake clips kept per speaker, apart from the other recordings: the 3 s heard up to each wake word detection (when keeping recordings is on); the oldest go first |
 | `HARKENN_FIRMWARE_KEPT` | `10` | Firmware images kept on the Firmware page, uploads and downloaded releases together; the oldest go first |
 | `HARKENN_RELAY_URL` | unset | The relay for speakers away from home, as speakers reach it (e.g. `wss://flash.mylife.ninja`). Unset: no remote connection. See [RELAY.md](docs/RELAY.md) |
 | `HARKENN_RELAY_SERVER_URL` | `HARKENN_RELAY_URL` | The relay as this server reaches it, if different (e.g. inside a cluster) |

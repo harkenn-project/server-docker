@@ -97,6 +97,7 @@ changes.
 | `card_get` | `path`, `offset`, `length` | Asks for a piece of a file in the plan (§12) |
 | `card_sync` | `plan`, `state`, `done_bytes`, `total_bytes`, `file`, `error` | How a card sync is going (§12) |
 | `config_request` | | Asks the server to send the current config again |
+| `wake_clip` | `rate`, `bytes`, `probability` | What the speaker heard up to a wake word detection; `bytes` of 16-bit mono PCM follow in binary frames (§4, *Wake clips*) |
 | `pong` | | Reply to `ping` |
 
 ### HTTP fallbacks
@@ -141,7 +142,7 @@ changes.
       "boot": {"url": "https://harkenn.example/assets/sounds/marimba/boot.pcm?v=1", "bytes": 41280},
       "wake": {…}, "done": {…}, "error": {"url": "", "bytes": 0}, "shutdown": {…}}},
   "wake_word": {"id": "hey_jarvis", "name": "Hey Jarvis", "url": "https://harkenn.example/assets/wakewords/hey_jarvis.tflite?v=40ff33f5",
-                "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860},
+                "bytes": 52272, "cutoff": 0.97, "window": 5, "arena": 22860, "clips": true},
   "local_access": {"admin_hash": "pbkdf2_sha256$10000$…$…", "speaker_hash": "pbkdf2_sha256$10000$…$…",
                    "hotspot_psk": "…64 hex digits…", "unlock": 0},
   "remote": {"url": "wss://flash.example", "id": "…32 hex digits…", "key": "…64 hex digits…"},
@@ -200,6 +201,14 @@ What the firmware has to do with it:
   idle and unmuted, never while it's making a sound. A detection is the average of the last `window` probabilities
   reaching `cutoff`, and starts listening just like a tap. `arena` is the tensor memory the model needs.
   `"wake_word": null` means none (tap to talk). Firmware before 0.12 ignores it.
+* **Wake clips.** With `"clips": true` in `wake_word` (Harkenn sets it while *Keep what speakers hear* is on), the
+  speaker keeps the last 3 s of what the wake word heard, and on every detection (also one that only stops a ringing
+  timer, or one while it's offline) sends them once it's idle again: `wake_clip {rate, bytes, probability}`, where
+  `probability` is the detection's averaged probability (0-1), then the `bytes` of 16-bit mono PCM in binary frames of
+  up to 4 KB, before any other frame (another message before the last of them drops the clip). Only the newest
+  unsent clip is kept. Harkenn stores it as a recording of
+  kind `wake` (its own limit, `HARKENN_WAKE_CLIPS_PER_DEVICE`), so false wakes can be found and used to train the
+  model. Without `clips`, nothing is sent.
 * After applying a config, the device reports `config_version` in its next `status`.
 
 ## 5. Voice

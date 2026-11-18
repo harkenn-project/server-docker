@@ -374,6 +374,32 @@ async def download_recording(recording_id: str, request: Request) -> Response:
                         filename=Path(rec["filename"]).name)
 
 
+@pages.get("/devices/{device_id}/wake_clips.zip")
+async def download_wake_clips(device_id: str, request: Request) -> Response:
+    """All of a speaker's wake clips (wakeclips.py) in one zip, e.g. to sort into training data."""
+    if not is_admin(request):
+        raise HTTPException(401)
+    c = get_ctx(request)
+    device = _device_or_404(c, device_id)
+    clips = [r for r in c.db.list_recordings(device_id, c.settings.wake_clips_per_device + 100)
+             if r["kind"] == "wake"]
+
+    def build() -> bytes:
+        import zipfile
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as z:  # wav doesn't compress much
+            for r in clips:
+                path = c.settings.recordings_dir / r["filename"]
+                if path.is_file():
+                    z.write(path, Path(r["filename"]).name)
+        return out.getvalue()
+
+    data = await run_in_threadpool(build)
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", device.get("name") or device_id).strip("_") or "speaker"
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}_wake_clips.zip"'})
+
+
 # JSON API: overview and adoption
 
 @api.get("/overview")
@@ -1108,7 +1134,10 @@ async def put_voice(body_in: VoiceSettingsIn, request: Request) -> dict[str, Any
     body = VoiceSettings.model_validate(body_in.model_dump(exclude={"from_environment"}))
     if body.assistant_key == PASSWORD_MASK:
         body.assistant_key = c.voice.settings().assistant_key
+    clips_before = c.voice.effective().keep_recordings
     c.voice.save_settings(body)
+    if c.voice.effective().keep_recordings != clips_before:
+        await push_all(c)  # speakers start or stop sending wake clips (wake_word.clips)
     return _voice_out(c)
 
 

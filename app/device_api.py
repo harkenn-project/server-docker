@@ -282,6 +282,8 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
     elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer", "screen_tap",
                   "screen_dismiss"):
         await c.voice.handle(device_id, msg)
+    elif kind == "wake_clip":  # what it heard up to a wake word detection; the audio follows (wakeclips.py)
+        c.wakeclips.start(device_id, msg)
     elif kind == "local_changes":
         notes = apply_local_changes(c, device_id, msg.get("changes") or {})
         await c.hub.send(device_id, {"type": "local_changes_ack", "id": msg.get("id")})
@@ -333,12 +335,15 @@ async def serve_device(c: Context, ws: Any, device: dict[str, Any], ip: str | No
             frame = await ws.receive()
             if frame["type"] == "websocket.disconnect":
                 raise WebSocketDisconnect(frame.get("code", 1000))
-            if frame.get("bytes") is not None:  # microphone audio for the current utterance
-                c.voice.audio(device_id, frame["bytes"])
+            if frame.get("bytes") is not None:  # a wake clip's audio, or microphone audio for the current utterance
+                if not c.wakeclips.feed(device_id, frame["bytes"]):
+                    c.voice.audio(device_id, frame["bytes"])
                 continue
             msg = json.loads(frame.get("text") or "null")
             if not isinstance(msg, dict):
                 continue
+            if msg.get("type") != "wake_clip":
+                c.wakeclips.interrupted(device_id)
             try:
                 await _handle_message(c, device_id, msg, ip)
             except ValidationError as e:
@@ -353,6 +358,7 @@ async def serve_device(c: Context, ws: Any, device: dict[str, Any], ip: str | No
         keepalive.cancel()
         if c.hub.detach(device_id, ws):
             c.voice.disconnected(device_id)
+            c.wakeclips.disconnected(device_id)
             c.db.touch_device(device_id, now=time.time())
             c.hub.publish({"type": "device", "id": device_id})
             log.info("device %s disconnected", device_id)

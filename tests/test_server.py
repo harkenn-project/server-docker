@@ -656,6 +656,55 @@ def test_voice_silence_and_recordings(client):
     assert len(recs) == 1 and recs[0]["content_type"] == "audio/wav"
 
 
+def test_wake_clips(client):
+    token = adopt(client)
+    login(client)
+    clip = (np.arange(48000) % 100).astype("<i2").tobytes()  # 3 s at 16 kHz
+
+    def send_clip(ws, probability=0.98):
+        ws.send_json({"type": "wake_clip", "rate": 16000, "bytes": len(clip), "probability": probability})
+        for i in range(0, len(clip), 4096):
+            ws.send_bytes(clip[i:i + 4096])
+        ws.send_json({"type": "config_request"})  # its answer means everything before it was handled
+        assert ws.receive_json()["type"] == "config"
+
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        send_clip(ws)
+    assert client.get(f"/admin/api/devices/{MAC}/recordings").json() == []  # not kept by default
+
+    s = client.get("/admin/api/voice").json()
+    s["keep_recordings"] = True
+    assert client.put("/admin/api/voice", json=s, headers=ADMIN).status_code == 200
+    import dataclasses
+    ctx = client.app.state.ctx
+    ctx.settings = dataclasses.replace(ctx.settings, wake_clips_per_device=2)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        for p in (0.97, 0.98, 0.99):
+            send_clip(ws, p)
+        ws.send_json({"type": "wake_clip", "rate": 16000, "bytes": 10 ** 9})  # too big: refused, frames stay audio
+        ws.send_bytes(b"\0\0" * 100)
+        ws.send_json({"type": "wake_clip", "rate": 16000, "bytes": 1000})  # broken off by the next message
+        ws.send_bytes(b"\0\0" * 100)
+        ws.send_json({"type": "config_request"})
+        ws.receive_json()
+        assert not client.app.state.ctx.wakeclips._pending
+    recs = client.get(f"/admin/api/devices/{MAC}/recordings").json()
+    assert [r["kind"] for r in recs] == ["wake", "wake"]  # the newest two (its own limit)
+    wav = client.get(f"/admin/recordings/{recs[0]['id']}").content
+    with wave.open(io.BytesIO(wav)) as w:
+        assert w.getframerate() == 16000 and w.readframes(w.getnframes()) == clip
+    scores = sorted(r["filename"].split("_")[-2] for r in recs)
+    assert scores == ["p098", "p099"]
+
+    z = client.get(f"/admin/devices/{MAC}/wake_clips.zip")
+    assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
+    import zipfile
+    assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 2
+    assert client.get("/admin/devices/nope/wake_clips.zip").status_code == 404
+
+
 def test_voice_settings_and_say(client):
     token = adopt(client)
     got = fake_voice(client)
@@ -1422,6 +1471,13 @@ def test_custom_wake_word(client):
     wake = client.get("/api/v1/device/config", headers=bearer(token)).json()["wake_word"]
     assert wake["name"] == "Hi Janet" and wake["cutoff"] == 0.9 and wake["window"] == 4 and wake["arena"] == 28000
     assert client.get(wake["url"]).content == model
+    assert "clips" not in wake  # wake clips only while recordings are kept
+    s = client.get("/admin/api/voice").json()
+    s["keep_recordings"] = True
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        client.put("/admin/api/voice", json=s, headers=ADMIN)
+        assert ws.receive_json()["wake_word"]["clips"] is True  # pushed to the speakers at once
     assert client.delete("/admin/api/wakewords/hi_janet", headers=ADMIN).status_code == 409  # in use
     device["config"]["audio"]["wake_word"] = ""
     client.put(f"/admin/api/devices/{MAC}", headers=ADMIN, json={"name": device["name"], "config": device["config"]})
