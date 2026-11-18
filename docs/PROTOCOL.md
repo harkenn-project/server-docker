@@ -74,7 +74,7 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10), `tone_test` {role: `play` or `listen`, from} (firmware 0.16.0-development.7 and later: the admin's "Test tones between speakers"; the player plays 150 ms tones at 8, 12, 15, 16, 17, 18, 19 and 20 kHz, 250 ms apart after 300 ms of quiet, then a claim at level 0, and every speaker logs how loud it heard each one) |
 | `media` | `action`, ... | The media player (§11) |
 | `card_plan` | `plan`, `files: [{path, size, sha256}]` | Everything Harkenn wants on the SD card (§12) |
 | `card_chunk` | `path`, `offset`, `bytes`, `error` | A piece of a file the speaker asked for; `bytes` follow in binary frames (§12) |
