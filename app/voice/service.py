@@ -42,6 +42,19 @@ FOLLOW_UP_WINDOW_S = 120.0           # a reply must start within this long after
 WAIT_PING_S = 20.0                   # while an answer takes long, tell the speaker to keep waiting this often
 REPLY_ACK = "Thanks, I'll pass that on."
 SCREEN_CHUNK_BYTES = 4096            # a screen's picture goes to the speaker in frames of this size
+# Wake word arbitration: speakers that heard the same wake word report it within this of each other (each detects
+# it as the word ends, then plays the same chime before voice_start).
+WAKE_WINDOW_S = 0.5
+
+
+@dataclass
+class Wake:
+    """A voice_start for a wake word, with how loudly that speaker heard it (wake.db, dBFS)."""
+    device_id: str
+    session: str
+    db: float
+    at: float = field(default_factory=time.monotonic)
+    lost: bool = False
 
 
 @dataclass
@@ -90,6 +103,7 @@ class VoiceService:
         self._last_spoken: tuple[str, float] = ("", 0.0)  # (speaker, when): the last one someone talked to
         self._binary: dict[str, asyncio.Lock] = {}  # speaker -> held while sending speech or a screen in binary frames
         self._broadcast_next: dict[str, tuple[str, float]] = {}  # speaker -> (where to, when) after "Broadcast" alone
+        self._wakes: list[Wake] = []  # wake words in the last WAKE_WINDOW_S (_arbitrate)
 
     # settings
 
@@ -132,6 +146,9 @@ class VoiceService:
                                                     local_time=parse_local_time(msg.get("local_time")),
                                                     speech_end=self._speech_end(device_id))
             self.ctx.hub.set_activity(device_id, "listening")
+            wake = msg.get("wake")
+            if isinstance(wake, dict) and not follow_up:
+                await self._arbitrate(device_id, self._utterances[device_id].session, wake.get("db"))
         elif kind == "voice_end":
             u = self._utterances.pop(device_id, None)
             if u is not None:
@@ -157,6 +174,42 @@ class VoiceService:
             self._start(device_id, self._respond_tap(device_id, session, label))
         elif kind == "screen_dismiss":
             self._log(device_id, "I", "screen dismissed")
+
+    async def _arbitrate(self, device_id: str, session: str, db: Any) -> None:
+        """Several speakers heard the same wake word: the one that heard it loudest answers, the others go quiet.
+        Speakers that didn't hear it never take part, so no rooms need setting up. Each speaker answers at once, so
+        a quieter one may be listening already when a louder one reports; it's told to stand down then."""
+        try:
+            db = float(db)
+        except (TypeError, ValueError):
+            return
+        now = time.monotonic()
+        self._wakes = [w for w in self._wakes if now - w.at < WAKE_WINDOW_S and w.device_id != device_id]
+        rivals = [w for w in self._wakes if not w.lost]  # at most one: the one answering
+        me = Wake(device_id, session, db, now)
+        self._wakes.append(me)
+        if not rivals:
+            return
+        best = rivals[0]
+        winner, losers = (me, rivals) if db > best.db else (best, [me])  # a tie goes to the first
+        for w in losers:
+            w.lost = True
+            await self._stand_down(w, winner)
+
+    async def _stand_down(self, w: Wake, winner: Wake) -> None:
+        u = self._utterances.get(w.device_id)
+        if u is None or u.session != w.session:
+            return  # that utterance is over already
+        del self._utterances[w.device_id]
+        self.ctx.hub.set_activity(w.device_id, "idle")
+        names = {d: (self.ctx.db.get_device(d) or {}).get("name", "another speaker")
+                 for d in (w.device_id, winner.device_id)}
+        self._log(w.device_id, "I", f"wake word: {names[winner.device_id]} heard it louder ({winner.db:.0f} dBFS, "
+                                    f"here {w.db:.0f}); standing down")
+        self._log(winner.device_id, "I", f"wake word: heard it louder than {names[w.device_id]} ({winner.db:.0f} dBFS, "
+                                         f"there {w.db:.0f}); answering")
+        await self.ctx.hub.send(w.device_id, {"type": "voice_stand_down", "session": w.session,
+                                              "winner": names[winner.device_id], "winner_db": round(winner.db)})
 
     def audio(self, device_id: str, data: bytes) -> None:
         u = self._utterances.get(device_id)

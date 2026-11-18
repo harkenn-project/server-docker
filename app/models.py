@@ -92,7 +92,7 @@ class AudioConfig(Strict):
     wake_sensitivity: Literal["low", "normal", "high"] = "normal"
     sound_pack: str = Field("classic", pattern=SLUG, description="sounds.py; classic = the speaker's own chimes")
     wake_arbitration: bool = Field(True, description="when several speakers hear the wake word, only the one that "
-                                                     "heard it loudest answers (they signal each other above hearing)")
+                                                     "heard it loudest answers (Harkenn decides)")
 
 
 class AssistantConfig(Strict):
@@ -334,8 +334,7 @@ class GroupMembersIn(Strict):
 
 
 class CommandIn(Strict):
-    command: Literal["reboot", "identify", "refresh_config", "set_volume", "play_state", "card_rescan", "card_format",
-                     "tone_test"]
+    command: Literal["reboot", "identify", "refresh_config", "set_volume", "play_state", "card_rescan", "card_format"]
     args: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -202,15 +202,45 @@ def test_every_state_has_an_animation(client):
     assert states["muted"]["source"] == "muted"
 
 
-def test_tone_test_tells_the_speaker_to_play(client):
-    token = adopt(client)
-    assert client.post(f"/admin/api/devices/{MAC}/command", json={"command": "tone_test"},
-                       headers=ADMIN).status_code == 409  # offline
-    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
-        assert ws.receive_json()["version"] == 1
-        r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "tone_test"}, headers=ADMIN)
-        assert r.json() == {"sent": True, "listening": []}
-        assert ws.receive_json() == {"type": "command", "command": "tone_test", "args": {"role": "play"}}
+def two_speakers(c):
+    """Kitchen (MAC) and Hall, adopted; their tokens."""
+    kitchen = adopt(c, "Kitchen")
+    req = request_adoption(c, "90:70:69:F4:66:B1")
+    r = c.post(f"/admin/api/adoptions/{req['request_id']}/approve", json={"code": req["code"], "name": "Hall"},
+               headers=ADMIN)
+    assert r.status_code == 200, r.text
+    return kitchen, c.get(f"/api/v1/adoption/{req['request_id']}").json()["token"]
+
+
+@pytest.mark.parametrize("louder_first", [False, True])
+def test_wake_word_only_the_loudest_answers(client, louder_first):
+    import time
+    kitchen, hall = two_speakers(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(kitchen)) as k, \
+            client.websocket_connect("/api/v1/device/ws", headers=bearer(hall)) as h:
+        assert k.receive_json()["version"] == 1 and h.receive_json()["version"] == 1
+        first, second = ((k, -12, "k1"), (h, -20, "h1")) if louder_first else ((h, -20, "h1"), (k, -12, "k1"))
+        for ws, db, session in (first, second):
+            ws.send_json({"type": "voice_start", "session": session, "wake": {"db": db}})
+            time.sleep(0.1)  # in that order
+        assert h.receive_json() == {"type": "voice_stand_down", "session": "h1", "winner": "Kitchen", "winner_db": -12}
+    logs = client.get("/admin/api/devices/907069f466b1/logs").json()
+    assert logs[-1]["message"] == "wake word: Kitchen heard it louder (-12 dBFS, here -20); standing down"
+
+
+def test_wake_words_far_apart_both_answer(client, monkeypatch):
+    from app.voice import service
+    monkeypatch.setattr(service, "WAKE_WINDOW_S", 0.0)  # every wake word is on its own
+    kitchen, hall = two_speakers(client)
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(kitchen)) as k, \
+            client.websocket_connect("/api/v1/device/ws", headers=bearer(hall)) as h:
+        assert k.receive_json()["version"] == 1 and h.receive_json()["version"] == 1
+        h.send_json({"type": "voice_start", "session": "h1", "wake": {"db": -20}})
+        k.send_json({"type": "voice_start", "session": "k1", "wake": {"db": -12}})
+        h.send_json({"type": "ping"})
+    for mac in ("907069f466b1", MAC):
+        assert not any("standing down" in line["message"]
+                       for line in client.get(f"/admin/api/devices/{mac}/logs").json())
 
 
 def test_command_to_offline_device(client):

@@ -36,9 +36,8 @@ server does the thinking, on your own hardware. Nothing goes to the cloud unless
   ([how](docs/SCREEN.md#the-weather-screen)). Agents can show it too.
 - **Home Assistant.** Every speaker shows up as a device: what it's doing as it happens, its volume, a notifier for
   announcements, and more, through MQTT ([how](docs/HOMEASSISTANT.md)).
-- **Only the nearest answers.** With several speakers in earshot, the one that heard the wake word best answers: the
-  speakers tell each other how loudly they heard it with short tones too high for people to hear, and the rest stay
-  quiet.
+- **Only the nearest answers.** With several speakers in earshot, the one that heard the wake word best answers: each
+  tells Harkenn how loudly it heard it, and Harkenn tells the rest to go quiet.
 - **Animated characters** on the speaker's round screen: listening, thinking, talking, sleeping, muted, ringing.
   Four come built in (Kotodama, Obake, Neko and Robo) and you can upload your own. While a speaker sleeps, its screen
   shows the character sleeping, only a big clock, or nothing: your choice per speaker.

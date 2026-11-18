@@ -74,7 +74,7 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10), `tone_test` {role: `play` or `listen`, from} (firmware 0.16.0-development.7 and later: the admin's "Test tones between speakers"; the player plays 150 ms tones at 8, 12, 15, 16, 17, 18, 19 and 20 kHz, 250 ms apart after 300 ms of quiet, then a claim at level 0, and every speaker logs how loud it heard each one) |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
 | `media` | `action`, ... | The media player (§11) |
 | `card_plan` | `plan`, `files: [{path, size, sha256}]` | Everything Harkenn wants on the SD card (§12) |
 | `card_chunk` | `path`, `offset`, `bytes`, `error` | A piece of a file the speaker asked for; `bytes` follow in binary frames (§12) |
@@ -182,23 +182,11 @@ What the firmware has to do with it:
 * **Sleeping.** After `display.sleep_after_s` without a touch the screen sleeps as `display.sleep_display` says:
   `character` (dimmed, the character's sleeping animation), `clock` (dimmed, only a big clock) or `off`. A touch,
   the wake word or anything to show wakes it.
-* **Only the nearest answers.** With `audio.wake_arbitration`, speakers that hear the wake word together decide
-  among themselves, without Harkenn, with *claims* above hearing (the codec runs at 48 kHz for this; everything else
-  stays 16 kHz):
-  * A speaker waits 50 ms for every dB it heard the word below -10 dBFS (at most 17 dB, plus up to 10 ms at random),
-    then plays its claim and answers. Its level is 0 at -10 dBFS or louder, one more per 3 dB quieter, up to 5.
-  * A claim is three 15 ms tones back to back: 17.4 kHz, 19.8 kHz (the signature), then 18.0 + 0.3 x level kHz.
-    Listeners require each tone to last about 15 ms, at most one 5 ms block between them, and quiet before the first
-    and after the last, so steady tones and sweeps don't count. The level is in the last pitch, so a claim is read as
-    soon as it ends (firmware 0.16.0-development.6; earlier firmware put the level in the timing, which took too long
-    to read, and two speakers' claims overlapped).
-  * Strongest wins. A speaker waiting to claim stays quiet if it hears a claim at its level or lower (stronger), and
-    claims at once on a weaker one. A claim heard up to 1.5 s before it caught the word counts too. A speaker that
-    has claimed stops answering and goes back to idle if a stronger claim comes within 1.5 s. A speaker can't hear
-    claims while it plays its own, so speakers within about 3 dB of each other may both answer.
-  * Speakers log what they hear in the claim band (lines starting `tone:`): each claim and stray tone, how loud
-    their own claim comes back to their own microphone and how long that takes, the loudest the band got in the
-    second after a wake word, and once a minute in the `mic (48 kHz)` line.
+* **Only the nearest answers.** With `audio.wake_arbitration`, a speaker that hears the wake word says how loud
+  it was in its `voice_start` (`wake`, §8). Harkenn lets the loudest of the speakers that report a wake word
+  within 0.5 s of each other answer and sends the others `voice_stand_down`. Speakers that didn't hear it never
+  take part, so nothing needs to know which room a speaker is in. (Firmware 0.13 to 0.16.0-development.8 tried
+  to decide among the speakers with tones above hearing; they didn't carry from one speaker to another.)
 * **Sounds.** The sound pack's clip for each slot: `boot` (starting up), `wake` (wake word or tap), `done`
   (finished listening), `error` and `shutdown`. Clips are raw 16 kHz, 16-bit mono PCM, at most 5 s. The speaker
   keeps them in flash. `boot` plays once the first config is fully in (every animation and clip downloaded). Download only clips whose URL changed. An empty `url` is a
@@ -221,7 +209,7 @@ sent as binary WebSocket frames.
 
 ```
 speaker                                     Harkenn
-voice_start {session, rate, local_time}  ->
+voice_start {session, rate, local_time, wake?}  ->
 binary frames (mic, ~100 ms each)        ->           end-of-speech detection (Silero VAD)
                                          <-  listen_stop {session}   (heard speech, then audio.silence_s without it)
 voice_end {session}                      ->           speech-to-text (Whisper), reply, text-to-speech (Piper)
@@ -237,6 +225,11 @@ voice_end {session}                      ->           speech-to-text (Whisper), 
   If neither heard speech it sends `voice_cancel` instead of `voice_end`. (Firmware before 0.8.0 ignores
   `listen_stop`.)
 * `local_time` (ISO 8601, no zone) is the speaker's clock, so answers use its time zone.
+* `wake` {db}: the utterance began with the wake word, heard this loud (dBFS, the loudest 16 ms of the word), and
+  `audio.wake_arbitration` is on. Firmware 0.16.0-development.9 and later send it. The speaker chimes and listens
+  at once; if another speaker heard the same wake word louder (reported within 0.5 s, a tie going to the first),
+  Harkenn drops this utterance and sends `voice_stand_down {session, winner, winner_db}` (winner: that speaker's
+  name), and the speaker stops listening and goes back to idle without a sound. Both speakers' logs say so.
 * `voice_result` with an empty `heard` means nothing was understood: the speaker plays its cancel sound.
 * `voice_error {session, message}` means the pipeline failed.
 * Speech is sent at most about 3 s ahead of playback. `speak_start` can also arrive without an utterance (the admin

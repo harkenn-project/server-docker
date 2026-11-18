@@ -644,13 +644,6 @@ function initDevice() {
       } catch (err) { toast(err.message, true); }
     });
   }
-  $("#tone-test")?.addEventListener("click", async () => {
-    try {
-      const r = await api("POST", `/admin/api/devices/${id}/command`, { command: "tone_test" });
-      toast(r.listening.length ? `Testing tones, ${r.listening.join(", ")} listening. Results in the logs in a few seconds.`
-        : "Testing tones (no other speaker online to listen). Results in the log in a few seconds.");
-    } catch (err) { toast(err.message, true); }
-  });
   for (const button of $$("[data-install-device]")) {
     button.addEventListener("click", () => installFirmware($("#firmware-build").value, id));
   }

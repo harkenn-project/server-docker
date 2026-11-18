@@ -105,8 +105,8 @@
         {% call setting("audio.wake_arbitration", wide=True) %}
         <label class="inline"><input type="checkbox" data-path="config.audio.wake_arbitration" data-type="bool"> Only the
           nearest speaker answers</label>
-        <small>When several speakers hear the wake word, the one that heard it loudest answers and tells the others,
-          with a sound too high for people to hear.</small>{% endcall %}
+        <small>When several speakers hear the wake word, the one that heard it loudest answers. The others chime too,
+          then go quiet.</small>{% endcall %}
         {% call setting("audio.silence_s", "Stop listening after a pause of") %}
         <span class="range"><input type="range" min="1" max="30" data-path="config.audio.silence_s" data-type="int"><output data-unit=" s"></output></span>
         {% endcall %}
