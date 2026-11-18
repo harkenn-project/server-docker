@@ -568,16 +568,34 @@ async def unlock_speaker(device_id: str, request: Request) -> dict[str, bool]:
 
 
 @api.post("/devices/{device_id}/command")
-async def send_command(device_id: str, body: CommandIn, request: Request) -> dict[str, bool]:
+async def send_command(device_id: str, body: CommandIn, request: Request) -> dict[str, Any]:
     c = get_ctx(request)
     _device_or_404(c, device_id)
     if body.command == "refresh_config":
         sent = await push_config(c, device_id)
+    elif body.command == "tone_test":
+        return await _tone_test(c, device_id)
     else:
         sent = await c.hub.send(device_id, {"type": "command", "command": body.command, "args": body.args})
     if not sent:
         raise HTTPException(409, "speaker is offline")
     return {"sent": True}
+
+
+async def _tone_test(c: Context, device_id: str) -> dict[str, Any]:
+    """Wake word arbitration check: this speaker plays a sweep of high tones and a claim while every other online
+    speaker listens, and each logs what it heard. Harkenn only starts the test; arbitration itself never needs it."""
+    player = _device_or_404(c, device_id)
+    if not c.hub.online(device_id):
+        raise HTTPException(409, "speaker is offline")
+    listening = []
+    for d in c.db.list_devices():  # listeners first, so they're listening when the sweep starts
+        if d["id"] != device_id and c.hub.online(d["id"]) and await c.hub.send(
+                d["id"], {"type": "command", "command": "tone_test", "args": {"role": "listen", "from": player["name"]}}):
+            listening.append(d["name"])
+    if not await c.hub.send(device_id, {"type": "command", "command": "tone_test", "args": {"role": "play"}}):
+        raise HTTPException(409, "speaker is offline")
+    return {"sent": True, "listening": listening}
 
 
 @api.post("/devices/{device_id}/update")

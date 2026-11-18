@@ -202,6 +202,17 @@ def test_every_state_has_an_animation(client):
     assert states["muted"]["source"] == "muted"
 
 
+def test_tone_test_tells_the_speaker_to_play(client):
+    token = adopt(client)
+    assert client.post(f"/admin/api/devices/{MAC}/command", json={"command": "tone_test"},
+                       headers=ADMIN).status_code == 409  # offline
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        assert ws.receive_json()["version"] == 1
+        r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "tone_test"}, headers=ADMIN)
+        assert r.json() == {"sent": True, "listening": []}
+        assert ws.receive_json() == {"type": "command", "command": "tone_test", "args": {"role": "play"}}
+
+
 def test_command_to_offline_device(client):
     adopt(client)
     r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "reboot"}, headers=ADMIN)
