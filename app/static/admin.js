@@ -627,13 +627,18 @@ function initDevice() {
 
   async function loadRecordings() {
     const recs = await api("GET", `/admin/api/devices/${id}/recordings`);
-    $("#recordings").replaceChildren(...recs.map(r => el("tr", {},
-      el("td", {}, new Date(r.created_at * 1000).toLocaleString()),
-      el("td", {}, r.kind),
-      el("td", {}, bytes(r.size)),
-      el("td", {}, r.content_type.includes("wav") || r.content_type.includes("ogg")
-        ? el("audio", { controls: true, preload: "none", src: `/admin/recordings/${r.id}` })
-        : el("a", { href: `/admin/recordings/${r.id}` }, "download")))));
+    $("#recordings").replaceChildren(...recs.map(r => {
+      const score = r.kind === "wake" && /_p(\d{3})_/.exec(r.filename);  // a wake clip's detection score
+      const playable = r.content_type.includes("wav") || r.content_type.includes("ogg");
+      return el("tr", {},
+        el("td", {}, new Date(r.created_at * 1000).toLocaleString()),
+        el("td", {}, score ? `${r.kind} (${Number(score[1])}%)` : r.kind),
+        el("td", {}, bytes(r.size)),
+        el("td", { class: "recording" },
+          playable && el("audio", { controls: true, preload: "none", src: `/admin/recordings/${r.id}` }),
+          el("a", { href: `/admin/recordings/${r.id}?download=1`, download: r.filename.split("/").pop() },
+            "Download")));
+    }));
   }
 
   for (const button of $$("[data-command]")) {

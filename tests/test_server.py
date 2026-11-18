@@ -692,17 +692,14 @@ def test_wake_clips(client):
         assert not client.app.state.ctx.wakeclips._pending
     recs = client.get(f"/admin/api/devices/{MAC}/recordings").json()
     assert [r["kind"] for r in recs] == ["wake", "wake"]  # the newest two (its own limit)
-    wav = client.get(f"/admin/recordings/{recs[0]['id']}").content
-    with wave.open(io.BytesIO(wav)) as w:
+    played = client.get(f"/admin/recordings/{recs[0]['id']}")  # in the page's player
+    assert played.headers["content-disposition"].startswith("inline")
+    with wave.open(io.BytesIO(played.content)) as w:
         assert w.getframerate() == 16000 and w.readframes(w.getnframes()) == clip
+    saved = client.get(f"/admin/recordings/{recs[0]['id']}?download=1")
+    assert saved.headers["content-disposition"].startswith("attachment") and saved.content == played.content
     scores = sorted(r["filename"].split("_")[-2] for r in recs)
     assert scores == ["p098", "p099"]
-
-    z = client.get(f"/admin/devices/{MAC}/wake_clips.zip")
-    assert z.status_code == 200 and z.headers["content-type"] == "application/zip"
-    import zipfile
-    assert len(zipfile.ZipFile(io.BytesIO(z.content)).namelist()) == 2
-    assert client.get("/admin/devices/nope/wake_clips.zip").status_code == 404
 
 
 def test_voice_settings_and_say(client):

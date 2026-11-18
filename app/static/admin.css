@@ -527,3 +527,7 @@ dialog.pick-dialog { width: min(820px, 94vw); }
 .pick-tile .hint { margin: 0; font-size: .8rem; }
 .pick-tile:has(input:checked) .cover { outline: 3px solid var(--primary); outline-offset: 2px; }
 .warn-text { color: var(--warn) !important; }
+
+/* Recordings: the player with its download link beside it */
+td.recording { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+td.recording audio { height: 32px; max-width: 100%; }
