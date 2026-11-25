@@ -328,10 +328,10 @@ class Database:
             )
 
     def trim_recordings(self, device_id: str, keep: int, wake: bool = False) -> list[str]:
-        """Forget all but the newest `keep` recordings of a device: its wake clips (wakeclips.py) if `wake`, its other
+        """Forget all but the newest `keep` recordings of a device: its wake clips and tests (wakeclips.py) if `wake`, its other
         recordings if not, so each has its own limit. Returns the files to delete."""
         with self._conn() as c:
-            rows = c.execute("SELECT id, filename FROM recordings WHERE device_id=? AND (kind='wake')=? "
+            rows = c.execute("SELECT id, filename FROM recordings WHERE device_id=? AND (kind IN ('wake', 'wake_test'))=? "
                              "ORDER BY created_at DESC LIMIT -1 OFFSET ?",
                              (device_id, 1 if wake else 0, max(keep, 0))).fetchall()
             c.executemany("DELETE FROM recordings WHERE id=?", [(r["id"],) for r in rows])

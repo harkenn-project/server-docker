@@ -628,11 +628,11 @@ function initDevice() {
   async function loadRecordings() {
     const recs = await api("GET", `/admin/api/devices/${id}/recordings`);
     $("#recordings").replaceChildren(...recs.map(r => {
-      const score = r.kind === "wake" && /_p(\d{3})_/.exec(r.filename);  // a wake clip's detection score
+      const score = r.kind.startsWith("wake") && /_p(\d{3})_(?:(heard|missed)_)?/.exec(r.filename);  // its score
       const playable = r.content_type.includes("wav") || r.content_type.includes("ogg");
       return el("tr", {},
         el("td", {}, new Date(r.created_at * 1000).toLocaleString()),
-        el("td", {}, score ? `${r.kind} (${Number(score[1])}%)` : r.kind),
+        el("td", {}, score ? `${r.kind}${score[2] ? `: ${score[2]}` : ""} (${Number(score[1])}%)` : r.kind),
         el("td", {}, bytes(r.size)),
         el("td", { class: "recording" },
           playable && el("audio", { controls: true, preload: "none", src: `/admin/recordings/${r.id}` }),
@@ -649,6 +649,36 @@ function initDevice() {
       } catch (err) { toast(err.message, true); }
     });
   }
+  // Test wake word: the speaker plays a tone, listens, and sends back what it heard (a wake_test event)
+  let wakeTestTimer = null;
+  function showWakeTest(text, cls) {
+    $("#wake-test-card").hidden = false;
+    const status = $("#wake-test-status");
+    status.textContent = text;
+    status.className = `wake-test-status ${cls || ""}`;
+  }
+  $("#wake-test").addEventListener("click", async () => {
+    $("#wake-test-clip").replaceChildren();
+    clearTimeout(wakeTestTimer);
+    try {
+      await api("POST", `/admin/api/devices/${id}/command`, { command: "wake_test" });
+    } catch (err) { showWakeTest(err.message, "bad"); return; }
+    showWakeTest("Listening… say the wake word after the tone.", "busy");
+    wakeTestTimer = setTimeout(() => showWakeTest(
+      "No answer from the speaker. It needs firmware 0.16.0-development.11 or later.", "bad"), 15000);
+  });
+  $("#wake-test-close").addEventListener("click", () => { $("#wake-test-card").hidden = true; });
+  function wakeTestResult(ev) {
+    clearTimeout(wakeTestTimer);
+    if (ev.error) { showWakeTest(`Couldn't test: ${ev.error}.`, "bad"); return; }
+    const pct = ev.probability == null ? "?" : `${Math.round(ev.probability * 100)}%`;
+    showWakeTest(ev.detected ? `Heard it (${pct}): it would have woken up.`
+      : `Missed it: highest score ${pct}, so it would not have woken up.`, ev.detected ? "good" : "bad");
+    $("#wake-test-clip").replaceChildren(
+      el("audio", { controls: true, preload: "auto", src: `/admin/recordings/${ev.recording_id}` }),
+      el("a", { href: `/admin/recordings/${ev.recording_id}?download=1`, download: "" }, "Download"));
+  }
+
   for (const button of $$("[data-install-device]")) {
     button.addEventListener("click", () => installFirmware($("#firmware-build").value, id));
   }
@@ -747,6 +777,7 @@ function initDevice() {
     if (ev.id !== id) return;
     if (ev.type === "log") appendLogs(ev.lines);
     else if (ev.type === "recording") loadRecordings();
+    else if (ev.type === "wake_test") wakeTestResult(ev);
     else refreshSoon();
   });
 }

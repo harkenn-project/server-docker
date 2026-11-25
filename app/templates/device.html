@@ -12,6 +12,7 @@
   </div>
   <div class="buttons">
     <button class="secondary" data-command="identify" title="Makes it chime and show its name">Identify</button>
+    <button class="secondary" id="wake-test" title="It plays a tone, then listens for the wake word for 4 seconds">Test wake word</button>
     <button class="secondary" data-command="reboot">Restart</button>
     <details class="menu">
       <summary class="button secondary" aria-label="More actions">⋯</summary>
@@ -40,6 +41,17 @@
   <a href="#firmware" role="tab">Firmware</a>
   <a href="#logs" role="tab">Logs</a>
 </nav>
+
+<section class="card" id="wake-test-card" hidden>
+  <div class="section-head"><h2>Wake word test</h2>
+    <button class="secondary small" id="wake-test-close">Close</button></div>
+  <p id="wake-test-status" class="wake-test-status"></p>
+  <div id="wake-test-clip"></div>
+  <p class="hint">Say the wake word after the tone, from wherever you'd normally say it. The speaker plays a
+    <em>done</em> sound if it heard it, and a <em>cancel</em> sound if it didn't. Every test is kept under
+    <a href="#logs">Logs › Recordings</a> as <em>wake_test</em>: download the missed ones to train on.
+    Needs firmware 0.16.0-development.11 or later.</p>
+</section>
 
 <div class="tab-panel" id="overview" role="tabpanel">
   <div class="tiles" id="tiles"></div>
@@ -114,8 +126,9 @@
   <section class="card"><h2>Recordings</h2>
     <p class="hint">Kept while <em>Keep what speakers hear</em> is on (<a href="/admin/voice">Voice and assistant</a>).
       Kind <em>wake</em> is the 3 seconds the speaker heard up to each wake word detection (firmware with wake clips):
-      listen to them to find false wakes, and download the ones to train on. The percentage is how sure the wake word
-      was.</p>
+      listen to them to find false wakes, and download the ones to train on. Kind <em>wake_test</em> is a
+      <em>Test wake word</em> (always kept): <em>heard</em> or <em>missed</em>. The percentage is how sure the wake
+      word was.</p>
     <table class="recordings"><thead><tr><th>When</th><th>Kind</th><th>Size</th><th></th></tr></thead><tbody id="recordings"></tbody></table>
   </section>
 </div>

@@ -282,7 +282,7 @@ async def _handle_message(c: Context, device_id: str, msg: dict[str, Any], ip: s
     elif kind in ("voice_start", "voice_end", "voice_cancel", "speak_stop", "ring_answer", "screen_tap",
                   "screen_dismiss"):
         await c.voice.handle(device_id, msg)
-    elif kind == "wake_clip":  # what it heard up to a wake word detection; the audio follows (wakeclips.py)
+    elif kind in ("wake_clip", "wake_test"):  # what it heard up to a detection, or in a test; audio follows (wakeclips.py)
         c.wakeclips.start(device_id, msg)
     elif kind == "local_changes":
         notes = apply_local_changes(c, device_id, msg.get("changes") or {})
@@ -342,7 +342,7 @@ async def serve_device(c: Context, ws: Any, device: dict[str, Any], ip: str | No
             msg = json.loads(frame.get("text") or "null")
             if not isinstance(msg, dict):
                 continue
-            if msg.get("type") != "wake_clip":
+            if msg.get("type") not in ("wake_clip", "wake_test"):
                 c.wakeclips.interrupted(device_id)
             try:
                 await _handle_message(c, device_id, msg, ip)

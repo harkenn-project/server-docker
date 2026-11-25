@@ -702,6 +702,35 @@ def test_wake_clips(client):
     assert scores == ["p098", "p099"]
 
 
+def test_wake_test(client):
+    token = adopt(client)
+    login(client)
+    clip = (np.arange(64000) % 50).astype("<i2").tobytes()  # 4 s at 16 kHz
+    events = []
+    client.app.state.ctx.hub.publish = events.append  # what the admin pages would be told
+    with client.websocket_connect("/api/v1/device/ws", headers=bearer(token)) as ws:
+        ws.receive_json()
+        r = client.post(f"/admin/api/devices/{MAC}/command", json={"command": "wake_test"}, headers=ADMIN)
+        assert r.status_code == 200
+        assert ws.receive_json() == {"type": "command", "command": "wake_test", "args": {}}
+        ws.send_json({"type": "wake_test", "error": "busy"})  # couldn't run: nothing kept, the page is told why
+        ws.send_json({"type": "wake_test", "rate": 16000, "bytes": len(clip), "probability": 0.42, "detected": False})
+        for i in range(0, len(clip), 4096):
+            ws.send_bytes(clip[i:i + 4096])
+        ws.send_json({"type": "config_request"})
+        assert ws.receive_json()["type"] == "config"
+    tests = [e for e in events if e.get("type") == "wake_test"]
+    assert tests[0] == {"type": "wake_test", "id": MAC, "error": "busy"}
+    assert tests[1]["detected"] is False and tests[1]["probability"] == 0.42
+    recs = client.get(f"/admin/api/devices/{MAC}/recordings").json()  # kept without "keep recordings"
+    assert [r["kind"] for r in recs] == ["wake_test"] and recs[0]["id"] == tests[1]["recording_id"]
+    assert "_p042_missed_" in recs[0]["filename"] and recs[0]["filename"].split("/")[-1].startswith("test_")
+    with wave.open(io.BytesIO(client.get(f"/admin/recordings/{recs[0]['id']}").content)) as w:
+        assert w.readframes(w.getnframes()) == clip
+    page = client.get(f"/admin/devices/{MAC}").text
+    assert 'id="wake-test"' in page
+
+
 def test_voice_settings_and_say(client):
     token = adopt(client)
     got = fake_voice(client)

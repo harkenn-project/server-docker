@@ -531,3 +531,10 @@ dialog.pick-dialog { width: min(820px, 94vw); }
 /* Recordings: the player with its download link beside it */
 td.recording { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 td.recording audio { height: 32px; max-width: 100%; }
+
+/* Wake word test result (device page) */
+#wake-test-clip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+#wake-test-clip audio { height: 32px; max-width: 100%; }
+.wake-test-status { font-size: 1.15em; font-weight: 600; }
+.wake-test-status.good { color: var(--ok); }
+.wake-test-status.bad { color: var(--danger); }

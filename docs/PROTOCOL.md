@@ -74,7 +74,7 @@ changes.
 | type | fields | meaning |
 |---|---|---|
 | `config` | see §4 | Apply this configuration and save it as the last-known-good config |
-| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10) |
+| `command` | `command`, `args` | `reboot`, `identify` (flash the screen/LED), `refresh_config`, `set_volume` {volume}, `play_state` {state, seconds}, `update_firmware` {url, version, size, sha256}, `factory_reset` (forget everything and start over in Wi-Fi setup; the server forgets the speaker too), `card_rescan` (look for the SD card again, §10), `wake_test` (a cue, then listen for the wake word without waking; §4, *Wake word tests*) |
 | `media` | `action`, ... | The media player (§11) |
 | `card_plan` | `plan`, `files: [{path, size, sha256}]` | Everything Harkenn wants on the SD card (§12) |
 | `card_chunk` | `path`, `offset`, `bytes`, `error` | A piece of a file the speaker asked for; `bytes` follow in binary frames (§12) |
@@ -98,6 +98,7 @@ changes.
 | `card_sync` | `plan`, `state`, `done_bytes`, `total_bytes`, `file`, `error` | How a card sync is going (§12) |
 | `config_request` | | Asks the server to send the current config again |
 | `wake_clip` | `rate`, `bytes`, `probability` | What the speaker heard up to a wake word detection; `bytes` of 16-bit mono PCM follow in binary frames (§4, *Wake clips*) |
+| `wake_test` | `rate`, `bytes`, `probability`, `detected`, or `error` | The result of a `wake_test` command, its audio following like a wake clip's; or why it couldn't run (§4, *Wake word tests*) |
 | `pong` | | Reply to `ping` |
 
 ### HTTP fallbacks
@@ -209,6 +210,15 @@ What the firmware has to do with it:
   unsent clip is kept. Harkenn stores it as a recording of
   kind `wake` (its own limit, `HARKENN_WAKE_CLIPS_PER_DEVICE`), so false wakes can be found and used to train the
   model. Without `clips`, nothing is sent.
+* **Wake word tests.** The `wake_test` command (the admin's *Test wake word*) checks whether the wake word would be
+  heard from where someone is standing. The idle speaker plays its listen cue, then listens for 4 s without waking
+  (stopping 0.5 s after a detection), plays *done* if it heard the wake word or *cancel* if not, and sends
+  `wake_test {rate, bytes, probability, detected}` with what it heard (up to 4 s, 16-bit mono PCM in binary frames, as
+  for wake clips): `probability` is the highest averaged probability, from 1 s in (the model's warm-up), and
+  `detected` whether it reached the cutoff. If it can't run it sends `wake_test {error}` (`no wake word model`,
+  `the microphone is muted`, `busy`, `interrupted`, `no memory`). Harkenn always keeps the audio, as a recording of
+  kind `wake_test` (named `test_<when>_pNNN_heard|missed_<id>.wav`, under the wake clip limit), and tells the admin
+  pages with a `wake_test` event. Firmware 0.16.0-development.11 or later.
 * After applying a config, the device reports `config_version` in its next `status`.
 
 ## 5. Voice
